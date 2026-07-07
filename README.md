@@ -42,6 +42,11 @@ cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL
 The first run also downloads the speech model (~600 MB) to
 `~/.cache/huggingface`; later runs load it instantly from that cache.
 
+Dependencies are pinned to exact, tested versions in `requirements.txt` so a
+reinstall can't silently pull a broken or tampered release. To reproduce the
+complete tested environment — every transitive package too — install from the
+full snapshot instead: `.venv/bin/pip install -r requirements.lock.txt`.
+
 ### 2. Grant macOS permissions (one time)
 
 The **first time you run Speakeasy from Terminal**, macOS will prompt for
@@ -96,7 +101,9 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
   worker thread, because MLX pins its GPU arrays to their creating thread
 - **`overlay.py`** — the waveform indicator: a borderless, click-through,
   non-activating AppKit panel animated at 30 fps only while visible
-- **`injector.py`** — clipboard save → set text → ⌘V → restore
+- **`injector.py`** — clipboard save → set text → ⌘V → restore. The hotkey
+  listener's event tap is torn down for the moment of the ⌘V and rebuilt right
+  after, so a live pynput listener can't duplicate the synthesized paste
 - **`__main__.py`** — wires it together; the AppKit run loop owns the main
   thread. Threading rules: transcription runs on its own worker thread, and
   recorder start/stop runs on a control thread — never on the hotkey
@@ -107,5 +114,8 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 - Text is inserted via clipboard + simulated ⌘V; your previous clipboard **text**
   is restored afterwards (non-text contents like images are not).
 - Recordings shorter than 0.3 s are ignored as accidental taps.
+- The global hotkey is briefly inactive (~0.2 s) while the ⌘V is synthesized, so
+  the text pastes exactly once; a hotkey press in that window — right after you
+  release — would be missed, but it's short enough to be unnoticeable in practice.
 - Everything runs in user space — no kernel extensions, no injection into other
   apps. If Speakeasy crashes, nothing else is affected.

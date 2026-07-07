@@ -56,7 +56,13 @@ def main() -> None:
             elapsed = time.perf_counter() - started
             if text:
                 print(f"  → {text!r}  ({elapsed:.2f}s)")
-                injector.insert_text(text)
+                # Drop the hotkey tap while we synthesize Cmd+V: a live pynput
+                # listener in this process duplicates the injected paste.
+                listener.pause()
+                try:
+                    injector.insert_text(text)
+                finally:
+                    listener.resume()
             else:
                 print("  → (no speech detected)")
         except Exception:

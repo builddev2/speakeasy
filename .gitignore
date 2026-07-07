@@ -1,0 +1,13 @@
+# Python virtual environment (rebuild with: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
+.venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json

@@ -96,14 +96,22 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 
 - **`hotkey.py`** — global hold-to-talk listener (pynput)
 - **`recorder.py`** — microphone capture (sounddevice) + live RMS level for
-  the waveform bars
+  the waveform bars. The CoreAudio stream is opened once at startup and kept
+  across recordings, so pressing the hotkey starts capture instantly instead
+  of paying a ~100 ms stream open that could clip your first syllable (the
+  mic-in-use indicator still only shows while you're actually recording)
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
-  worker thread, because MLX pins its GPU arrays to their creating thread
+  worker thread, because MLX pins its GPU arrays to their creating thread.
+  Audio is fed to the model in-memory (log-mel + generate), skipping the
+  temp-WAV file and ffmpeg decode of the library's path-based API
 - **`overlay.py`** — the waveform indicator: a borderless, click-through,
   non-activating AppKit panel animated at 30 fps only while visible
-- **`injector.py`** — clipboard save → set text → ⌘V → restore. The hotkey
-  listener's event tap is torn down for the moment of the ⌘V and rebuilt right
-  after, so a live pynput listener can't duplicate the synthesized paste
+- **`injector.py`** — clipboard save → set text → ⌘V → restore, all via
+  NSPasteboard in-process (no pbcopy/pbpaste subprocesses). The clipboard is
+  saved while transcription runs, and restored after the hotkey listener is
+  back up. The listener's event tap is torn down for the moment of the ⌘V and
+  rebuilt right after, so a live pynput listener can't duplicate the
+  synthesized paste
 - **`__main__.py`** — wires it together; the AppKit run loop owns the main
   thread. Threading rules: transcription runs on its own worker thread, and
   recorder start/stop runs on a control thread — never on the hotkey
@@ -114,8 +122,9 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 - Text is inserted via clipboard + simulated ⌘V; your previous clipboard **text**
   is restored afterwards (non-text contents like images are not).
 - Recordings shorter than 0.3 s are ignored as accidental taps.
-- The global hotkey is briefly inactive (~0.2 s) while the ⌘V is synthesized, so
-  the text pastes exactly once; a hotkey press in that window — right after you
-  release — would be missed, but it's short enough to be unnoticeable in practice.
+- The global hotkey is briefly inactive (a few hundredths of a second) while
+  the ⌘V is synthesized, so the text pastes exactly once; a hotkey press in
+  that instant — right after you release — would be missed, but it's far too
+  short to hit in practice.
 - Everything runs in user space — no kernel extensions, no injection into other
   apps. If Speakeasy crashes, nothing else is affected.

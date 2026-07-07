@@ -1,19 +1,19 @@
-# Speakeasy's four direct dependencies, pinned to exact versions.
+# Speakeasy's three direct dependencies, pinned to exact versions.
 #
 # The "==" means "install THIS version, never a newer one." This protects you
 # from a supply-chain attack: if a bad actor ever slips malicious code into a
 # future release of one of these libraries, you won't silently pull it in the
 # next time you reinstall. These libraries are powerful (pynput can see every
-# keystroke; pyperclip can read your clipboard), so locking them matters.
+# keystroke), so locking them matters. Clipboard access goes through macOS's
+# own AppKit (via pyobjc, pulled in by pynput) rather than a separate library.
 #
 # To update deliberately later: bump the version below, reinstall, test that
 # dictation still works, then regenerate the full lock file with:
 #   .venv/bin/pip freeze > requirements.lock.txt
 #
-# For an exact reproduction of the complete tested environment (these four PLUS
+# For an exact reproduction of the complete tested environment (these three PLUS
 # every helper library they depend on), install from requirements.lock.txt.
 
 parakeet-mlx==0.5.2
 sounddevice==0.5.5
 pynput==1.8.2
-pyperclip==1.11.0

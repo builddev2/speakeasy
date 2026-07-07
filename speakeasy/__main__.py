@@ -51,6 +51,8 @@ def main() -> None:
 
     def transcribe_and_paste(audio) -> None:
         try:
+            # Save the clipboard now so the read overlaps with the GPU work.
+            previous = injector.read_clipboard()
             started = time.perf_counter()
             text = transcriber.transcribe(audio)
             elapsed = time.perf_counter() - started
@@ -63,6 +65,10 @@ def main() -> None:
                     injector.insert_text(text)
                 finally:
                     listener.resume()
+                # Let the target app consume the paste before restoring the
+                # clipboard — after resume(), so it's off the hotkey-dead window.
+                time.sleep(config.PASTE_SETTLE_SECONDS)
+                injector.restore_clipboard(previous)
             else:
                 print("  → (no speech detected)")
         except Exception:
@@ -80,16 +86,18 @@ def main() -> None:
 
     def _stop_recording() -> None:
         audio = recorder.stop()
-        _play(config.SOUND_STOP)
         duration = len(audio) / config.SAMPLE_RATE
         if duration < config.MIN_DURATION_SECONDS:
+            _play(config.SOUND_STOP)
             print("  → (too short, ignored)")
             if overlay:
                 overlay.hide()
             return
+        # Kick off transcription before the sound: Popen costs ~10-30 ms.
+        worker.submit(transcribe_and_paste, audio)
         if overlay:
             overlay.show_transcribing()
-        worker.submit(transcribe_and_paste, audio)
+        _play(config.SOUND_STOP)
 
     # Hotkey callbacks run on the event-tap thread and must return instantly.
     def on_hold_start() -> None:
@@ -97,6 +105,10 @@ def main() -> None:
 
     def on_hold_end() -> None:
         control.submit(_stop_recording)
+
+    # Open the mic stream (stopped) now so the first keypress doesn't pay
+    # the ~100 ms CoreAudio open, which can clip the first syllable.
+    control.submit(recorder.prewarm)
 
     listener = HotkeyListener(on_hold_start, on_hold_end)
     listener.start()

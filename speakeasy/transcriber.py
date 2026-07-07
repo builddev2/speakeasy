@@ -1,8 +1,6 @@
 """Local speech-to-text via Parakeet on Apple MLX."""
 
 import os
-import tempfile
-import wave
 from pathlib import Path
 
 from . import config
@@ -27,8 +25,10 @@ def _is_cached(model_id: str) -> bool:
 if _is_cached(config.MODEL_ID):
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+import mlx.core as mx
 import numpy as np
 from parakeet_mlx import from_pretrained
+from parakeet_mlx.audio import get_logmel
 
 
 class Transcriber:
@@ -46,18 +46,8 @@ class Transcriber:
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
 
     def transcribe(self, audio: np.ndarray) -> str:
-        # parakeet-mlx's transcribe API takes a file path, so round-trip
-        # the buffer through a temporary 16-bit WAV.
-        pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            path = Path(f.name)
-        try:
-            with wave.open(str(path), "wb") as w:
-                w.setnchannels(1)
-                w.setsampwidth(2)
-                w.setframerate(config.SAMPLE_RATE)
-                w.writeframes(pcm.tobytes())
-            result = self._model.transcribe(path)
-            return result.text.strip()
-        finally:
-            path.unlink(missing_ok=True)
+        # Feed the buffer to the model in-memory — the temp-WAV + ffmpeg
+        # round-trip of model.transcribe(path) costs ~100 ms per dictation.
+        mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
+        result = self._model.generate(mel)[0]
+        return result.text.strip()

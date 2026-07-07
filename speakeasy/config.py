@@ -1,5 +1,7 @@
 """User-tunable settings for Speakeasy."""
 
+from pathlib import Path
+
 from pynput import keyboard
 
 # Key to hold while speaking. Right Command is unused by default in most apps.
@@ -22,6 +24,10 @@ SOUND_STOP = "/System/Library/Sounds/Bottle.aiff"
 
 # Delay after synthesizing Cmd+V before restoring the previous clipboard.
 PASTE_SETTLE_SECONDS = 0.15
+
+# Where per-user profiles (personal vocabulary + learned pronunciation
+# corrections) are stored, one JSON file per profile.
+PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
 # --- Waveform overlay -------------------------------------------------------
 # Set to False to disable the visual entirely (sounds + terminal log only).

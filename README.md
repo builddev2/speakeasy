@@ -64,6 +64,92 @@ reopen Terminal for the change to take effect, then run the command again.
 > from Terminal to iTerm (or vice versa), grant the three permissions to that
 > app too.
 
+## Profiles: teach it your words
+
+The speech model is fixed, so it can mishear personal vocabulary — names,
+jargon, technical terms ("Claude" might come out as "clod"). A **profile**
+fixes that with a learned correction layer: you train it once on your words,
+and every future dictation rewrites those misrecognitions automatically. The
+rewrite is a single pre-compiled text substitution, so it adds no latency —
+dictation stays at the usual ~1 second.
+
+Every launch starts with a menu in the terminal (it appears instantly,
+before the model loads):
+
+```
+Speakeasy — choose a profile:
+
+  1. jason     (12 words, 8 corrections)
+  2. work      (3 words)
+
+  n. New profile
+  t. Train a profile
+  g. Guest (no corrections)
+
+Choose [1]:
+```
+
+Press **Enter** to use the first profile and start dictating (the ready line
+confirms it: `Ready [profile: jason]. ...`), or type its number. **n** creates
+a new profile — you'll be offered a training session right away. **t** trains
+an existing profile, then continues into dictation with it active. **g**
+dictates without corrections, exactly as before. On first run, with no
+profiles yet, Enter creates your first one.
+
+### Training
+
+Run training any time with:
+
+```bash
+.venv/bin/python -m speakeasy --train
+```
+
+Instead of asking you to think up words, Speakeasy suggests short sessions to
+read aloud — everyday phrases first, then the words the model most often
+mishears (tech jargon, names, numbers, tricky words). Each session is only a
+handful of lines, and there are several to work through over a few sittings:
+
+```
+Training sessions:
+
+  1. Everyday phrases            (suggested)
+  2. Tech & jargon
+  3. Names & proper nouns
+  4. Numbers & units
+  5. Tricky words & homophones
+
+  c. Custom — type your own words
+  q. Finish training
+Choose [1]:
+```
+
+Press **Enter** to run the suggested (next unfinished) session. For each
+line, hold Right Command and read it aloud; when a target word is misheard,
+the correction is saved:
+
+```
+Tech & jargon — read each line aloud.
+  Read aloud — hold [cmd_r] and say: "Deploy the service to Kubernetes."
+    ✗ heard "communities" — saved correction → "Kubernetes"
+```
+
+Finished sessions are marked `✓ done` and the profile remembers them, so the
+menu always points you at what's left. **c** keeps the classic type-your-own
+words mode for personal names the built-in content can't know. **q** finishes
+and continues into normal dictation. All content ships offline; progress is
+saved as you go, so Ctrl-C never loses work.
+
+### Details
+
+- Profiles are plain JSON in the `profiles/` folder, one file per profile,
+  and hand-editable — add corrections directly as `"heard": "intended"`
+  pairs. Corrections match whole words, case-insensitively; longer phrases
+  win over shorter ones.
+- `--profile NAME` skips the picker (handy for a launch alias).
+- Training refuses corrections that would rewrite another word the profile
+  knows, so real words can't be mapped away by a bad take.
+- Everything stays on-device: profiles are local files; nothing is uploaded.
+
 ## Waveform indicator
 
 While you hold the hotkey, seven glassy pastel-rainbow bars float at the
@@ -83,6 +169,7 @@ Edit `speakeasy/config.py` to change:
 - `MODEL_ID` — the speech model
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
 - `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `PASTE_SETTLE_SECONDS` — timing
+- `PROFILES_DIR` — where dictation profiles are stored
 - `OVERLAY_*` — waveform indicator on/off, bar count/size, position, translucency
 
 ## How it works
@@ -104,6 +191,12 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
   temp-WAV file and ffmpeg decode of the library's path-based API
+- **`profiles.py`** — per-user profiles: personal vocabulary plus learned
+  heard→intended corrections, stored as JSON in `profiles/` and applied to
+  each transcript with one pre-compiled regex substitution (microseconds)
+- **`training.py`** — the guided training session: you type a word, speak it
+  with the hotkey, and the model's actual misrecognitions are saved to the
+  profile as corrections
 - **`overlay.py`** — the waveform indicator: a borderless, click-through,
   non-activating AppKit panel animated at 30 fps only while visible
 - **`injector.py`** — clipboard save → set text → ⌘V → restore, all via

@@ -14,8 +14,9 @@ cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL
 ```
 
 When you see `Ready. Hold [cmd_r] and speak...`, hold **Right Command**, speak,
-and release. A pop sound marks recording start, a bottle sound marks stop, and
-the text appears at your cursor within about a second.
+and release. A pop sound and dancing rainbow waveform bars (bottom-center of
+the screen) mark recording, a bottle sound marks stop, and the text appears at
+your cursor within about a second.
 
 Press **Ctrl-C** in the Terminal window to quit.
 
@@ -58,6 +59,17 @@ reopen Terminal for the change to take effect, then run the command again.
 > from Terminal to iTerm (or vice versa), grant the three permissions to that
 > app too.
 
+## Waveform indicator
+
+While you hold the hotkey, seven glassy pastel-rainbow bars float at the
+bottom-center of your screen and dance with your voice level — no box or
+border, just the bars. After you release, they ripple gently while the text
+transcribes, then fade out when it pastes. The indicator never steals focus
+and is click-through.
+
+Set `OVERLAY_ENABLED = False` in `speakeasy/config.py` to turn it off
+entirely (sounds and terminal log still work).
+
 ## Configuration
 
 Edit `speakeasy/config.py` to change:
@@ -66,23 +78,29 @@ Edit `speakeasy/config.py` to change:
 - `MODEL_ID` — the speech model
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
 - `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `PASTE_SETTLE_SECONDS` — timing
+- `OVERLAY_*` — waveform indicator on/off, bar count/size, position, translucency
 
 ## How it works
 
 ```
-hold Right Command ─► record mic (16 kHz mono)
+hold Right Command ─► record mic (16 kHz mono) + rainbow bars dance with voice
 release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
                    ─► paste text at cursor (clipboard + simulated ⌘V)
-                   ─► restore your previous clipboard
+                   ─► restore your previous clipboard, bars fade out
 ```
 
 - **`hotkey.py`** — global hold-to-talk listener (pynput)
-- **`recorder.py`** — microphone capture (sounddevice)
+- **`recorder.py`** — microphone capture (sounddevice) + live RMS level for
+  the waveform bars
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread
+- **`overlay.py`** — the waveform indicator: a borderless, click-through,
+  non-activating AppKit panel animated at 30 fps only while visible
 - **`injector.py`** — clipboard save → set text → ⌘V → restore
-- **`__main__.py`** — wires it together; transcription runs off the hotkey
-  thread so the listener never blocks
+- **`__main__.py`** — wires it together; the AppKit run loop owns the main
+  thread. Threading rules: transcription runs on its own worker thread, and
+  recorder start/stop runs on a control thread — never on the hotkey
+  event-tap thread, where stopping CoreAudio deadlocks against the HAL mutex
 
 ## Notes
 

@@ -1,13 +1,34 @@
 """Local speech-to-text via Parakeet on Apple MLX."""
 
+import os
 import tempfile
 import wave
 from pathlib import Path
 
+from . import config
+
+
+def _is_cached(model_id: str) -> bool:
+    """Check the on-disk HF cache directly, without importing huggingface_hub.
+
+    Avoids the ordering trap where HF_HUB_OFFLINE must be set *before*
+    huggingface_hub is first imported (it's baked into a module constant at
+    import time), so we can't decide by asking the library itself here.
+    """
+    cache_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_dir = Path(os.environ.get("HF_HUB_CACHE", os.path.join(cache_home, "hub")))
+    snapshots = hub_dir / f"models--{model_id.replace('/', '--')}" / "snapshots"
+    return snapshots.is_dir() and any(snapshots.iterdir())
+
+
+# Skip the "check for a newer model" network call when we already have the
+# model cached, so startup is instant and offline-safe. On a genuinely first
+# run (no cache yet), leave this unset so the model can still download.
+if _is_cached(config.MODEL_ID):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import numpy as np
 from parakeet_mlx import from_pretrained
-
-from . import config
 
 
 class Transcriber:

@@ -33,4 +33,4 @@ OVERLAY_BAR_GAP = 7.0         # pt between bars
 OVERLAY_MAX_BAR_HEIGHT = 34.0 # pt at full voice level
 OVERLAY_MIN_BAR_HEIGHT = 4.0  # pt resting dot
 OVERLAY_BOTTOM_OFFSET = 83.0  # pt above the bottom of the screen
-OVERLAY_ALPHA = 0.7           # bar translucency (glassy look)
+OVERLAY_ALPHA = 0.4           # bar translucency (lower = more transparent/subtle)

@@ -51,6 +51,19 @@ Speakeasy itself** in **System Settings → Privacy & Security**:
 After enabling **Accessibility** and **Input Monitoring**, quit Speakeasy from
 its menu-bar item and reopen it for the changes to take effect.
 
+### Uninstall
+
+```bash
+scripts/uninstall.sh            # remove the app + log; keep your profiles/settings
+scripts/uninstall.sh --purge    # also remove profiles, settings, and the cached model
+```
+
+It quits Speakeasy, deletes the `.app` (from `/Applications`, `~/Applications`,
+or `dist/`) and `~/Library/Logs/Speakeasy.log`, and — by default — keeps your
+data in `~/Library/Application Support/Speakeasy` so a reinstall resumes where
+you left off. It can't revoke the macOS permission grants or delete the
+`Speakeasy Dev` cert; it prints where to do both.
+
 ## Using it
 
 When Speakeasy is running, its menu-bar item shows the current state (`Ready`,

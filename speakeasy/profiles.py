@@ -6,7 +6,7 @@ user says their own words, and stores heard → intended mappings here. At
 dictation time apply() rewrites those misrecognitions in the transcript — one
 pre-compiled regex substitution, so it adds no perceptible latency.
 
-Each profile is a plain JSON file in PROFILES_DIR, hand-editable:
+Each profile is a plain JSON file in settings.profiles_dir(), hand-editable:
 
     {
       "name": "jason",
@@ -20,7 +20,7 @@ import json
 import re
 from datetime import datetime
 
-from . import config
+from . import settings
 
 # Profile names double as filenames; keep them boring and safe.
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,39}")
@@ -34,9 +34,10 @@ def normalize(text: str) -> str:
 
 
 def list_profiles() -> list[str]:
-    if not config.PROFILES_DIR.is_dir():
+    profiles_dir = settings.profiles_dir()
+    if not profiles_dir.is_dir():
         return []
-    return sorted(p.stem for p in config.PROFILES_DIR.glob("*.json"))
+    return sorted(p.stem for p in profiles_dir.glob("*.json"))
 
 
 class Profile:
@@ -67,7 +68,7 @@ class Profile:
 
     @property
     def path(self):
-        return config.PROFILES_DIR / f"{self.name}.json"
+        return settings.profiles_dir() / f"{self.name}.json"
 
     @classmethod
     def create(cls, name: str) -> "Profile":
@@ -82,7 +83,7 @@ class Profile:
 
     @classmethod
     def load(cls, name: str) -> "Profile":
-        path = config.PROFILES_DIR / f"{name}.json"
+        path = settings.profiles_dir() / f"{name}.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         return cls(
             name=name,
@@ -93,7 +94,7 @@ class Profile:
         )
 
     def save(self) -> None:
-        config.PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(
                 {

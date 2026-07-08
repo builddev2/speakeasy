@@ -34,9 +34,10 @@ PASTE_SETTLE_SECONDS = 0.15
 # frontmost app observes the new clipboard contents before it reads them.
 CLIPBOARD_SETTLE_SECONDS = 0.02
 
-# Where per-user profiles (personal vocabulary + learned pronunciation
-# corrections) are stored, one JSON file per profile.
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+# Old in-repo profiles location. Profiles now live in
+# ~/Library/Application Support/Speakeasy/profiles (see settings.py);
+# anything found here is copied over once, the first time that dir is made.
+LEGACY_PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
 # --- Waveform overlay -------------------------------------------------------
 # Set to False to disable the visual entirely (sounds + terminal log only).

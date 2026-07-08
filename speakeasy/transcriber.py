@@ -1,9 +1,10 @@
 """Local speech-to-text via Parakeet on Apple MLX."""
 
 import os
+import sys
 from pathlib import Path
 
-from . import config
+from . import config, settings
 
 
 def _is_cached(model_id: str) -> bool:
@@ -20,9 +21,10 @@ def _is_cached(model_id: str) -> bool:
 
 
 # Skip the "check for a newer model" network call when we already have the
-# model cached, so startup is instant and offline-safe. On a genuinely first
-# run (no cache yet), leave this unset so the model can still download.
-if _is_cached(config.MODEL_ID):
+# model — cached in dev, bundled inside the .app when frozen — so startup is
+# instant and offline-safe. On a genuinely first dev run (no cache yet),
+# leave this unset so the model can still download.
+if getattr(sys, "frozen", False) or _is_cached(config.MODEL_ID):
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # The packaged app excludes librosa (and its heavy numba/scipy tree); the
@@ -49,7 +51,9 @@ class Transcriber:
     """
 
     def __init__(self) -> None:
-        self._model = from_pretrained(config.MODEL_ID)
+        source = settings.model_path()
+        print(f"Loading speech model from {source}")
+        self._model = from_pretrained(source)
         # First call triggers MLX graph compilation (~1s); pay it now with
         # a second of silence rather than on the user's first dictation.
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))

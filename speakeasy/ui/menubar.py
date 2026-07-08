@@ -323,11 +323,12 @@ class AppDelegate(NSObject):
             )
         )
 
-        if not permissions.all_granted():
-            permissions.show_guidance()
-
+        # Start first: the model warms up on its worker thread while the
+        # user reads the (modal) first-run permissions guidance.
         engine.start()
         controller.engineStateChanged_(engine.state.value)
+        if not permissions.all_granted():
+            permissions.show_guidance()
         hotkey_name = config.hotkey_name()
         profile = engine.profile
         profile_tag = f" [profile: {profile.name}]" if profile else ""

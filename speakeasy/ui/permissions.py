@@ -41,8 +41,13 @@ def show_guidance() -> None:
 
     Also fires the system's own Input Monitoring prompt (adds Speakeasy to
     the pane's list so the user only has to flip the switch). Call on the
-    main thread.
+    main thread. SPEAKEASY_SKIP_PERMISSION_PROMPT=1 suppresses it (used by
+    automated smoke tests so no dialogs pop mid-run).
     """
+    import os
+
+    if os.environ.get("SPEAKEASY_SKIP_PERMISSION_PROMPT"):
+        return
     missing_input = not input_monitoring_granted()
     missing_ax = not accessibility_granted()
     if missing_input:

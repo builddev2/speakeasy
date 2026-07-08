@@ -9,6 +9,10 @@ __pycache__/
 # Personal dictation profiles (vocabulary + learned corrections)
 profiles/
 
+# PyInstaller build artifacts (rebuild with scripts/build_app.sh)
+build/
+dist/
+
 # macOS
 .DS_Store
 

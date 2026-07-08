@@ -1,7 +1,7 @@
 """Menu bar front end: an NSStatusItem driving the shared DictationEngine.
 
-The status icon mirrors engine state (mic → mic.fill while recording →
-waveform while transcribing); the menu offers profile switching, training,
+The status icon mirrors engine state (skull at rest → mic.fill while recording
+→ waveform while transcribing); the menu offers profile switching, training,
 launch-at-login and quit. Engine state changes arrive on worker/control
 threads and are marshaled to the main thread with the same
 performSelectorOnMainThread pattern as the overlay.
@@ -15,8 +15,12 @@ from AppKit import (
     NSAlertFirstButtonReturn,
     NSApplication,
     NSApplicationActivationPolicyAccessory,
+    NSBezierPath,
+    NSColor,
+    NSCompositingOperationClear,
     NSControlStateValueOff,
     NSControlStateValueOn,
+    NSGraphicsContext,
     NSImage,
     NSMenu,
     NSMenuItem,
@@ -24,7 +28,7 @@ from AppKit import (
     NSTextField,
     NSVariableStatusItemLength,
 )
-from Foundation import NSMakeRect, NSObject, NSTimer
+from Foundation import NSMakeRect, NSMakeSize, NSObject, NSTimer
 
 from .. import config, settings
 from ..engine import DictationEngine, State
@@ -50,6 +54,51 @@ def _symbol(name: str) -> NSImage:
         name, "Speakeasy"
     )
     image.setTemplate_(True)  # adapts to menu bar light/dark/tint
+    return image
+
+
+_skull_cache = None
+
+
+def _skull_image() -> NSImage:
+    """The idle menu-bar glyph. macOS ships no `skull` SF Symbol, so draw one
+    as a monochrome *template* image — like the SF Symbols above, template
+    images ignore their own color and tint to the menu bar's light/dark/accent.
+    Built once and cached (the glyph never changes)."""
+    global _skull_cache
+    if _skull_cache is not None:
+        return _skull_cache
+
+    pt = 16.0
+    image = NSImage.alloc().initWithSize_(NSMakeSize(pt, pt))
+    image.lockFocus()
+    NSColor.blackColor().set()
+    # Cranium (dome) overlapping the jaw below it — filled solid; the template
+    # renderer uses only the resulting alpha, so overlap is harmless.
+    NSBezierPath.bezierPathWithOvalInRect_(
+        NSMakeRect(0.12 * pt, 0.34 * pt, 0.76 * pt, 0.60 * pt)
+    ).fill()
+    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(0.30 * pt, 0.06 * pt, 0.40 * pt, 0.42 * pt), 0.12 * pt, 0.12 * pt
+    ).fill()
+    # Punch the eye sockets and nose by clearing alpha — real holes, so the
+    # skull reads correctly once tinted.
+    NSGraphicsContext.currentContext().setCompositingOperation_(
+        NSCompositingOperationClear
+    )
+    NSBezierPath.bezierPathWithOvalInRect_(
+        NSMakeRect(0.22 * pt, 0.50 * pt, 0.24 * pt, 0.24 * pt)
+    ).fill()  # left eye
+    NSBezierPath.bezierPathWithOvalInRect_(
+        NSMakeRect(0.54 * pt, 0.50 * pt, 0.24 * pt, 0.24 * pt)
+    ).fill()  # right eye
+    NSBezierPath.bezierPathWithOvalInRect_(
+        NSMakeRect(0.42 * pt, 0.34 * pt, 0.16 * pt, 0.16 * pt)
+    ).fill()  # nose
+    image.unlockFocus()
+
+    image.setTemplate_(True)
+    _skull_cache = image
     return image
 
 
@@ -87,7 +136,7 @@ class StatusItemController(NSObject):
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
             NSVariableStatusItemLength
         )
-        self._item.button().setImage_(_symbol("mic"))
+        self._item.button().setImage_(_skull_image())
         self._item.button().setToolTip_("Speakeasy")
 
         menu = NSMenu.alloc().init()
@@ -153,7 +202,10 @@ class StatusItemController(NSObject):
         if state is State.READY:
             text = f"Ready — {profile.name if profile else 'Guest'}"
         self._status_line.setTitle_(text)
-        self._item.button().setImage_(_symbol(_STATE_SYMBOL.get(state, "mic")))
+        symbol = _STATE_SYMBOL.get(state)
+        self._item.button().setImage_(
+            _symbol(symbol) if symbol else _skull_image()
+        )
         self._sync_train_item()
 
     # -- profile menu -----------------------------------------------------

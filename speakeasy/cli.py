@@ -162,7 +162,7 @@ def run(profile_name: str | None, train: bool) -> None:
 
         app = NSApplication.sharedApplication()
         app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-        from .overlay import Overlay
+        from .ui.overlay import Overlay
 
         engine.overlay = Overlay()
 

@@ -27,9 +27,9 @@ def main() -> None:
 
         run(args.profile, args.train)
     else:
-        from .cli import run  # TODO(menubar): switch default to ui.menubar.run_app
+        from .ui.menubar import run_app
 
-        run(args.profile, False)
+        run_app(args.profile)
 
 
 if __name__ == "__main__":

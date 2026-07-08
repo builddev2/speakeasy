@@ -29,7 +29,7 @@ from AppKit import (
 )
 from Foundation import NSMakeRect, NSObject, NSTimer
 
-from . import config
+from .. import config
 
 _PADDING = 16.0  # room around the bars so the glow isn't clipped
 _FPS = 30.0

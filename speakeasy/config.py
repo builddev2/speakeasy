@@ -2,16 +2,15 @@
 
 from pathlib import Path
 
-from pynput import keyboard
-
 # Key to hold while speaking. Right Command is unused by default in most apps.
-# Other options: keyboard.Key.alt_r, keyboard.Key.alt_l, keyboard.Key.f13, ...
-HOTKEY = keyboard.Key.cmd_r
+# Supported names (see hotkey.py): cmd_r, cmd_l, alt_r, alt_l, ctrl_r, ctrl_l,
+# shift_r, shift_l, fn, f13, f14, f15.
+HOTKEY = "cmd_r"
 
 
 def hotkey_name() -> str:
-    """Human-readable HOTKEY name for prompts, e.g. 'cmd_r' (drops 'Key.')."""
-    return str(HOTKEY).removeprefix("Key.")
+    """Human-readable HOTKEY name for prompts, e.g. 'cmd_r'."""
+    return HOTKEY
 
 # Hugging Face model id used by parakeet-mlx (English, punctuated).
 MODEL_ID = "mlx-community/parakeet-tdt-0.6b-v2"
@@ -34,9 +33,10 @@ PASTE_SETTLE_SECONDS = 0.15
 # frontmost app observes the new clipboard contents before it reads them.
 CLIPBOARD_SETTLE_SECONDS = 0.02
 
-# Where per-user profiles (personal vocabulary + learned pronunciation
-# corrections) are stored, one JSON file per profile.
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+# Old in-repo profiles location. Profiles now live in
+# ~/Library/Application Support/Speakeasy/profiles (see settings.py);
+# anything found here is copied over once, the first time that dir is made.
+LEGACY_PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
 # --- Waveform overlay -------------------------------------------------------
 # Set to False to disable the visual entirely (sounds + terminal log only).

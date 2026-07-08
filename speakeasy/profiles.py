@@ -6,7 +6,7 @@ user says their own words, and stores heard → intended mappings here. At
 dictation time apply() rewrites those misrecognitions in the transcript — one
 pre-compiled regex substitution, so it adds no perceptible latency.
 
-Each profile is a plain JSON file in PROFILES_DIR, hand-editable:
+Each profile is a plain JSON file in settings.profiles_dir(), hand-editable:
 
     {
       "name": "jason",
@@ -17,10 +17,11 @@ Each profile is a plain JSON file in PROFILES_DIR, hand-editable:
 """
 
 import json
+import os
 import re
 from datetime import datetime
 
-from . import config
+from . import settings
 
 # Profile names double as filenames; keep them boring and safe.
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,39}")
@@ -34,9 +35,10 @@ def normalize(text: str) -> str:
 
 
 def list_profiles() -> list[str]:
-    if not config.PROFILES_DIR.is_dir():
+    profiles_dir = settings.profiles_dir()
+    if not profiles_dir.is_dir():
         return []
-    return sorted(p.stem for p in config.PROFILES_DIR.glob("*.json"))
+    return sorted(p.stem for p in profiles_dir.glob("*.json"))
 
 
 class Profile:
@@ -67,7 +69,7 @@ class Profile:
 
     @property
     def path(self):
-        return config.PROFILES_DIR / f"{self.name}.json"
+        return settings.profiles_dir() / f"{self.name}.json"
 
     @classmethod
     def create(cls, name: str) -> "Profile":
@@ -82,7 +84,12 @@ class Profile:
 
     @classmethod
     def load(cls, name: str) -> "Profile":
-        path = config.PROFILES_DIR / f"{name}.json"
+        # Defense in depth: every current caller already filters names through
+        # list_profiles() before calling load(), but load() builds a filesystem
+        # path from `name` and should not trust it blindly on its own.
+        if not _NAME_RE.fullmatch(name):
+            raise ValueError(f"Invalid profile name: {name!r}")
+        path = settings.profiles_dir() / f"{name}.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         return cls(
             name=name,
@@ -93,8 +100,17 @@ class Profile:
         )
 
     def save(self) -> None:
-        config.PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        """Write the profile as JSON, atomically.
+
+        A plain write_text() truncates the file before writing the new
+        content, so an interruption mid-write (Ctrl-C, crash) can leave a
+        half-written, unparseable file — load_profiles() would then skip it
+        and its corrections are lost. Writing to a temp file and renaming
+        over the original is atomic on the same filesystem, so a reader
+        never sees a partial file.
+        """
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = (
             json.dumps(
                 {
                     "name": self.name,
@@ -106,9 +122,11 @@ class Profile:
                 indent=2,
                 ensure_ascii=False,
             )
-            + "\n",
-            encoding="utf-8",
+            + "\n"
         )
+        tmp_path = self.path.with_suffix(".json.tmp")
+        tmp_path.write_text(data, encoding="utf-8")
+        os.replace(tmp_path, self.path)
 
     # -- learning -------------------------------------------------------
 

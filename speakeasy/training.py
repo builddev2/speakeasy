@@ -26,11 +26,45 @@ _MAX_TAKES = 3
 _MAX_ATTEMPTS = 5
 
 
+class TrainingUI:
+    """Where training progress is shown.
+
+    The default implementation prints to the terminal (the classic --train
+    experience); the native training window provides one that marshals each
+    call onto the AppKit main thread. Training logic below reports through
+    whichever it's handed and never touches print/input itself.
+    """
+
+    def show_prompt(self, text: str, hotkey_name: str) -> None:
+        print(f'  Read aloud — hold [{hotkey_name}] and say: "{text}"')
+
+    def nothing_heard(self) -> None:
+        print("    (nothing heard — try again)")
+
+    def heard_correctly(self) -> None:
+        print("    ✓ heard it correctly")
+
+    def correction_saved(self, heard_span: str, target: str) -> None:
+        print(f'    ✗ heard "{heard_span}" — saved correction → "{target}"')
+
+    def correction_conflict(self, heard_span: str, target: str) -> None:
+        print(f'    ✗ heard "{heard_span}" — not saved (would conflict)')
+
+    def session_started(self, name: str) -> None:
+        print(f"\n{name} — read each line aloud.")
+
+    def session_finished(self, name: str, saved: int) -> None:
+        print(f"  Session complete: {saved} correction(s) learned.")
+
+
+_PRINT_UI = TrainingUI()
+
+
 class _TakeRecorder:
     """Records one hold-to-talk take at a time through a single, persistent
     hotkey listener.
 
-    Training used to build and tear down a pynput listener (a macOS
+    Training used to build and tear down a hotkey listener (a macOS
     CGEventTap) on every take; doing that dozens of times in a session
     destabilizes the CoreGraphics event system and crashes the app. The main
     dictation loop avoids this by keeping one listener alive for its whole
@@ -91,6 +125,14 @@ class _TakeRecorder:
             self._worker.submit(self._transcriber.transcribe, audio).result()
         )
 
+    def unblock(self) -> None:
+        """Release a blocked record() with an empty take.
+
+        The training window calls this when closing mid-session so the
+        session thread stops waiting for a hotkey press that won't come.
+        """
+        self._result.put("")
+
     def record(self) -> str:
         """Wait for one hold-to-talk take; '' if nothing usable was captured."""
         while not self._result.empty():  # drop any stray press between takes
@@ -118,7 +160,11 @@ def _find_sublist(haystack: list[str], needle: list[str]) -> int | None:
 
 
 def _capture(
-    expected_text: str, targets: list[str], heard: str, profile: Profile
+    expected_text: str,
+    targets: list[str],
+    heard: str,
+    profile: Profile,
+    ui: TrainingUI = _PRINT_UI,
 ) -> tuple[bool, int]:
     """Compare a read-aloud take to what was expected.
 
@@ -163,9 +209,9 @@ def _capture(
             continue  # nothing usable, or would clobber an everyday word
         if profile.add_correction(heard_span, target):
             saved += 1
-            print(f'    ✗ heard "{heard_span}" — saved correction → "{target}"')
+            ui.correction_saved(heard_span, target)
         else:
-            print(f'    ✗ heard "{heard_span}" — not saved (would conflict)')
+            ui.correction_conflict(heard_span, target)
     return clean, saved
 
 
@@ -175,23 +221,24 @@ def _train_prompt(
     profile: Profile,
     record: Callable[[], str],
     hotkey_name: str,
+    ui: TrainingUI = _PRINT_UI,
 ) -> int:
     """Run the takes for one prompt; returns how many corrections were saved."""
     clean = takes = saved = 0
     for _ in range(_MAX_ATTEMPTS):
         if takes >= _MAX_TAKES or clean >= _CLEAN_TAKES_TO_FINISH:
             break
-        print(f'  Read aloud — hold [{hotkey_name}] and say: "{text}"')
+        ui.show_prompt(text, hotkey_name)
         heard = record()
         if not heard:
-            print("    (nothing heard — try again)")
+            ui.nothing_heard()
             continue
         takes += 1
-        was_clean, n = _capture(text, targets, heard, profile)
+        was_clean, n = _capture(text, targets, heard, profile, ui)
         saved += n
         if was_clean:
             clean += 1
-            print("    ✓ heard it correctly")
+            ui.heard_correctly()
     return saved
 
 
@@ -200,15 +247,16 @@ def _run_session(
     profile: Profile,
     record: Callable[[], str],
     hotkey_name: str,
+    ui: TrainingUI = _PRINT_UI,
 ) -> int:
-    print(f"\n{session['name']} — read each line aloud.")
+    ui.session_started(session["name"])
     saved = 0
     for prompt in session["prompts"]:
         saved += _train_prompt(
-            prompt["text"], prompt["targets"], profile, record, hotkey_name
+            prompt["text"], prompt["targets"], profile, record, hotkey_name, ui
         )
     profile.mark_session_done(session["name"])
-    print(f"  Session complete: {saved} correction(s) learned.")
+    ui.session_finished(session["name"], saved)
     return saved
 
 

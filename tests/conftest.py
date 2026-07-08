@@ -2,13 +2,13 @@
 
 import pytest
 
-from speakeasy import config, profiles
+from speakeasy import profiles, settings
 
 
 @pytest.fixture
 def profiles_dir(tmp_path, monkeypatch):
-    """Point PROFILES_DIR at a throwaway directory for the duration of a test."""
-    monkeypatch.setattr(config, "PROFILES_DIR", tmp_path)
+    """Point the profiles dir at a throwaway directory for the test."""
+    monkeypatch.setattr(settings, "profiles_dir", lambda: tmp_path)
     return tmp_path
 
 

@@ -1,68 +1,83 @@
 # Speakeasy
 
-Local, private Wispr Flow clone for macOS. Hold **Right Command (⌘)** anywhere,
-speak, release — the transcribed text is pasted at your cursor. Speech-to-text
-runs entirely on-device (NVIDIA Parakeet on Apple MLX); nothing leaves your Mac.
+Local, private Wispr Flow clone for macOS. A menu-bar app: hold
+**Right Command (⌘)** anywhere, speak, release — the transcribed text is pasted
+at your cursor. Speech-to-text runs entirely on-device (NVIDIA Parakeet on Apple
+MLX); nothing ever leaves your Mac.
 
-## Run it (copy & paste)
+Speakeasy lives in the menu bar (no Dock icon). Click its status item to see the
+current state, switch profiles, train, or quit.
 
-Open **Terminal** and paste this single command. It works from anywhere — it
-changes into the project directory and starts the app:
+## Install
 
-```bash
-cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && .venv/bin/python -m speakeasy
-```
+Speakeasy ships as a standalone **Speakeasy.app** — once built it needs no
+Terminal, no Python, and no network. Building it does need the source checkout
+and a one-time dev environment (see [Development](#development-run-from-source)
+for the `.venv` setup).
 
-When you see `Ready. Hold [cmd_r] and speak...`, hold **Right Command**, speak,
-and release. A pop sound and dancing rainbow waveform bars (bottom-center of
-the screen) mark recording, a bottle sound marks stop, and the text appears at
-your cursor within about a second.
-
-Press **Ctrl-C** in the Terminal window to quit.
-
-### Optional: a shorter command
-
-To launch with a short word instead of the long path, paste this once to create
-a `speakeasy` shortcut, then just type `speakeasy` in any new Terminal:
+### 1. Build the app
 
 ```bash
-echo 'alias speakeasy='\''cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && .venv/bin/python -m speakeasy'\''' >> ~/.zshrc
+cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && scripts/build_app.sh
 ```
 
-Open a new Terminal window afterwards for the alias to take effect.
-
-## First-time setup
-
-### 1. Install dependencies (one time)
+This produces `dist/Speakeasy.app` (~2.5 GB — it embeds the full 2.3 GB speech
+model, so the app is fully offline the first time you open it). Move it into
+Applications:
 
 ```bash
-cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+mv dist/Speakeasy.app /Applications/
 ```
 
-The first run also downloads the speech model (~600 MB) to
-`~/.cache/huggingface`; later runs load it instantly from that cache.
-
-Dependencies are pinned to exact, tested versions in `requirements.txt` so a
-reinstall can't silently pull a broken or tampered release. To reproduce the
-complete tested environment — every transitive package too — install from the
-full snapshot instead: `.venv/bin/pip install -r requirements.lock.txt`.
+> **Signing (recommended, one time).** By default the build ad-hoc signs the
+> app, and macOS treats *every rebuild* as a brand-new app — you'd have to
+> re-grant all three permissions each time. To keep your grants across
+> rebuilds, create a self-signed **code-signing** certificate named
+> `Speakeasy Dev` once: open **Keychain Access → Certificate Assistant →
+> Create a Certificate…**, name it `Speakeasy Dev`, set *Certificate Type* to
+> **Code Signing**, and create it. `build_app.sh` picks it up automatically
+> (override with `SIGN_ID=…`).
 
 ### 2. Grant macOS permissions (one time)
 
-The **first time you run Speakeasy from Terminal**, macOS will prompt for
-permissions. Grant all three to **Terminal** in
-**System Settings → Privacy & Security**:
+Launch Speakeasy (from Spotlight or `/Applications`). It appears in the menu
+bar and, on first run, guides you through granting three permissions **to
+Speakeasy itself** in **System Settings → Privacy & Security**:
 
 - **Microphone** — to record your voice (prompts automatically on first recording)
 - **Accessibility** — to paste the transcribed text (simulated ⌘V)
 - **Input Monitoring** — to detect the Right Command hotkey
 
-After enabling **Accessibility** and **Input Monitoring**, fully quit and
-reopen Terminal for the change to take effect, then run the command again.
+After enabling **Accessibility** and **Input Monitoring**, quit Speakeasy from
+its menu-bar item and reopen it for the changes to take effect.
 
-> Tip: permissions are tied to the specific app you launch from. If you switch
-> from Terminal to iTerm (or vice versa), grant the three permissions to that
-> app too.
+### Uninstall
+
+```bash
+scripts/uninstall.sh            # remove the app + log; keep your profiles/settings
+scripts/uninstall.sh --purge    # also remove profiles, settings, and the cached model
+```
+
+It quits Speakeasy, deletes the `.app` (from `/Applications`, `~/Applications`,
+or `dist/`) and `~/Library/Logs/Speakeasy.log`, and — by default — keeps your
+data in `~/Library/Application Support/Speakeasy` so a reinstall resumes where
+you left off. It can't revoke the macOS permission grants or delete the
+`Speakeasy Dev` cert; it prints where to do both.
+
+## Using it
+
+When Speakeasy is running, its menu-bar item shows the current state (`Ready`,
+`Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release: a
+pop sound and dancing rainbow waveform bars (bottom-center of the screen) mark
+recording, a bottle sound marks stop, and the text appears at your cursor within
+about a second.
+
+Click the menu-bar item for:
+
+- **Profile** — switch the active profile, pick **Guest (no corrections)**, or
+  create a **New Profile…**
+- **Train Profile…** — open the training window (see below)
+- **Quit Speakeasy** (⌘Q)
 
 ## Profiles: teach it your words
 
@@ -73,82 +88,77 @@ and every future dictation rewrites those misrecognitions automatically. The
 rewrite is a single pre-compiled text substitution, so it adds no latency —
 dictation stays at the usual ~1 second.
 
-Every launch starts with a menu in the terminal (it appears instantly,
-before the model loads):
-
-```
-Speakeasy — choose a profile:
-
-  1. jason     (12 words, 8 corrections)
-  2. work      (3 words)
-
-  n. New profile
-  t. Train a profile
-  g. Guest (no corrections)
-
-Choose [1]:
-```
-
-Press **Enter** to use the first profile and start dictating (the ready line
-confirms it: `Ready [profile: jason]. ...`), or type its number. **n** creates
-a new profile — you'll be offered a training session right away. **t** trains
-an existing profile, then continues into dictation with it active. **g**
-dictates without corrections, exactly as before. On first run, with no
-profiles yet, Enter creates your first one.
+Switch or create profiles from the menu-bar **Profile** submenu. **Guest**
+dictates without corrections. The active profile is shown with a checkmark.
 
 ### Training
 
-Run training any time with:
-
-```bash
-.venv/bin/python -m speakeasy --train
-```
-
+Choose **Train Profile…** from the menu bar to open the training window.
 Instead of asking you to think up words, Speakeasy suggests short sessions to
 read aloud — everyday phrases first, then the words the model most often
-mishears (tech jargon, names, numbers, tricky words). Each session is only a
-handful of lines, and there are several to work through over a few sittings:
+mishears (tech jargon, names, numbers, tricky words):
 
-```
-Training sessions:
+- **Everyday phrases** (suggested first)
+- **Tech & jargon**
+- **Names & proper nouns**
+- **Numbers & units**
+- **Tricky words & homophones**
+- **Custom** — type your own words for personal names the built-in content
+  can't know
 
-  1. Everyday phrases            (suggested)
-  2. Tech & jargon
-  3. Names & proper nouns
-  4. Numbers & units
-  5. Tricky words & homophones
-
-  c. Custom — type your own words
-  q. Finish training
-Choose [1]:
-```
-
-Press **Enter** to run the suggested (next unfinished) session. For each
-line, hold Right Command and read it aloud; when a target word is misheard,
-the correction is saved:
-
-```
-Tech & jargon — read each line aloud.
-  Read aloud — hold [cmd_r] and say: "Deploy the service to Kubernetes."
-    ✗ heard "communities" — saved correction → "Kubernetes"
-```
-
-Finished sessions are marked `✓ done` and the profile remembers them, so the
-menu always points you at what's left. **c** keeps the classic type-your-own
-words mode for personal names the built-in content can't know. **q** finishes
-and continues into normal dictation. All content ships offline; progress is
-saved as you go, so Ctrl-C never loses work.
+For each line, hold Right Command and read it aloud; when a target word is
+misheard, the correction is saved to the profile. Finished sessions are marked
+done and remembered, so the window always points you at what's left. All
+content ships offline; progress is saved as you go.
 
 ### Details
 
-- Profiles are plain JSON in the `profiles/` folder, one file per profile,
-  and hand-editable — add corrections directly as `"heard": "intended"`
-  pairs. Corrections match whole words, case-insensitively; longer phrases
-  win over shorter ones.
-- `--profile NAME` skips the picker (handy for a launch alias).
+- Profiles are plain JSON in `~/Library/Application Support/Speakeasy/profiles/`,
+  one file per profile, and hand-editable — add corrections directly as
+  `"heard": "intended"` pairs. Corrections match whole words,
+  case-insensitively; longer phrases win over shorter ones.
 - Training refuses corrections that would rewrite another word the profile
   knows, so real words can't be mapped away by a bad take.
 - Everything stays on-device: profiles are local files; nothing is uploaded.
+
+## Development (run from source)
+
+You don't need the frozen app to develop — run the package directly from a
+virtualenv.
+
+### 1. Install dependencies (one time)
+
+```bash
+cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+```
+
+The first run downloads the speech model (~2.3 GB) to `~/.cache/huggingface`;
+later runs load it instantly from that cache, and `build_app.sh` copies it out
+of there into the app bundle.
+
+Dependencies are pinned to exact, tested versions in `requirements.txt` so a
+reinstall can't silently pull a broken or tampered release. To reproduce the
+complete tested environment — every transitive package too — install from the
+full snapshot instead: `.venv/bin/pip install -r requirements.lock.txt`. Build
+tooling (pytest, pyinstaller) lives in `requirements-dev.txt`.
+
+### 2. Run it
+
+```bash
+.venv/bin/python -m speakeasy          # menu-bar app (same as the .app)
+.venv/bin/python -m speakeasy --cli    # terminal front end (profile picker in the terminal)
+.venv/bin/python -m speakeasy --train  # guided training in the terminal (implies --cli)
+```
+
+`--profile NAME` skips the picker (handy for a launch alias). When run from
+Terminal, the three permissions attach to **Terminal** (or iTerm), not to the
+`.app` — grant them there too if you develop from source.
+
+### Tests
+
+```bash
+.venv/bin/python -m pytest             # pure-logic units: profiles, training alignment, mel shim
+```
 
 ## Waveform indicator
 
@@ -159,7 +169,7 @@ transcribes, then fade out when it pastes. The indicator never steals focus
 and is click-through.
 
 Set `OVERLAY_ENABLED = False` in `speakeasy/config.py` to turn it off
-entirely (sounds and terminal log still work).
+entirely (sounds and status still work).
 
 ## Configuration
 
@@ -169,7 +179,6 @@ Edit `speakeasy/config.py` to change:
 - `MODEL_ID` — the speech model
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
 - `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `PASTE_SETTLE_SECONDS` — timing
-- `PROFILES_DIR` — where dictation profiles are stored
 - `OVERLAY_*` — waveform indicator on/off, bar count/size, position, translucency
 
 ## How it works
@@ -181,7 +190,10 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
                    ─► restore your previous clipboard, bars fade out
 ```
 
-- **`hotkey.py`** — global hold-to-talk listener (pynput)
+- **`hotkey.py`** — global hold-to-talk listener built on a raw Quartz
+  `CGEventTap` (no third-party input library). A listen-only tap makes no Text
+  Input Source calls, and pausing around the synthesized paste is a
+  `CGEventTapEnable` flip rather than a listener teardown
 - **`recorder.py`** — microphone capture (sounddevice) + live RMS level for
   the waveform bars. The CoreAudio stream is opened once at startup and kept
   across recordings, so pressing the hotkey starts capture instantly instead
@@ -191,24 +203,37 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
   temp-WAV file and ffmpeg decode of the library's path-based API
+- **`_mel_shim.py`** — a pure-numpy log-mel filterbank that stands in for
+  librosa, so the freeze-fragile numba/llvmlite/scipy tree is dropped from the
+  bundle entirely
 - **`profiles.py`** — per-user profiles: personal vocabulary plus learned
-  heard→intended corrections, stored as JSON in `profiles/` and applied to
-  each transcript with one pre-compiled regex substitution (microseconds)
-- **`training.py`** — the guided training session: you type a word, speak it
-  with the hotkey, and the model's actual misrecognitions are saved to the
-  profile as corrections
-- **`overlay.py`** — the waveform indicator: a borderless, click-through,
+  heard→intended corrections, stored as JSON and applied to each transcript
+  with one pre-compiled regex substitution (microseconds)
+- **`training.py`** — the guided training content and alignment: you read a
+  line aloud, and the model's actual misrecognitions are saved to the profile
+  as corrections
+- **`ui/menubar.py`** — the `NSStatusItem`, its menu, and the app delegate that
+  wires the engine to the AppKit run loop
+- **`ui/training_window.py`** — the native glass training window opened from the
+  menu bar
+- **`ui/overlay.py`** — the waveform indicator: a borderless, click-through,
   non-activating AppKit panel animated at 30 fps only while visible
+- **`ui/permissions.py`** — first-run permissions guidance and the
+  Accessibility / Input Monitoring status checks (via `AXIsProcessTrusted`)
 - **`injector.py`** — clipboard save → set text → ⌘V → restore, all via
-  NSPasteboard in-process (no pbcopy/pbpaste subprocesses). The clipboard is
-  saved while transcription runs, and restored after the hotkey listener is
-  back up. The listener's event tap is torn down for the moment of the ⌘V and
-  rebuilt right after, so a live pynput listener can't duplicate the
-  synthesized paste
-- **`__main__.py`** — wires it together; the AppKit run loop owns the main
-  thread. Threading rules: transcription runs on its own worker thread, and
-  recorder start/stop runs on a control thread — never on the hotkey
-  event-tap thread, where stopping CoreAudio deadlocks against the HAL mutex
+  NSPasteboard in-process (no pbcopy/pbpaste subprocesses), with ⌘V posted as
+  raw Quartz keyboard events. The clipboard is saved while transcription runs,
+  and restored after. The hotkey's event tap is disabled for the moment of the
+  ⌘V and re-enabled right after, so the listener can't duplicate the paste
+- **`cli.py`** — the terminal front end (`--cli` / `--train`): the profile
+  picker and guided training as a text UI
+- **`__main__.py`** — the entry point; the menu-bar app is the default and the
+  AppKit run loop owns the main thread. Threading rules: transcription runs on
+  its own worker thread, and recorder start/stop runs on a control thread —
+  never on the hotkey event-tap thread, where stopping CoreAudio deadlocks
+  against the HAL mutex
+- **`launcher.py`** — the frozen-app entry point: redirects stdout/stderr to
+  `~/Library/Logs/Speakeasy.log` (a windowed app has none) before starting
 
 ## Notes
 
@@ -219,5 +244,7 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
   the ⌘V is synthesized, so the text pastes exactly once; a hotkey press in
   that instant — right after you release — would be missed, but it's far too
   short to hit in practice.
+- User data (profiles, logs) lives under
+  `~/Library/Application Support/Speakeasy/` and `~/Library/Logs/Speakeasy.log`.
 - Everything runs in user space — no kernel extensions, no injection into other
   apps. If Speakeasy crashes, nothing else is affected.

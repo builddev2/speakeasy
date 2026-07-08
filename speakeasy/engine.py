@@ -18,11 +18,14 @@ going to a file sink instead of the paste path.
 """
 
 import subprocess
+import threading
 import time
 import traceback
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
+
+import numpy as np
 
 from . import config, injector
 from .hotkey import HotkeyListener
@@ -143,7 +146,7 @@ class DictationEngine:
         print("● recording...")
 
     def _stop_recording(self) -> None:
-        audio = self.recorder.stop()
+        audio = self._stop_recorder_guarded()
         if self.recorder.duration_seconds(audio) < config.MIN_DURATION_SECONDS:
             play_sound(config.SOUND_STOP)
             print("  → (too short, ignored)")
@@ -157,6 +160,32 @@ class DictationEngine:
             self.overlay.show_transcribing()
         play_sound(config.SOUND_STOP)
         self._set_state(State.TRANSCRIBING)
+
+    def _stop_recorder_guarded(self) -> np.ndarray:
+        """Stop the recorder without letting a wedged CoreAudio call freeze
+        the control thread (and, since every hotkey press funnels through it,
+        the whole dictation pipeline).
+
+        stop() runs on a throwaway thread; if it hasn't returned within the
+        timeout the audio device has hung, so the stream is abandoned — the mic
+        is released and the next recording rebuilds it — and this take is
+        dropped rather than blocking forever.
+        """
+        result: list[np.ndarray] = []
+        done = threading.Event()
+
+        def run() -> None:
+            try:
+                result.append(self.recorder.stop())
+            finally:
+                done.set()
+
+        threading.Thread(target=run, name="recorder-stop", daemon=True).start()
+        if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS) and result:
+            return result[0]
+        print("  → (recorder stop timed out; releasing the mic)")
+        self.recorder.force_close()
+        return np.empty(0, dtype=np.float32)
 
     def _transcribe_and_paste(self, audio) -> None:
         previous = None

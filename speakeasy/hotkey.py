@@ -173,12 +173,35 @@ class HotkeyListener:
             if self._tap is not None:
                 Quartz.CGEventTapEnable(self._tap, False)
 
+    def _key_is_down(self) -> bool:
+        """Whether our hotkey is physically held right now, per the HID layer."""
+        return bool(
+            Quartz.CGEventSourceKeyState(
+                Quartz.kCGEventSourceStateHIDSystemState, self._keycode
+            )
+        )
+
     def resume(self) -> None:
+        fire = None
         with self._lock:
-            self._held = False
             if self._tap is not None:
+                # Re-sync to the key's real state: a press or release that
+                # landed while the tap was deaf (during the ⌘V paste) was never
+                # delivered. Dropping a release is the dangerous one — it strands
+                # an in-progress recording, so the mic stays open and the icon
+                # stays stuck. Replay whichever edge we missed.
+                down = self._key_is_down()
+                if down and not self._held:
+                    fire = self._on_hold_start
+                elif not down and self._held:
+                    fire = self._on_hold_end
+                self._held = down
                 Quartz.CGEventTapEnable(self._tap, True)
-                return
-            need_start = self._thread is None
-        if need_start:
+                need_start = False
+            else:
+                self._held = False
+                need_start = self._thread is None
+        if fire is not None:
+            fire()
+        elif need_start:
             self.start()

@@ -76,15 +76,46 @@ class Recorder:
             return np.empty(0, dtype=np.float32)
         self._recording = False
         self._level = 0.0
-        if self._stream is not None:
-            try:
-                self._stream.stop()  # kept open for the next recording
-            except Exception:
-                self._stream.close()
-                self._stream = None
+        # Harvest the audio before touching the stream: _on_audio bails once
+        # _recording is False, so no more chunks are coming, and doing it first
+        # means a stop() the watchdog later abandons (see force_close) can never
+        # reach in and clear the *next* recording's chunks after it unwedges.
         with self._lock:
-            if not self._chunks:
-                return np.empty(0, dtype=np.float32)
-            audio = np.concatenate(self._chunks)[:, 0]
-            self._chunks = []
+            chunks, self._chunks = self._chunks, []
+        audio = (
+            np.concatenate(chunks)[:, 0]
+            if chunks
+            else np.empty(0, dtype=np.float32)
+        )
+        if self._stream is not None:
+            # abort() (Pa_AbortStream) stops the stream at once; stop()
+            # (Pa_StopStream) waits for the audio callback to drain, which can
+            # block indefinitely when the device changed under an open stream
+            # (Bluetooth (dis)connect, input switch, sample-rate renegotiation).
+            # A hung stop() there freezes the caller's thread and, with it, the
+            # whole hotkey pipeline, leaving the mic held open. There is nothing
+            # to drain — the audio is already harvested above.
+            try:
+                self._stream.abort()  # kept open for the next recording
+            except Exception:
+                # The device is wedged or gone: drop the stream so the OS
+                # releases the mic and the next start() rebuilds on the default.
+                try:
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
         return audio
+
+    def force_close(self) -> None:
+        """Abandon the current stream so the OS releases the mic.
+
+        Called from the engine's watchdog when stop() has not returned in time
+        (a wedged CoreAudio call): the reference is dropped without touching the
+        stuck stream — closing it from here could race the in-flight call inside
+        PortAudio — and the next start() rebuilds a fresh stream on the default
+        device.
+        """
+        self._recording = False
+        self._level = 0.0
+        self._stream = None

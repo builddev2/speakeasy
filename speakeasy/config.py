@@ -21,6 +21,11 @@ SAMPLE_RATE = 16_000
 # Recordings shorter than this are treated as accidental taps and dropped.
 MIN_DURATION_SECONDS = 0.3
 
+# How long to wait for the recorder to stop before giving up on it. A wedged
+# CoreAudio call must not freeze the control thread (and with it the hotkey),
+# so past this the stream is abandoned and the mic forcibly released.
+RECORDER_STOP_TIMEOUT_SECONDS = 1.5
+
 # Play system sounds when recording starts/stops.
 SOUNDS_ENABLED = True
 SOUND_START = "/System/Library/Sounds/Pop.aiff"

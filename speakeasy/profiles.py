@@ -17,6 +17,7 @@ Each profile is a plain JSON file in settings.profiles_dir(), hand-editable:
 """
 
 import json
+import os
 import re
 from datetime import datetime
 
@@ -83,6 +84,11 @@ class Profile:
 
     @classmethod
     def load(cls, name: str) -> "Profile":
+        # Defense in depth: every current caller already filters names through
+        # list_profiles() before calling load(), but load() builds a filesystem
+        # path from `name` and should not trust it blindly on its own.
+        if not _NAME_RE.fullmatch(name):
+            raise ValueError(f"Invalid profile name: {name!r}")
         path = settings.profiles_dir() / f"{name}.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         return cls(
@@ -94,8 +100,17 @@ class Profile:
         )
 
     def save(self) -> None:
+        """Write the profile as JSON, atomically.
+
+        A plain write_text() truncates the file before writing the new
+        content, so an interruption mid-write (Ctrl-C, crash) can leave a
+        half-written, unparseable file — load_profiles() would then skip it
+        and its corrections are lost. Writing to a temp file and renaming
+        over the original is atomic on the same filesystem, so a reader
+        never sees a partial file.
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        data = (
             json.dumps(
                 {
                     "name": self.name,
@@ -107,9 +122,11 @@ class Profile:
                 indent=2,
                 ensure_ascii=False,
             )
-            + "\n",
-            encoding="utf-8",
+            + "\n"
         )
+        tmp_path = self.path.with_suffix(".json.tmp")
+        tmp_path.write_text(data, encoding="utf-8")
+        os.replace(tmp_path, self.path)
 
     # -- learning -------------------------------------------------------
 

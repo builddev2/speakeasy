@@ -159,6 +159,7 @@ class DictationEngine:
         self._set_state(State.TRANSCRIBING)
 
     def _transcribe_and_paste(self, audio) -> None:
+        previous = None
         try:
             # Save the clipboard now so the read overlaps with the GPU work.
             previous = injector.read_clipboard()
@@ -182,12 +183,15 @@ class DictationEngine:
                 # Let the target app consume the paste before restoring the
                 # clipboard — after resume(), so it's off the hotkey-dead window.
                 time.sleep(config.PASTE_SETTLE_SECONDS)
-                injector.restore_clipboard(previous)
             else:
                 print("  → (no speech detected)")
         except Exception:
             traceback.print_exc()
         finally:
+            # Always restore, even if transcription or the paste itself
+            # raised — otherwise the dictated text is stranded on the
+            # clipboard and the user's prior clipboard is lost.
+            injector.restore_clipboard(previous)
             if self.overlay:
                 self.overlay.hide()
             self._set_state(self._idle_state())

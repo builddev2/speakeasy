@@ -1,0 +1,11 @@
+# Development-only dependencies (NOT needed to run Speakeasy).
+#
+# The app itself has no test dependency; this installs the test runner so you
+# can verify the pure-logic units (profiles + training alignment):
+#
+#   .venv/bin/pip install -r requirements-dev.txt
+#   .venv/bin/python -m pytest
+#
+# Pinned like the runtime deps in requirements.txt, for the same reason.
+
+pytest==9.1.1

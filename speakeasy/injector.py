@@ -9,6 +9,8 @@ import time
 from AppKit import NSPasteboard, NSPasteboardTypeString
 from pynput.keyboard import Controller, Key
 
+from . import config
+
 _keyboard = Controller()
 
 
@@ -32,7 +34,7 @@ def insert_text(text: str) -> None:
     if not text:
         return
     _set_clipboard(text)
-    time.sleep(0.02)  # let the frontmost app observe the new pasteboard
+    time.sleep(config.CLIPBOARD_SETTLE_SECONDS)  # let the app observe the new pasteboard
     with _keyboard.pressed(Key.cmd):
         _keyboard.press("v")
         _keyboard.release("v")

@@ -27,6 +27,11 @@ class Recorder:
         """RMS of the most recent audio chunk (0.0 when not recording)."""
         return self._level
 
+    @staticmethod
+    def duration_seconds(audio: np.ndarray) -> float:
+        """Length of a captured mono buffer in seconds."""
+        return len(audio) / config.SAMPLE_RATE
+
     def prewarm(self) -> None:
         """Open the input stream (stopped) so the first start() is instant."""
         if self._stream is None:

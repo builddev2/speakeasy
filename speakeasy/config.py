@@ -8,6 +8,11 @@ from pynput import keyboard
 # Other options: keyboard.Key.alt_r, keyboard.Key.alt_l, keyboard.Key.f13, ...
 HOTKEY = keyboard.Key.cmd_r
 
+
+def hotkey_name() -> str:
+    """Human-readable HOTKEY name for prompts, e.g. 'cmd_r' (drops 'Key.')."""
+    return str(HOTKEY).removeprefix("Key.")
+
 # Hugging Face model id used by parakeet-mlx (English, punctuated).
 MODEL_ID = "mlx-community/parakeet-tdt-0.6b-v2"
 
@@ -24,6 +29,10 @@ SOUND_STOP = "/System/Library/Sounds/Bottle.aiff"
 
 # Delay after synthesizing Cmd+V before restoring the previous clipboard.
 PASTE_SETTLE_SECONDS = 0.15
+
+# Pause after writing the pasteboard before synthesizing Cmd+V, so the
+# frontmost app observes the new clipboard contents before it reads them.
+CLIPBOARD_SETTLE_SECONDS = 0.02
 
 # Where per-user profiles (personal vocabulary + learned pronunciation
 # corrections) are stored, one JSON file per profile.

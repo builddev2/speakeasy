@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import config, injector
 from .hotkey import HotkeyListener
-from .profiles import Profile, list_profiles
+from .profiles import Profile, list_profiles, load_profiles
 from .recorder import Recorder
 from .transcriber import Transcriber
 
@@ -128,10 +128,14 @@ def select_profile(
     """
     if preselected:
         if preselected in list_profiles():
-            return Profile.load(preselected), force_train
-        print(f"Profile '{preselected}' not found.")
+            try:
+                return Profile.load(preselected), force_train
+            except (OSError, ValueError) as err:
+                print(f"Profile '{preselected}' couldn't be read: {err}")
+        else:
+            print(f"Profile '{preselected}' not found.")
 
-    profiles = [Profile.load(name) for name in list_profiles()]
+    profiles = load_profiles()
     if not profiles:
         return _first_run_menu(force_train)
     return _returning_menu(profiles, force_train)
@@ -223,8 +227,7 @@ def main() -> None:
 
     def _stop_recording() -> None:
         audio = recorder.stop()
-        duration = len(audio) / config.SAMPLE_RATE
-        if duration < config.MIN_DURATION_SECONDS:
+        if recorder.duration_seconds(audio) < config.MIN_DURATION_SECONDS:
             _play(config.SOUND_STOP)
             print("  → (too short, ignored)")
             if overlay:
@@ -249,7 +252,7 @@ def main() -> None:
 
     listener = HotkeyListener(on_hold_start, on_hold_end)
     listener.start()
-    hotkey_name = str(config.HOTKEY).removeprefix("Key.")
+    hotkey_name = config.hotkey_name()
     profile_tag = f" [profile: {profile.name}]" if profile is not None else ""
     print(
         f"Ready{profile_tag}. Hold [{hotkey_name}] and speak; "

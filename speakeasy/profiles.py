@@ -50,7 +50,15 @@ class Profile:
     ) -> None:
         self.name = name
         self.vocabulary = vocabulary or []
-        self.corrections = corrections or {}
+        # Normalize keys up front: apply() looks corrections up by the
+        # normalized matched text, so a hand-edited key like "Clod" or "U.S."
+        # (see the README's hand-editing note) must be stored normalized or the
+        # lookup raises KeyError at dictation time. Also de-dupes (last wins).
+        self.corrections = {
+            normalize(heard): intended
+            for heard, intended in (corrections or {}).items()
+            if normalize(heard)
+        }
         self.sessions_done = sessions_done or []
         self.created = created or datetime.now().isoformat(timespec="seconds")
         self._rebuild()
@@ -151,3 +159,19 @@ class Profile:
         return self._pattern.sub(
             lambda m: self.corrections[normalize(m.group(0))], text
         )
+
+
+def load_profiles() -> list[Profile]:
+    """Load every stored profile, skipping any that won't parse.
+
+    Profiles are hand-editable JSON, so one file with a stray comma shouldn't
+    take down startup — the bad file is reported and skipped instead.
+    (json.JSONDecodeError is a ValueError, so both are caught here.)
+    """
+    profiles = []
+    for name in list_profiles():
+        try:
+            profiles.append(Profile.load(name))
+        except (OSError, ValueError) as err:
+            print(f"  Skipping profile '{name}' (couldn't read it): {err}")
+    return profiles

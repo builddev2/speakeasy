@@ -84,7 +84,7 @@ class _TakeRecorder:
     def _stop_and_transcribe(self) -> None:
         audio = self._recorder.stop()
         self._play(config.SOUND_STOP)
-        if len(audio) / config.SAMPLE_RATE < config.MIN_DURATION_SECONDS:
+        if self._recorder.duration_seconds(audio) < config.MIN_DURATION_SECONDS:
             self._result.put("")
             return
         self._result.put(
@@ -271,7 +271,7 @@ def run_training(
     control: ThreadPoolExecutor,
     play: Callable[[str], None] = lambda sound: None,
 ) -> None:
-    hotkey_name = str(config.HOTKEY).removeprefix("Key.")
+    hotkey_name = config.hotkey_name()
     print(f"\nTraining profile '{profile.name}'.")
     print("Read each prompt aloud when asked — a quick way to teach Speakeasy your voice.")
     sessions = corrections = 0

@@ -15,6 +15,7 @@ from AppKit import NSPasteboard, NSPasteboardTypeString
 from . import config
 
 _CMD_KEYCODE = 55
+_V_KEYCODE = 9  # 'v' on the ANSI layout
 
 
 def read_clipboard() -> str | None:
@@ -34,15 +35,19 @@ def _set_clipboard(text: str) -> None:
 
 
 def _post_cmd_v() -> None:
-    """Synthesize ⌘V: cmd down, 'v' down/up (as a unicode payload, so it
-    works on any keyboard layout), cmd up."""
+    """Synthesize ⌘V by posting the 'v' key with the Command modifier.
+
+    Apps match the paste shortcut on the key's *keycode*, not on any character
+    string the event carries. An earlier version created the key event with
+    keycode 0 and overrode its text to "v" via CGEventKeyboardSetUnicodeString;
+    keycode 0 is 'a', so keycode-driven apps (Terminal, iTerm) read ⌘A and
+    selected all instead of pasting. Posting the real 'v' keycode (9) fixes it.
+    """
     cmd_down = Quartz.CGEventCreateKeyboardEvent(None, _CMD_KEYCODE, True)
     Quartz.CGEventSetFlags(cmd_down, Quartz.kCGEventFlagMaskCommand)
-    v_down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
-    Quartz.CGEventKeyboardSetUnicodeString(v_down, 1, "v")
+    v_down = Quartz.CGEventCreateKeyboardEvent(None, _V_KEYCODE, True)
     Quartz.CGEventSetFlags(v_down, Quartz.kCGEventFlagMaskCommand)
-    v_up = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
-    Quartz.CGEventKeyboardSetUnicodeString(v_up, 1, "v")
+    v_up = Quartz.CGEventCreateKeyboardEvent(None, _V_KEYCODE, False)
     Quartz.CGEventSetFlags(v_up, Quartz.kCGEventFlagMaskCommand)
     cmd_up = Quartz.CGEventCreateKeyboardEvent(None, _CMD_KEYCODE, False)
     Quartz.CGEventSetFlags(cmd_up, 0)

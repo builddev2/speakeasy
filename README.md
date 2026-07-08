@@ -22,11 +22,26 @@ cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL
 ```
 
 This produces `dist/Speakeasy.app` (~2.5 GB — it embeds the full 2.3 GB speech
-model, so the app is fully offline the first time you open it). Move it into
-Applications:
+model, so the app is fully offline the first time you open it). To build **and**
+install it into `/Applications` in one step:
 
 ```bash
-mv dist/Speakeasy.app /Applications/
+scripts/build_app.sh --install
+```
+
+`--install` updates the bundle **in place** (it rsyncs the new build over the
+existing `/Applications/Speakeasy.app`, quitting a running instance first)
+rather than deleting and recreating it. That matters for permissions: macOS
+keys the Accessibility / Input Monitoring grants on the app's code signature,
+and replacing the whole bundle can drop the existing grant and force you to
+re-approve. Overwriting the same bundle keeps it — so with a stable signing
+identity (below), later `--install` rebuilds don't re-prompt.
+
+Without `--install` the build only writes `dist/`, and you can install it
+yourself; prefer overwriting in place over `mv` for the same reason:
+
+```bash
+rsync -a --delete dist/Speakeasy.app/ /Applications/Speakeasy.app/
 ```
 
 > **Signing (recommended, one time).** By default the build ad-hoc signs the
@@ -50,6 +65,19 @@ Speakeasy itself** in **System Settings → Privacy & Security**:
 
 After enabling **Accessibility** and **Input Monitoring**, quit Speakeasy from
 its menu-bar item and reopen it for the changes to take effect.
+
+> **Prompted again after a reinstall?** If Speakeasy asks for Accessibility /
+> Input Monitoring even though you'd already granted them — and the Right ⌘
+> hotkey does nothing — the old grant is stale (it pointed at a bundle that was
+> replaced rather than updated in place). Clear the two entries and re-grant:
+>
+> ```bash
+> tccutil reset ListenEvent com.jasonchiu.speakeasy
+> tccutil reset Accessibility com.jasonchiu.speakeasy
+> ```
+>
+> Then relaunch Speakeasy and approve both when prompted. Building with
+> `scripts/build_app.sh --install` avoids this going forward.
 
 ### Uninstall
 

@@ -67,6 +67,7 @@ class DictationEngine:
         self.on_state_changed: Callable[[State], None] = lambda state: None
         self._listener = HotkeyListener(self._on_hold_start, self._on_hold_end)
         self._model_future: Future | None = None
+        self._user_paused = False
 
     # -- lifecycle ------------------------------------------------------
 
@@ -92,10 +93,14 @@ class DictationEngine:
 
     def pause(self) -> None:
         """Suspend dictation, e.g. while the training window owns the hotkey."""
+        self._user_paused = True
         self._listener.stop()
+        # Discard any hold that was in flight — its release will never arrive.
+        self.control.submit(self.recorder.stop)
         self._set_state(State.PAUSED)
 
     def resume(self) -> None:
+        self._user_paused = False
         self._listener.resume()
         self._set_state(self._idle_state())
 
@@ -164,13 +169,16 @@ class DictationEngine:
             elapsed = time.perf_counter() - started
             if text:
                 print(f"  → {text!r}  ({elapsed:.2f}s)")
-                # Drop the hotkey tap while we synthesize Cmd+V: a live pynput
-                # listener in this process duplicates the injected paste.
+                # Deaf-en the hotkey tap while we synthesize Cmd+V so the
+                # injected keystroke can never re-trigger recording.
                 self._listener.pause()
                 try:
                     injector.insert_text(text)
                 finally:
-                    self._listener.resume()
+                    # Don't re-arm the hotkey if the user paused dictation
+                    # (training window open) while we were transcribing.
+                    if not self._user_paused:
+                        self._listener.resume()
                 # Let the target app consume the paste before restoring the
                 # clipboard — after resume(), so it's off the hotkey-dead window.
                 time.sleep(config.PASTE_SETTLE_SECONDS)

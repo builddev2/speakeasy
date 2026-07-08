@@ -25,6 +25,15 @@ def _is_cached(model_id: str) -> bool:
 if _is_cached(config.MODEL_ID):
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+# The packaged app excludes librosa (and its heavy numba/scipy tree); the
+# shim provides the one librosa function parakeet-mlx actually calls.
+try:
+    import librosa  # noqa: F401
+except ImportError:
+    from . import _mel_shim
+
+    _mel_shim.install()
+
 import mlx.core as mx
 import numpy as np
 from parakeet_mlx import from_pretrained

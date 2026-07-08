@@ -1,8 +1,11 @@
 #!/bin/bash
-# Build the standalone Speakeasy.app into dist/.
+# Build the standalone Speakeasy.app into dist/, and optionally install it.
 #
 # Steps: PyInstaller bundle → copy the speech model from the local HF cache
 # into Contents/Resources/model → sanity-check the bundle → codesign.
+#
+# Usage: scripts/build_app.sh [--install]
+#   --install   also update /Applications/Speakeasy.app in place (see below).
 #
 # Signing: set SIGN_ID to a code-signing identity in your keychain
 # (default "Speakeasy Dev", a self-signed cert you create once in Keychain
@@ -10,12 +13,28 @@
 # A stable identity keeps the Microphone / Accessibility / Input Monitoring
 # grants across rebuilds; without one we fall back to ad-hoc signing and
 # macOS treats every rebuild as a brand-new app (re-grant all three).
+#
+# Installing: --install updates the existing bundle in place (rsync) rather
+# than deleting and recreating it. TCC keys the Accessibility / Input
+# Monitoring grants on the code's designated requirement, but replacing the
+# whole .app can drop the existing entry and force a re-grant; overwriting the
+# contents of the same bundle keeps it. (The very first install after changing
+# the signing identity still re-prompts once — that's unavoidable.)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+INSTALL=0
+for arg in "$@"; do
+    case "$arg" in
+        --install) INSTALL=1 ;;
+        *) echo "error: unknown option '$arg' (usage: $0 [--install])" >&2; exit 2 ;;
+    esac
+done
 
 VENV=.venv/bin
 MODEL_ID="mlx-community/parakeet-tdt-0.6b-v2"
 APP=dist/Speakeasy.app
+DEST=/Applications/Speakeasy.app
 
 [ "$(uname -m)" = "arm64" ] || { echo "error: Apple Silicon required (MLX)"; exit 1; }
 [ -x "$VENV/python" ] || { echo "error: .venv missing — see README first-time setup"; exit 1; }
@@ -64,5 +83,35 @@ fi
 codesign --verify --deep --strict "$APP"
 
 echo "==> Done: $APP ($(du -sh "$APP" | cut -f1))"
-echo "Try it:   open $APP"
-echo "Install:  mv $APP /Applications/"
+
+if [ "$INSTALL" = 1 ]; then
+    echo "==> Installing to $DEST"
+    # Quit a running instance first — replacing files under a live bundle can
+    # crash it mid-write.
+    if pgrep -f "$DEST/Contents/MacOS/Speakeasy" >/dev/null 2>&1; then
+        echo "  quitting the running Speakeasy…"
+        osascript -e 'quit app "Speakeasy"' 2>/dev/null || true
+        for _ in 1 2 3 4 5 6; do
+            pgrep -f "$DEST/Contents/MacOS/Speakeasy" >/dev/null 2>&1 || break
+            sleep 0.5
+        done
+        pkill -f "$DEST/Contents/MacOS/Speakeasy" 2>/dev/null || true
+    fi
+    if [ -d "$DEST" ]; then
+        # Overwrite the existing bundle's contents in place (same bundle dir)
+        # so the TCC grants survive; --delete clears files dropped since the
+        # last build. rsync copies the signed bundle verbatim, so the signature
+        # stays valid — no re-sign needed.
+        echo "  updating in place (keeps Input Monitoring / Accessibility grants)…"
+        rsync -a --delete "$APP/" "$DEST/"
+    else
+        echo "  no existing install — copying fresh…"
+        cp -R "$APP" "$DEST"
+    fi
+    codesign --verify --deep --strict "$DEST"
+    echo "installed: $DEST"
+    echo "Launch:  open $DEST"
+else
+    echo "Try it:   open $APP"
+    echo "Install:  $0 --install   (updates $DEST in place, preserving TCC grants)"
+fi

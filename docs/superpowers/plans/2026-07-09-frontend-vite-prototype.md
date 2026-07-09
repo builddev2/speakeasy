@@ -60,6 +60,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -68,6 +69,8 @@
   }
 }
 ```
+
+`@types/node` is required because `vite.config.ts` imports `node:url` (Step 4 below) and `tsconfig.json`'s `include` covers `vite.config.ts`, so `tsc --noEmit` type-checks it — without Node's type declarations that import fails to resolve even though it works fine at runtime. This is a dev-time-only type-checking dependency; it has no effect on the shipped bundle.
 
 - [ ] **Step 2: Create `frontend/tsconfig.json`**
 

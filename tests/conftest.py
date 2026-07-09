@@ -1,4 +1,4 @@
-"""Shared fixtures. Tests touch only a temp profiles dir — no mic, no model."""
+"""Shared fixtures. Tests touch only temp dirs — no mic, no model."""
 
 import pytest
 
@@ -10,6 +10,24 @@ def profiles_dir(tmp_path, monkeypatch):
     """Point the profiles dir at a throwaway directory for the test."""
     monkeypatch.setattr(settings, "profiles_dir", lambda: tmp_path)
     return tmp_path
+
+
+@pytest.fixture
+def meetings_dir(tmp_path, monkeypatch):
+    """Point the meetings dir at a throwaway directory for the test."""
+    d = tmp_path / "meetings"
+    d.mkdir()
+    monkeypatch.setattr(settings, "meetings_dir", lambda: d)
+    return d
+
+
+@pytest.fixture
+def spool_dir(tmp_path, monkeypatch):
+    """Point the meeting-audio spool dir at a throwaway directory."""
+    d = tmp_path / "spool"
+    d.mkdir()
+    monkeypatch.setattr(settings, "spool_dir", lambda: d)
+    return d
 
 
 @pytest.fixture

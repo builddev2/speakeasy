@@ -41,11 +41,22 @@ _STATE_TEXT = {
     State.RECORDING: "Recording…",
     State.TRANSCRIBING: "Transcribing…",
     State.PAUSED: "Training…",
+    State.MEETING_RECORDING: "Recording meeting — dictation paused",
+    State.MEETING_PROCESSING: "Processing meeting…",
 }
 _STATE_SYMBOL = {
     State.RECORDING: "mic.fill",
     State.TRANSCRIBING: "waveform",
+    State.MEETING_RECORDING: "record.circle",
+    State.MEETING_PROCESSING: "waveform.circle",
 }
+
+# Mic-only capture disclaimer, shown on the Begin/End Meeting item.
+_MEETING_TOOLTIP = (
+    "Records from the microphone — on video calls, use speakers so other "
+    "participants are captured. Only the transcript is saved; audio is "
+    "deleted after processing."
+)
 _GUEST_TAG = "\x00guest"  # representedObject marker distinct from any name
 
 
@@ -132,6 +143,7 @@ class StatusItemController(NSObject):
             return None
         self.engine = engine
         self.training_window = None  # set lazily by openTraining:
+        self.meetings_window = None  # set lazily by openMeetings:
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
             NSVariableStatusItemLength
@@ -166,6 +178,32 @@ class StatusItemController(NSObject):
         self._sync_train_item()
 
         menu.addItem_(NSMenuItem.separatorItem())
+        self._meeting_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Begin Meeting", b"toggleMeeting:", ""
+        )
+        self._meeting_item.setTarget_(self)
+        self._meeting_item.setToolTip_(_MEETING_TOOLTIP)
+        self._meeting_item.setEnabled_(False)  # enabled once the model is up
+        menu.addItem_(self._meeting_item)
+
+        self._cancel_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Cancel Processing", b"cancelProcessing:", ""
+        )
+        self._cancel_item.setTarget_(self)
+        self._cancel_item.setToolTip_(
+            "Discards this meeting. Speaker identification finishes its "
+            "current pass before the cancel lands."
+        )
+        self._cancel_item.setHidden_(True)
+        menu.addItem_(self._cancel_item)
+
+        self._meetings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Meetings…", b"openMeetings:", ""
+        )
+        self._meetings_item.setTarget_(self)
+        menu.addItem_(self._meetings_item)
+
+        menu.addItem_(NSMenuItem.separatorItem())
         self._login_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Start at Login", b"toggleLogin:", ""
         )
@@ -191,7 +229,14 @@ class StatusItemController(NSObject):
         return self
 
     def heartbeat_(self, timer):
-        pass
+        # Doubles as the meeting elapsed-time ticker; otherwise it exists
+        # only so Python signal handlers run under the AppKit run loop.
+        if self.engine.state is State.MEETING_RECORDING:
+            elapsed = int(self.engine.meeting_recorder.elapsed_seconds)
+            m, s = divmod(elapsed, 60)
+            h, m = divmod(m, 60)
+            clock = f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+            self._meeting_item.setTitle_(f"End Meeting ({clock})")
 
     # -- engine state (arrives via performSelectorOnMainThread) ----------
 
@@ -207,6 +252,25 @@ class StatusItemController(NSObject):
             _symbol(symbol) if symbol else _skull_image()
         )
         self._sync_train_item()
+        self._sync_meeting_items(state)
+
+    @objc.python_method
+    def _sync_meeting_items(self, state):
+        if state is State.MEETING_RECORDING:
+            self._meeting_item.setTitle_("End Meeting (00:00)")
+            self._meeting_item.setEnabled_(True)
+        else:
+            self._meeting_item.setTitle_("Begin Meeting")
+            self._meeting_item.setEnabled_(state is State.READY)
+        self._cancel_item.setHidden_(state is not State.MEETING_PROCESSING)
+
+    def meetingProgress_(self, text):
+        # Live "Transcribing meeting… 42%" line from the worker thread.
+        self._status_line.setTitle_(str(text))
+
+    def meetingSaved_(self, meeting_id):
+        if self.meetings_window is not None:
+            self.meetings_window.reload()
 
     # -- profile menu -----------------------------------------------------
 
@@ -278,12 +342,34 @@ class StatusItemController(NSObject):
         except ValueError as err:
             self._error("Couldn't create profile", str(err))
 
+    # -- meetings -----------------------------------------------------------
+
+    def toggleMeeting_(self, sender):
+        if self.engine.state is State.MEETING_RECORDING:
+            self.engine.end_meeting()
+        else:
+            self.engine.begin_meeting()
+
+    def cancelProcessing_(self, sender):
+        self.engine.cancel_meeting_processing()
+
+    def openMeetings_(self, sender):
+        from .meetings_window import MeetingsWindowController
+
+        if self.meetings_window is None:
+            self.meetings_window = MeetingsWindowController.alloc().init()
+        self.meetings_window.show()
+
     # -- training window (wired in training_window.py phase) --------------
 
     @objc.python_method
     def _sync_train_item(self):
         can_train = (
-            self.engine.transcriber is not None and self.engine.profile is not None
+            self.engine.transcriber is not None
+            and self.engine.profile is not None
+            # No training mid-meeting: both want the hotkey and the mic.
+            and self.engine.state
+            not in (State.MEETING_RECORDING, State.MEETING_PROCESSING)
         )
         self._train_item.setEnabled_(can_train)
         self._train_item.setToolTip_(
@@ -372,6 +458,16 @@ class AppDelegate(NSObject):
         engine.on_state_changed = lambda state: (
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
+            )
+        )
+        engine.on_meeting_progress = lambda text: (
+            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingProgress:", text, False
+            )
+        )
+        engine.on_meeting_saved = lambda meeting_id: (
+            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingSaved:", meeting_id, False
             )
         )
 

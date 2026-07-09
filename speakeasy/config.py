@@ -31,6 +31,34 @@ SOUNDS_ENABLED = True
 SOUND_START = "/System/Library/Sounds/Pop.aiff"
 SOUND_STOP = "/System/Library/Sounds/Bottle.aiff"
 
+# --- Meeting transcription ---------------------------------------------------
+# Long-form audio is transcribed in overlapping chunks so a 2-hour meeting
+# never has to fit through the model in one shot; the overlap gives the token
+# mergers (parakeet_mlx.alignment) enough shared context to stitch chunks.
+MEETING_CHUNK_SECONDS = 120.0
+MEETING_OVERLAP_SECONDS = 15.0
+
+# Hard cap on a meeting's spooled audio. Frames past this are dropped so an
+# abandoned recording can't fill the disk (~115 MB/hour of int16 WAV).
+MEETING_MAX_SECONDS = 3 * 3600
+
+# Speaker-clustering sensitivity for diarization (sherpa-onnx FastClustering,
+# speaker count unknown). Lower = more willing to split voices apart. 0.5 is
+# the library default, tuned for clean audio; real-world conversation (cross-
+# talk, room noise, kids' more variable pitch) needs more headroom or it
+# over-splits badly — a 4-person family meal fragmented into 17 "speakers"
+# at 0.5. 0.7 trades a little of that precision for much better recall on
+# noisy/casual audio (occasionally merging two similar-sounding speakers).
+DIARIZATION_THRESHOLD = 0.7
+
+# Diarization tokens shorter than these are treated as noise (seconds of
+# speech-on / silence-off, passed straight to sherpa-onnx).
+DIARIZATION_MIN_ON = 0.3
+DIARIZATION_MIN_OFF = 0.5
+
+SOUND_MEETING_START = "/System/Library/Sounds/Glass.aiff"
+SOUND_MEETING_END = "/System/Library/Sounds/Submarine.aiff"
+
 # Delay after synthesizing Cmd+V before restoring the previous clipboard.
 PASTE_SETTLE_SECONDS = 0.15
 

@@ -37,11 +37,18 @@ and replacing the whole bundle can drop the existing grant and force you to
 re-approve. Overwriting the same bundle keeps it — so with a stable signing
 identity (below), later `--install` rebuilds don't re-prompt.
 
+`--install` also deletes `dist/Speakeasy.app` once it's copied into
+`/Applications` — leaving both around gives Spotlight two identical-looking
+"Speakeasy" results. If you install manually with the `rsync` command below
+instead of `--install`, remove `dist/Speakeasy.app` yourself afterward for
+the same reason.
+
 Without `--install` the build only writes `dist/`, and you can install it
 yourself; prefer overwriting in place over `mv` for the same reason:
 
 ```bash
 rsync -a --delete dist/Speakeasy.app/ /Applications/Speakeasy.app/
+rm -rf dist/Speakeasy.app
 ```
 
 > **Signing (recommended, one time).** By default the build ad-hoc signs the

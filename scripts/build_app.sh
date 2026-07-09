@@ -20,6 +20,13 @@
 # whole .app can drop the existing entry and force a re-grant; overwriting the
 # contents of the same bundle keeps it. (The very first install after changing
 # the signing identity still re-prompts once — that's unavoidable.)
+#
+# --install also deletes dist/Speakeasy.app once it's copied into
+# /Applications: leaving both around means Spotlight indexes two
+# identical-looking "Speakeasy" entries. A plain build (no --install) still
+# leaves dist/Speakeasy.app in place to try before installing; a fresh
+# `rm -rf build dist` at the top of every run means a rebuild never
+# accumulates more than one dist copy either way.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -109,6 +116,11 @@ if [ "$INSTALL" = 1 ]; then
         cp -R "$APP" "$DEST"
     fi
     codesign --verify --deep --strict "$DEST"
+    # dist/Speakeasy.app is now a redundant copy of the installed bundle —
+    # left in place it shows up as a second, identical-looking Spotlight
+    # result next to the real /Applications one. The installed copy is
+    # canonical, so drop the build output.
+    rm -rf "$APP"
     echo "installed: $DEST"
     echo "Launch:  open $DEST"
 else

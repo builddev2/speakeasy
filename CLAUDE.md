@@ -75,3 +75,8 @@ rebuilds.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.
+- **Never leave more than one `Speakeasy.app` on disk.** `build_app.sh
+  --install` deletes `dist/Speakeasy.app` after copying it into
+  `/Applications` — two copies show up in Spotlight as duplicate,
+  identical-looking results otherwise. If you ever install manually instead
+  of via `--install`, remove `dist/Speakeasy.app` yourself afterward.

@@ -62,6 +62,14 @@ frontend/
   package.json, vite.config.ts, tsconfig.json
 ```
 
+**Desktop backdrop:** every window sits over a fixed, full-viewport backdrop
+(`#0c1310` base + 4 soft radial color blobs — coral, blue, purple, green —
+per the reference's `.desktop-bg`) so the glass panels have something behind
+them to blur; without it `backdrop-filter` has nothing to blur and the
+translucency won't read. This lives in `styles/tokens.css` as global
+`body`/`#root` rules (not a component), applied to all three window entries.
+The dev-only `index.html` picker does not need it.
+
 **Why multi-page instead of a single-page app with a router:** phase 2 embeds
 this as three separate native windows (dock panel, meetings, training), each
 loaded independently by its own pywebview/WKWebView instance. A Vite

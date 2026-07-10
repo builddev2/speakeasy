@@ -4,6 +4,10 @@ Same training logic as the terminal flow — _TakeRecorder owns the hotkey for
 the whole visit (the dictation engine is paused meanwhile), sessions run on a
 background thread, and every progress callback is marshaled onto the AppKit
 main thread through a TrainingUI adapter.
+
+Visual language matches main_window.py / meetings_window.py: a fixed dark
+glass surface (the commissioned "Speakeasy Dock Window Redesign"), not
+adaptive to system light/dark.
 """
 
 import threading
@@ -11,15 +15,23 @@ from collections import deque
 
 import objc
 from AppKit import (
+    NSAppearance,
+    NSAppearanceNameDarkAqua,
     NSApplication,
+    NSAttributedString,
     NSButton,
+    NSColor,
+    NSFont,
+    NSFontAttributeName,
+    NSFontWeightBold,
+    NSFontWeightMedium,
+    NSFontWeightRegular,
+    NSFocusRingTypeNone,
     NSFontWeightSemibold,
+    NSForegroundColorAttributeName,
     NSTextAlignmentLeft,
     NSTextField,
-    NSVisualEffectBlendingModeBehindWindow,
-    NSVisualEffectMaterialSidebar,
-    NSVisualEffectStateActive,
-    NSVisualEffectView,
+    NSView,
 )
 from Foundation import NSMakeRect, NSObject
 
@@ -35,10 +47,53 @@ from ..training import (
 from ..training_content import SESSIONS
 from . import glass
 
-_W, _H = 600, 400
-_SIDEBAR_W = 200
+_W, _H = 640, 440
+_SIDEBAR_W = 222
 _PANE_X = _SIDEBAR_W + 20
 _PANE_W = _W - _PANE_X - 20
+_ROW_H = 32
+
+
+def _rgba(r, g, b, a):
+    return NSColor.colorWithCalibratedRed_green_blue_alpha_(r / 255, g / 255, b / 255, a)
+
+
+_CORAL = _rgba(232, 149, 90, 1.0)
+_CORAL_TOP = _rgba(235, 152, 93, 0.95)
+_CORAL_BOTTOM = _rgba(214, 120, 68, 0.90)
+_BUTTON_BORDER = _rgba(255, 255, 255, 0.35)
+_AMBER = _rgba(240, 179, 74, 1.0)
+
+_TEXT_PRIMARY = _rgba(255, 255, 255, 0.95)
+_TEXT_META = _rgba(255, 255, 255, 0.50)
+_TEXT_SESSION = _rgba(255, 255, 255, 0.90)
+_TEXT_SESSION_DIM = _rgba(255, 255, 255, 0.78)
+_TEXT_HEADER = _rgba(255, 255, 255, 0.40)
+_ROW_ACTIVE_BG = _rgba(255, 255, 255, 0.06)
+_ROW_ACTIVE_BORDER = _rgba(255, 255, 255, 0.10)
+_DOT_COLOR = _rgba(255, 255, 255, 0.45)
+
+_FIELD_BG = _rgba(0, 0, 0, 0.28)
+
+
+def _titled(button, text, size, weight, color) -> None:
+    font = NSFont.systemFontOfSize_weight_(size, weight)
+    button.setAttributedTitle_(
+        NSAttributedString.alloc().initWithString_attributes_(
+            text, {NSFontAttributeName: font, NSForegroundColorAttributeName: color}
+        )
+    )
+
+
+def _rounded(view, radius, bg=None, border=None, border_width=0.5) -> None:
+    view.setWantsLayer_(True)
+    layer = view.layer()
+    layer.setCornerRadius_(radius)
+    if bg is not None:
+        layer.setBackgroundColor_(bg.CGColor())
+    if border is not None:
+        layer.setBorderWidth_(border_width)
+        layer.setBorderColor_(border.CGColor())
 
 
 class _Cancelled(Exception):
@@ -106,64 +161,87 @@ class TrainingWindowController(NSObject):
     def _build_window(self):
         window, content = glass.make_glass_window("Training", _W, _H)
         window.setDelegate_(self)
+        window.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameDarkAqua))
         self._window = window
 
-        sidebar = NSVisualEffectView.alloc().initWithFrame_(
-            NSMakeRect(0, 0, _SIDEBAR_W, _H)
-        )
-        sidebar.setMaterial_(NSVisualEffectMaterialSidebar)
-        sidebar.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
-        sidebar.setState_(NSVisualEffectStateActive)
+        sidebar = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, _SIDEBAR_W, _H))
+        _rounded(sidebar, 0.0, _rgba(255, 255, 255, 0.02))
         content.addSubview_(sidebar)
+        divider = NSView.alloc().initWithFrame_(NSMakeRect(_SIDEBAR_W - 1, 0, 1, _H))
+        divider.setWantsLayer_(True)
+        divider.layer().setBackgroundColor_(_rgba(255, 255, 255, 0.07).CGColor())
+        content.addSubview_(divider)
 
-        header = glass.make_label(
-            "SESSIONS", size=11, weight=NSFontWeightSemibold, secondary=True
-        )
-        header.setFrame_(NSMakeRect(16, _H - 58, _SIDEBAR_W - 32, 16))
+        header = glass.make_label("SESSIONS", size=11, weight=NSFontWeightSemibold)
+        header.setTextColor_(_TEXT_HEADER)
+        header.setFrame_(NSMakeRect(16, _H - 30, _SIDEBAR_W - 32, 16))
         sidebar.addSubview_(header)
 
+        self._session_rows = []
         self._session_buttons = []
         for i, session in enumerate(SESSIONS):
-            button = NSButton.buttonWithTitle_target_action_(
+            row = NSView.alloc().initWithFrame_(
+                NSMakeRect(8, _H - 48 - i * _ROW_H, _SIDEBAR_W - 16, _ROW_H - 4)
+            )
+            sidebar.addSubview_(row)
+            self._session_rows.append(row)
+
+            button = glass.ClickyButton.buttonWithTitle_target_action_(
                 session["name"], self, b"startSession:"
             )
             button.setTag_(i)
             button.setBordered_(False)
             button.setAlignment_(NSTextAlignmentLeft)
-            button.setFrame_(NSMakeRect(12, _H - 92 - i * 30, _SIDEBAR_W - 24, 24))
-            sidebar.addSubview_(button)
+            button.setFrame_(NSMakeRect(0, 0, row.frame().size.width, row.frame().size.height))
+            row.addSubview_(button)
             self._session_buttons.append(button)
 
-        self._status = glass.make_label("", size=12, secondary=True)
-        self._status.setFrame_(NSMakeRect(_PANE_X, _H - 58, _PANE_W, 18))
+        self._status = glass.make_label("", size=13, weight=NSFontWeightRegular)
+        self._status.setTextColor_(_TEXT_META)
+        self._status.setFrame_(NSMakeRect(_PANE_X, _H - 44, _PANE_W, 18))
         content.addSubview_(self._status)
 
         self._prompt = NSTextField.wrappingLabelWithString_("")
-        self._prompt.setFont_(
-            glass.make_label("", size=17, weight=NSFontWeightSemibold).font()
-        )
-        self._prompt.setFrame_(NSMakeRect(_PANE_X, _H - 175, _PANE_W, 100))
+        self._prompt.setFont_(NSFont.systemFontOfSize_weight_(22, NSFontWeightSemibold))
+        self._prompt.setTextColor_(_TEXT_PRIMARY)
+        self._prompt.setFrame_(NSMakeRect(_PANE_X, _H - 175, _PANE_W - 20, 110))
         self._prompt.setEditable_(False)
         content.addSubview_(self._prompt)
 
         self._feedback = NSTextField.wrappingLabelWithString_("")
-        self._feedback.setFont_(glass.make_label("", size=12).font())
-        self._feedback.setTextColor_(self._status.textColor())
-        self._feedback.setFrame_(NSMakeRect(_PANE_X, 64, _PANE_W, 92))
+        self._feedback.setFont_(NSFont.systemFontOfSize_weight_(12, NSFontWeightRegular))
+        self._feedback.setTextColor_(_TEXT_META)
+        self._feedback.setFrame_(NSMakeRect(_PANE_X, 68, _PANE_W, 88))
         self._feedback.setEditable_(False)
         content.addSubview_(self._feedback)
 
         self._custom_field = NSTextField.alloc().initWithFrame_(
-            NSMakeRect(_PANE_X, 20, _PANE_W - 122, 24)
+            NSMakeRect(_PANE_X, 20, _PANE_W - 122, 42)
         )
         self._custom_field.setPlaceholderString_("Your own word or phrase…")
+        self._custom_field.setBordered_(False)
+        self._custom_field.setFocusRingType_(NSFocusRingTypeNone)
+        self._custom_field.setDrawsBackground_(False)
+        self._custom_field.setTextColor_(_TEXT_PRIMARY)
+        field_bg = NSView.alloc().initWithFrame_(NSMakeRect(_PANE_X, 20, _PANE_W - 122, 42))
+        _rounded(field_bg, 11.0, _FIELD_BG, _CORAL, border_width=1.5)
+        content.addSubview_(field_bg)
+        self._custom_field.setFrame_(NSMakeRect(_PANE_X + 14, 20 + 11, _PANE_W - 122 - 28, 20))
         content.addSubview_(self._custom_field)
 
-        self._custom_button = NSButton.buttonWithTitle_target_action_(
-            "Practice", self, b"addCustom:"
+        self._practice_container = glass.GradientView.alloc().init()
+        self._practice_container.setWantsLayer_(True)
+        _rounded(self._practice_container, 11.0, None, _BUTTON_BORDER)
+        self._practice_container.setColors_([_CORAL_TOP, _CORAL_BOTTOM])
+        self._practice_container.setFrame_(NSMakeRect(_W - 130, 20, 110, 42))
+        content.addSubview_(self._practice_container)
+        self._custom_button = glass.ClickyButton.buttonWithTitle_target_action_(
+            "", self, b"addCustom:"
         )
-        self._custom_button.setFrame_(NSMakeRect(_W - 130, 17, 110, 30))
-        content.addSubview_(self._custom_button)
+        self._custom_button.setBordered_(False)
+        _titled(self._custom_button, "Practice", 14.5, NSFontWeightSemibold, NSColor.whiteColor())
+        self._custom_button.setFrame_(NSMakeRect(0, 0, 110, 42))
+        self._practice_container.addSubview_(self._custom_button)
 
     # -- open / close -------------------------------------------------------
 
@@ -278,14 +356,43 @@ class TrainingWindowController(NSObject):
     def _refresh_sessions(self):
         done = set(self.profile.sessions_done) if self.profile else set()
         suggested = _suggested_index(self.profile) if self.profile else None
-        for i, button in enumerate(self._session_buttons):
+        for i, (row, button) in enumerate(zip(self._session_rows, self._session_buttons)):
             name = SESSIONS[i]["name"]
-            if name in done:
-                button.setTitle_(f"✓ {name}")
-            elif i == suggested:
-                button.setTitle_(f"◦ {name}  ★")
+            for view in list(row.subviews()):
+                if view is not button:
+                    view.removeFromSuperview()
+            is_suggested = i == suggested
+            if is_suggested:
+                _rounded(row, 8.0, _ROW_ACTIVE_BG, _ROW_ACTIVE_BORDER)
             else:
-                button.setTitle_(f"◦ {name}")
+                row.setWantsLayer_(True)
+                row.layer().setCornerRadius_(8.0)
+                row.layer().setBorderWidth_(0)
+
+            marker_x = 11
+            if name in done:
+                marker = glass.make_label("✓", 12, NSFontWeightBold)
+                marker.setTextColor_(_CORAL)
+                marker.setFrame_(NSMakeRect(0, 8, 14, 14))
+                row.addSubview_(marker)
+                text_color = _TEXT_SESSION
+            else:
+                dot = NSView.alloc().initWithFrame_(NSMakeRect(marker_x, 12, 5, 5))
+                dot.setWantsLayer_(True)
+                dot.layer().setCornerRadius_(2.5)
+                dot.layer().setBackgroundColor_(_DOT_COLOR.CGColor())
+                row.addSubview_(dot)
+                text_color = _TEXT_SESSION_DIM
+
+            label_x = 24 if name in done else marker_x + 5 + 6
+            _titled(button, name, 13.5, NSFontWeightRegular, text_color)
+            button.setFrame_(NSMakeRect(label_x, 0, row.frame().size.width - label_x - 20, row.frame().size.height))
+
+            if is_suggested:
+                star = glass.make_label("★", 12, NSFontWeightRegular)
+                star.setTextColor_(_AMBER)
+                star.setFrame_(NSMakeRect(row.frame().size.width - 16, 8, 14, 14))
+                row.addSubview_(star)
 
     @objc.python_method
     def _set_controls_enabled(self, enabled: bool):

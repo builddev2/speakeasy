@@ -5,10 +5,13 @@ Local, private Wispr Flow clone for macOS. A menu-bar app: hold
 at your cursor. Speech-to-text runs entirely on-device (NVIDIA Parakeet on Apple
 MLX); nothing ever leaves your Mac.
 
-Speakeasy lives in the menu bar (no Dock icon) as a small skull icon — it turns
-into a mic while recording and a waveform while transcribing. Click its status
-item to see the current state, switch profiles, train, record a meeting, or
-quit.
+Speakeasy lives in the menu bar as a small skull icon — it turns into a mic
+while recording and a waveform while transcribing. Click its status item to
+see the current state, switch profiles, train, record a meeting, or quit.
+Speakeasy also has a normal Dock icon; clicking it opens a small window with
+the same core actions, as a fallback for when the status item is hidden by
+menu-bar overflow (common with many menu-bar apps installed) or just hard to
+spot — the status item stays the primary, full-featured interface.
 
 It can also transcribe whole **meetings** (up to a couple of hours): start a
 recording from the menu bar and, when you end it, Speakeasy produces a

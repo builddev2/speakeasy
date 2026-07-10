@@ -5,6 +5,12 @@ The status icon mirrors engine state (skull at rest → mic.fill while recording
 launch-at-login and quit. Engine state changes arrive on worker/control
 threads and are marshaled to the main thread with the same
 performSelectorOnMainThread pattern as the overlay.
+
+The app also has a normal Dock icon (NSApplicationActivationPolicyRegular) so
+there's a way back in if the status item ever ends up hidden by menu-bar
+overflow — see ui/main_window.py, opened from the Dock via
+applicationShouldHandleReopen_hasVisibleWindows_. The status item remains the
+primary interface; the Dock window is a fallback, not a replacement.
 """
 
 import sys
@@ -14,7 +20,7 @@ from AppKit import (
     NSAlert,
     NSAlertFirstButtonReturn,
     NSApplication,
-    NSApplicationActivationPolicyAccessory,
+    NSApplicationActivationPolicyRegular,
     NSBezierPath,
     NSColor,
     NSCompositingOperationClear,
@@ -441,6 +447,7 @@ class AppDelegate(NSObject):
         self._preselected = str(profile_name) if profile_name else None
         self.engine = None
         self.controller = None
+        self.main_window = None
         return self
 
     def applicationDidFinishLaunching_(self, notification):
@@ -449,32 +456,58 @@ class AppDelegate(NSObject):
         self.engine = engine
         self.controller = StatusItemController.alloc().initWithEngine_(engine)
 
+        from .main_window import MainWindowController
+
+        self.main_window = MainWindowController.alloc().initWithEngine_(engine)
+        NSApplication.sharedApplication().setMainMenu_(
+            _build_main_menu(self.controller)
+        )
+
         if config.OVERLAY_ENABLED:
             from .overlay import Overlay
 
             engine.overlay = Overlay()
 
         controller = self.controller
-        engine.on_state_changed = lambda state: (
+        main_window = self.main_window
+
+        def on_state_changed(state):
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
             )
-        )
-        engine.on_meeting_progress = lambda text: (
+            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"engineStateChanged:", state.value, False
+            )
+
+        def on_meeting_progress(text):
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingProgress:", text, False
             )
-        )
-        engine.on_meeting_saved = lambda meeting_id: (
+            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingProgress:", text, False
+            )
+
+        def on_meeting_saved(meeting_id):
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingSaved:", meeting_id, False
             )
-        )
+            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingSaved:", meeting_id, False
+            )
+
+        engine.on_state_changed = on_state_changed
+        engine.on_meeting_progress = on_meeting_progress
+        engine.on_meeting_saved = on_meeting_saved
 
         # Start first: the model warms up on its worker thread while the
         # user reads the (modal) first-run permissions guidance.
         engine.start()
         controller.engineStateChanged_(engine.state.value)
+        main_window.engineStateChanged_(engine.state.value)
+        # Cold launch from the Dock counts as "the user clicked the icon" —
+        # show the fallback window right away rather than only on a later
+        # reopen click.
+        main_window.show()
         if not permissions.all_granted():
             permissions.show_guidance()
         hotkey_name = config.hotkey_name()
@@ -485,6 +518,35 @@ class AppDelegate(NSObject):
     def applicationWillTerminate_(self, notification):
         if self.engine is not None:
             self.engine.shutdown()
+
+    def applicationShouldTerminateAfterLastWindowClosed_(self, sender):
+        # Background dictation service: closing the main window must not
+        # quit the app, any more than closing Meetings/Training does.
+        return False
+
+    def applicationShouldHandleReopen_hasVisibleWindows_(self, sender, has_visible_windows):
+        # Dock-icon click with no window open (the whole point of the main
+        # window: a way back in when the status item is hidden/overflowed).
+        if not has_visible_windows and self.main_window is not None:
+            self.main_window.show()
+        return True
+
+
+def _build_main_menu(quit_target) -> NSMenu:
+    """A minimal system menu bar (just Quit) so Cmd+Q works with the main
+    window focused. Regular-policy apps don't get one for free without
+    Interface Builder; StatusItemController already implements quitApp_."""
+    menu = NSMenu.alloc().init()
+    app_menu_item = NSMenuItem.alloc().init()
+    menu.addItem_(app_menu_item)
+    app_menu = NSMenu.alloc().init()
+    quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+        "Quit Speakeasy", b"quitApp:", "q"
+    )
+    quit_item.setTarget_(quit_target)
+    app_menu.addItem_(quit_item)
+    app_menu_item.setSubmenu_(app_menu)
+    return menu
 
 
 def _initial_profile(preselected: str | None):
@@ -500,8 +562,11 @@ def _initial_profile(preselected: str | None):
 
 def run_app(profile_name: str | None = None) -> None:
     app = NSApplication.sharedApplication()
-    # No Dock icon / app switcher entry; the packaged app also sets LSUIElement.
-    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    # Regular (not Accessory) policy: gives Speakeasy a normal Dock icon and
+    # app-switcher entry, so ui/main_window.py is reachable even if the menu
+    # bar status item is hidden by overflow. The status item is still the
+    # primary interface.
+    app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
     delegate = AppDelegate.alloc().initWithProfileName_(profile_name)
     app.setDelegate_(delegate)
 

@@ -44,6 +44,7 @@ a = Analysis(
             "speakeasy.ui.menubar",
             "speakeasy.ui.training_window",
             "speakeasy.ui.meetings_window",
+            "speakeasy.ui.main_window",
             "speakeasy.ui.permissions",
             "speakeasy.ui.overlay",
             "speakeasy.cli",
@@ -95,7 +96,12 @@ app = BUNDLE(
     icon="../assets/Speakeasy.icns",
     bundle_identifier="com.jasonchiu.speakeasy",
     info_plist={
-        "LSUIElement": True,  # menu-bar app: no Dock icon, no app switcher
+        # Regular (not agent/LSUIElement) app: normal Dock icon + app-switcher
+        # entry, so ui/main_window.py is reachable if the menu-bar status
+        # item is ever hidden by overflow. menubar.py's run_app() sets the
+        # same NSApplicationActivationPolicyRegular at runtime; setting it
+        # here too avoids a Dock-icon flash/promotion right after launch.
+        "LSUIElement": False,
         "LSMinimumSystemVersion": "14.0",  # MLX floor
         "CFBundleShortVersionString": "1.0.0",
         "CFBundleVersion": "1",

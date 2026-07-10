@@ -119,6 +119,16 @@ rebuilds.
   macOS has no `skull` SF Symbol, so it's drawn in code; keep any new menu-bar
   icon a *template* so it tints to the bar's light/dark/accent like the SF
   Symbols do.
+- **The app runs `NSApplicationActivationPolicyRegular`** (normal Dock icon +
+  app switcher), not `LSUIElement`/Accessory — set both at runtime
+  (`run_app()` in `ui/menubar.py`) and in the packaging spec's `info_plist`,
+  to avoid a Dock-icon flash on launch. The status item is still the primary
+  interface; `ui/main_window.py` is a Dock-reachable fallback with the same
+  core actions, for when the status item is hidden by menu-bar overflow.
+  `AppDelegate.applicationShouldTerminateAfterLastWindowClosed_` returns
+  `False` so closing that window doesn't quit the background service, and
+  `applicationShouldHandleReopen_hasVisibleWindows_` reopens it on a Dock
+  click.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.

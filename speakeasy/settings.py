@@ -123,3 +123,10 @@ def diarization_model_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent.parent / "Resources" / "diarization"
     return Path(__file__).resolve().parent.parent / "models" / "diarization"
+
+
+def frontend_dist_path() -> Path:
+    """Built web UI: bundled Resources/frontend, or frontend/dist from source."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent.parent / "Resources" / "frontend"
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"

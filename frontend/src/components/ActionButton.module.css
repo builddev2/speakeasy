@@ -1,0 +1,25 @@
+.btn {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  font: 600 13px/1 var(--sans);
+  color: rgba(255,255,255,0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  background: rgba(255,255,255,0.08);
+  border: 0.5px solid rgba(255,255,255,0.14);
+}
+
+.strong {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+.danger {
+  color: #FF8A80;
+  background: rgba(255,90,78,0.14);
+  border-color: rgba(255,90,78,0.30);
+}

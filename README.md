@@ -5,8 +5,19 @@ Local, private Wispr Flow clone for macOS. A menu-bar app: hold
 at your cursor. Speech-to-text runs entirely on-device (NVIDIA Parakeet on Apple
 MLX); nothing ever leaves your Mac.
 
-Speakeasy lives in the menu bar (no Dock icon). Click its status item to see the
-current state, switch profiles, train, or quit.
+Speakeasy lives in the menu bar as a small skull icon — it turns into a mic
+while recording and a waveform while transcribing. Click its status item to
+see the current state, switch profiles, train, record a meeting, or quit.
+Speakeasy also has a normal Dock icon; clicking it opens a small window with
+the same core actions, as a fallback for when the status item is hidden by
+menu-bar overflow (common with many menu-bar apps installed) or just hard to
+spot — the status item stays the primary, full-featured interface.
+
+It can also transcribe whole **meetings** (up to a couple of hours): start a
+recording from the menu bar and, when you end it, Speakeasy produces a
+speaker-labelled transcript on-device — see
+[Meeting transcription](#meeting-transcription). Only the transcript is kept;
+the audio is deleted as soon as processing finishes.
 
 ## Install
 
@@ -105,6 +116,9 @@ Click the menu-bar item for:
 - **Profile** — switch the active profile, pick **Guest (no corrections)**, or
   create a **New Profile…**
 - **Train Profile…** — open the training window (see below)
+- **Begin Meeting** / **End Meeting** — record and transcribe a meeting (see
+  [Meeting transcription](#meeting-transcription))
+- **Meetings…** — browse, copy, export, rename, or delete saved transcripts
 - **Quit Speakeasy** (⌘Q)
 
 ## Profiles: teach it your words
@@ -149,6 +163,47 @@ content ships offline; progress is saved as you go.
   knows, so real words can't be mapped away by a bad take.
 - Everything stays on-device: profiles are local files; nothing is uploaded.
 
+## Meeting transcription
+
+Click **Begin Meeting** in the menu bar to start recording (the icon becomes a
+record symbol and the status line reads *Recording meeting — dictation
+paused*). Meetings can run up to a couple of hours; the menu shows the elapsed
+time. Click **End Meeting** when you're done, and Speakeasy processes the
+recording entirely on-device:
+
+1. the audio is transcribed in chunks (progress shows in the menu),
+2. voices are separated by a local speaker-diarization model, and
+3. the transcript is saved with each line attributed to **Speaker 1**,
+   **Speaker 2**, … in speaking order.
+
+A 2-hour meeting takes several minutes to process; **Cancel Processing** in
+the menu discards it. When it finishes, the transcript appears under
+**Meetings…**, where you can:
+
+- **Copy** it to the clipboard and paste it into any notepad,
+- **Export…** it as a `.txt` or `.md` file,
+- **Rename…** or **Delete** it.
+
+While a meeting records, hold-to-talk dictation is off (both would fight over
+the mic and the model); it re-arms the moment processing starts. The active
+profile's corrections are applied to the transcript, and it counts speakers
+automatically — nothing to configure.
+
+**Privacy: the audio itself is never kept.** During the meeting it spools to
+a temporary file, which is deleted as soon as the transcript is saved — and
+also on cancel, on failure, on quit, and (if the app ever crashes mid-meeting)
+swept at the next launch. Transcripts are plain JSON in
+`~/Library/Application Support/Speakeasy/meetings/`. Everything — recording,
+transcription, speaker identification — runs offline; nothing leaves your Mac.
+
+**Limitation — it hears what your mic hears.** On a Zoom/Teams call, Speakeasy
+records alongside the call without interfering (macOS shares the mic between
+apps), but remote participants are only captured if they play through your
+**speakers**. With headphones on, their voices never reach the mic and won't
+be in the transcript. A future enhancement could capture system audio directly
+via ScreenCaptureKit (macOS 13+, requires the Screen Recording permission and
+mixing the mic and system streams).
+
 ## Development (run from source)
 
 You don't need the frozen app to develop — run the package directly from a
@@ -162,7 +217,16 @@ cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL
 
 The first run downloads the speech model (~2.3 GB) to `~/.cache/huggingface`;
 later runs load it instantly from that cache, and `build_app.sh` copies it out
-of there into the app bundle.
+of there into the app bundle. The meetings feature needs two small
+speaker-diarization models (~44 MB total) fetched once, checksum-verified,
+into `models/diarization/`:
+
+```bash
+scripts/fetch_diarization_models.sh
+```
+
+These are the only download steps — both happen at dev/build time, never at
+runtime.
 
 Dependencies are pinned to exact, tested versions in `requirements.txt` so a
 reinstall can't silently pull a broken or tampered release. To reproduce the
@@ -185,7 +249,8 @@ Terminal, the three permissions attach to **Terminal** (or iTerm), not to the
 ### Tests
 
 ```bash
-.venv/bin/python -m pytest             # pure-logic units: profiles, training alignment, mel shim
+.venv/bin/python -m pytest             # pure-logic units: profiles, training alignment, mel shim,
+                                        # meeting store/alignment/recorder/engine flow
 ```
 
 ## Waveform indicator
@@ -208,6 +273,10 @@ Edit `speakeasy/config.py` to change:
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
 - `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `PASTE_SETTLE_SECONDS` — timing
 - `OVERLAY_*` — waveform indicator on/off, bar count/size, position, translucency
+- `MEETING_CHUNK_SECONDS`, `MEETING_OVERLAP_SECONDS`, `MEETING_MAX_SECONDS` —
+  chunked transcription and the spool size cap
+- `DIARIZATION_THRESHOLD`, `DIARIZATION_MIN_ON`, `DIARIZATION_MIN_OFF` —
+  speaker-clustering sensitivity
 
 ## How it works
 
@@ -216,6 +285,13 @@ hold Right Command ─► record mic (16 kHz mono) + rainbow bars dance with voi
 release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
                    ─► paste text at cursor (clipboard + simulated ⌘V)
                    ─► restore your previous clipboard, bars fade out
+```
+
+```
+Begin Meeting ─► mic spools to a temp WAV (dictation hotkey disabled)
+End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
+                  (sherpa-onnx) ─► align text to speakers ─► save transcript
+                  ─► delete the temp WAV ─► dictation hotkey re-armed
 ```
 
 - **`hotkey.py`** — global hold-to-talk listener built on a raw Quartz
@@ -230,7 +306,10 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
-  temp-WAV file and ffmpeg decode of the library's path-based API
+  temp-WAV file and ffmpeg decode of the library's path-based API. Meetings
+  use `transcribe_long()`, a from-scratch chunked loop (the same overlap +
+  token-merge approach as the library's `transcribe(path, chunk_duration=…)`,
+  but without its ffmpeg dependency) with per-chunk cancellation
 - **`_mel_shim.py`** — a pure-numpy log-mel filterbank that stands in for
   librosa, so the freeze-fragile numba/llvmlite/scipy tree is dropped from the
   bundle entirely
@@ -241,9 +320,24 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
   line aloud, and the model's actual misrecognitions are saved to the profile
   as corrections
 - **`ui/menubar.py`** — the `NSStatusItem`, its menu, and the app delegate that
-  wires the engine to the AppKit run loop
+  wires the engine to the AppKit run loop. The status glyph is a skull at rest
+  (custom template image; macOS has no `skull` SF Symbol) that swaps to
+  `mic.fill`/`waveform` while active
 - **`ui/training_window.py`** — the native glass training window opened from the
   menu bar
+- **`meeting_recorder.py`** — long-form mic capture: an int16 stream whose
+  audio callback only enqueues bytes, drained to a spool WAV by a dedicated
+  writer thread, so RAM stays flat regardless of meeting length. Spools live
+  in `settings.spool_dir()`, are deleted on every exit path, and are swept
+  clean at the next launch if the app ever crashes mid-meeting
+- **`meetings.py`** — the meeting store (JSON per meeting, atomic saves like
+  `profiles.py`), `.txt`/`.md` rendering, and the pure `align_speakers()`
+  algorithm that maps diarization turns onto transcribed sentences
+- **`diarizer.py`** — sherpa-onnx speaker diarization (CPU/onnxruntime, no
+  MLX thread-pinning rule); lazily constructed on the first meeting from the
+  two bundled ONNX models
+- **`ui/meetings_window.py`** — the native glass window listing saved
+  meetings, with copy/export/rename/delete
 - **`ui/overlay.py`** — the waveform indicator: a borderless, click-through,
   non-activating AppKit panel animated at 30 fps only while visible
 - **`ui/permissions.py`** — first-run permissions guidance and the
@@ -272,7 +366,9 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
   the ⌘V is synthesized, so the text pastes exactly once; a hotkey press in
   that instant — right after you release — would be missed, but it's far too
   short to hit in practice.
-- User data (profiles, logs) lives under
+- User data (profiles, meeting transcripts, logs) lives under
   `~/Library/Application Support/Speakeasy/` and `~/Library/Logs/Speakeasy.log`.
+  Meeting audio itself is never part of that persisted data — only the
+  transcript is kept (see [Meeting transcription](#meeting-transcription)).
 - Everything runs in user space — no kernel extensions, no injection into other
   apps. If Speakeasy crashes, nothing else is affected.

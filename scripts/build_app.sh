@@ -50,6 +50,14 @@ if [ -z "$SNAP" ] || [ ! -f "$SNAP/config.json" ] || [ ! -e "$SNAP/model.safeten
     exit 1
 fi
 
+# Diarization models (meetings feature) must be fetched before building.
+DIAR=models/diarization
+if [ ! -f "$DIAR/segmentation.onnx" ] || [ ! -f "$DIAR/embedding.onnx" ]; then
+    echo "error: diarization models missing — fetch them once with:"
+    echo "  scripts/fetch_diarization_models.sh"
+    exit 1
+fi
+
 [ -f assets/Speakeasy.icns ] || "$VENV/python" scripts/make_icon.py
 
 echo "==> PyInstaller build"
@@ -61,11 +69,20 @@ echo "==> Bundling model ($(du -sh "$SNAP" | cut -f1))"
 mkdir -p "$APP/Contents/Resources/model"
 rsync -aL "$SNAP/config.json" "$SNAP/model.safetensors" "$APP/Contents/Resources/model/"
 
+echo "==> Bundling diarization models ($(du -sh "$DIAR" | cut -f1))"
+mkdir -p "$APP/Contents/Resources/diarization"
+rsync -aL "$DIAR/segmentation.onnx" "$DIAR/embedding.onnx" "$APP/Contents/Resources/diarization/"
+
 echo "==> Sanity checks"
 METALLIB=$(find "$APP" -path "*mlx/lib/mlx.metallib" | head -1)
 [ -n "$METALLIB" ] || { echo "error: mlx.metallib missing from bundle"; exit 1; }
 [ -e "$(dirname "$METALLIB")/libmlx.dylib" ] \
     || { echo "error: mlx.metallib not adjacent to libmlx.dylib"; exit 1; }
+SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
+[ -n "$SHERPA" ] || { echo "error: sherpa-onnx extension missing from bundle"; exit 1; }
+[ -f "$APP/Contents/Resources/diarization/segmentation.onnx" ] \
+    && [ -f "$APP/Contents/Resources/diarization/embedding.onnx" ] \
+    || { echo "error: diarization models missing from bundle"; exit 1; }
 LEFTOVERS=$(find "$APP" \( -iname "*librosa*" -o -iname "*numba*" -o -iname "*llvmlite*" \) | head -3)
 [ -z "$LEFTOVERS" ] || { echo "error: excluded packages leaked into bundle:"; echo "$LEFTOVERS"; exit 1; }
 

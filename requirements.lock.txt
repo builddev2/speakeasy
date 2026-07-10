@@ -1,3 +1,4 @@
+altgraph==0.17.5
 annotated-doc==0.0.4
 anyio==4.14.1
 audioread==3.1.0
@@ -20,6 +21,7 @@ joblib==1.5.3
 lazy-loader==0.5
 librosa==0.11.0
 llvmlite==0.48.0
+macholib==1.16.4
 markdown-it-py==4.2.0
 mdurl==0.1.2
 mlx==0.31.2
@@ -35,6 +37,8 @@ pluggy==1.6.0
 pooch==1.9.0
 pycparser==3.0
 Pygments==2.20.0
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6
 pyobjc-core==12.2.1
 pyobjc-framework-ApplicationServices==12.2.1
 pyobjc-framework-Cocoa==12.2.1
@@ -47,6 +51,8 @@ rich==15.0.0
 scikit-learn==1.9.0
 scipy==1.17.1
 shellingham==1.5.4
+sherpa-onnx-core==1.13.4
+sherpa_onnx==1.13.4
 six==1.17.0
 sounddevice==0.5.5
 soundfile==0.14.0

@@ -20,6 +20,9 @@
 
 parakeet-mlx==0.5.2
 sounddevice==0.5.5
+# Speaker diarization for meeting transcripts (CPU ONNX runtime, offline;
+# model files fetched once by scripts/fetch_diarization_models.sh).
+sherpa-onnx==1.13.4
 pyobjc-core==12.2.1
 pyobjc-framework-Cocoa==12.2.1
 pyobjc-framework-Quartz==12.2.1

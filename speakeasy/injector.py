@@ -34,6 +34,13 @@ def _set_clipboard(text: str) -> None:
     pb.setString_forType_(text, NSPasteboardTypeString)
 
 
+def set_clipboard(text: str) -> None:
+    """Put text on the clipboard deliberately (e.g. copying a meeting
+    transcript) — unlike insert_text's save/paste/restore dance, here the
+    clipboard is the destination."""
+    _set_clipboard(text)
+
+
 def _post_cmd_v() -> None:
     """Synthesize ⌘V by posting the 'v' key with the Command modifier.
 

@@ -5,6 +5,12 @@ The status icon mirrors engine state (skull at rest → mic.fill while recording
 launch-at-login and quit. Engine state changes arrive on worker/control
 threads and are marshaled to the main thread with the same
 performSelectorOnMainThread pattern as the overlay.
+
+The app also has a normal Dock icon (NSApplicationActivationPolicyRegular) so
+there's a way back in if the status item ever ends up hidden by menu-bar
+overflow — see ui/main_window.py, opened from the Dock via
+applicationShouldHandleReopen_hasVisibleWindows_. The status item remains the
+primary interface; the Dock window is a fallback, not a replacement.
 """
 
 import sys
@@ -14,7 +20,7 @@ from AppKit import (
     NSAlert,
     NSAlertFirstButtonReturn,
     NSApplication,
-    NSApplicationActivationPolicyAccessory,
+    NSApplicationActivationPolicyRegular,
     NSBezierPath,
     NSColor,
     NSCompositingOperationClear,
@@ -41,11 +47,22 @@ _STATE_TEXT = {
     State.RECORDING: "Recording…",
     State.TRANSCRIBING: "Transcribing…",
     State.PAUSED: "Training…",
+    State.MEETING_RECORDING: "Recording meeting — dictation paused",
+    State.MEETING_PROCESSING: "Processing meeting…",
 }
 _STATE_SYMBOL = {
     State.RECORDING: "mic.fill",
     State.TRANSCRIBING: "waveform",
+    State.MEETING_RECORDING: "record.circle",
+    State.MEETING_PROCESSING: "waveform.circle",
 }
+
+# Mic-only capture disclaimer, shown on the Begin/End Meeting item.
+_MEETING_TOOLTIP = (
+    "Records from the microphone — on video calls, use speakers so other "
+    "participants are captured. Only the transcript is saved; audio is "
+    "deleted after processing."
+)
 _GUEST_TAG = "\x00guest"  # representedObject marker distinct from any name
 
 
@@ -132,6 +149,7 @@ class StatusItemController(NSObject):
             return None
         self.engine = engine
         self.training_window = None  # set lazily by openTraining:
+        self.meetings_window = None  # set lazily by openMeetings:
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
             NSVariableStatusItemLength
@@ -166,6 +184,32 @@ class StatusItemController(NSObject):
         self._sync_train_item()
 
         menu.addItem_(NSMenuItem.separatorItem())
+        self._meeting_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Begin Meeting", b"toggleMeeting:", ""
+        )
+        self._meeting_item.setTarget_(self)
+        self._meeting_item.setToolTip_(_MEETING_TOOLTIP)
+        self._meeting_item.setEnabled_(False)  # enabled once the model is up
+        menu.addItem_(self._meeting_item)
+
+        self._cancel_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Cancel Processing", b"cancelProcessing:", ""
+        )
+        self._cancel_item.setTarget_(self)
+        self._cancel_item.setToolTip_(
+            "Discards this meeting. Speaker identification finishes its "
+            "current pass before the cancel lands."
+        )
+        self._cancel_item.setHidden_(True)
+        menu.addItem_(self._cancel_item)
+
+        self._meetings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Meetings…", b"openMeetings:", ""
+        )
+        self._meetings_item.setTarget_(self)
+        menu.addItem_(self._meetings_item)
+
+        menu.addItem_(NSMenuItem.separatorItem())
         self._login_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Start at Login", b"toggleLogin:", ""
         )
@@ -191,7 +235,14 @@ class StatusItemController(NSObject):
         return self
 
     def heartbeat_(self, timer):
-        pass
+        # Doubles as the meeting elapsed-time ticker; otherwise it exists
+        # only so Python signal handlers run under the AppKit run loop.
+        if self.engine.state is State.MEETING_RECORDING:
+            elapsed = int(self.engine.meeting_recorder.elapsed_seconds)
+            m, s = divmod(elapsed, 60)
+            h, m = divmod(m, 60)
+            clock = f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+            self._meeting_item.setTitle_(f"End Meeting ({clock})")
 
     # -- engine state (arrives via performSelectorOnMainThread) ----------
 
@@ -207,6 +258,25 @@ class StatusItemController(NSObject):
             _symbol(symbol) if symbol else _skull_image()
         )
         self._sync_train_item()
+        self._sync_meeting_items(state)
+
+    @objc.python_method
+    def _sync_meeting_items(self, state):
+        if state is State.MEETING_RECORDING:
+            self._meeting_item.setTitle_("End Meeting (00:00)")
+            self._meeting_item.setEnabled_(True)
+        else:
+            self._meeting_item.setTitle_("Begin Meeting")
+            self._meeting_item.setEnabled_(state is State.READY)
+        self._cancel_item.setHidden_(state is not State.MEETING_PROCESSING)
+
+    def meetingProgress_(self, text):
+        # Live "Transcribing meeting… 42%" line from the worker thread.
+        self._status_line.setTitle_(str(text))
+
+    def meetingSaved_(self, meeting_id):
+        if self.meetings_window is not None:
+            self.meetings_window.reload()
 
     # -- profile menu -----------------------------------------------------
 
@@ -278,12 +348,34 @@ class StatusItemController(NSObject):
         except ValueError as err:
             self._error("Couldn't create profile", str(err))
 
+    # -- meetings -----------------------------------------------------------
+
+    def toggleMeeting_(self, sender):
+        if self.engine.state is State.MEETING_RECORDING:
+            self.engine.end_meeting()
+        else:
+            self.engine.begin_meeting()
+
+    def cancelProcessing_(self, sender):
+        self.engine.cancel_meeting_processing()
+
+    def openMeetings_(self, sender):
+        from .meetings_window import MeetingsWindowController
+
+        if self.meetings_window is None:
+            self.meetings_window = MeetingsWindowController.alloc().init()
+        self.meetings_window.show()
+
     # -- training window (wired in training_window.py phase) --------------
 
     @objc.python_method
     def _sync_train_item(self):
         can_train = (
-            self.engine.transcriber is not None and self.engine.profile is not None
+            self.engine.transcriber is not None
+            and self.engine.profile is not None
+            # No training mid-meeting: both want the hotkey and the mic.
+            and self.engine.state
+            not in (State.MEETING_RECORDING, State.MEETING_PROCESSING)
         )
         self._train_item.setEnabled_(can_train)
         self._train_item.setToolTip_(
@@ -355,6 +447,7 @@ class AppDelegate(NSObject):
         self._preselected = str(profile_name) if profile_name else None
         self.engine = None
         self.controller = None
+        self.main_window = None
         return self
 
     def applicationDidFinishLaunching_(self, notification):
@@ -363,22 +456,58 @@ class AppDelegate(NSObject):
         self.engine = engine
         self.controller = StatusItemController.alloc().initWithEngine_(engine)
 
+        from .main_window import MainWindowController
+
+        self.main_window = MainWindowController.alloc().initWithEngine_(engine)
+        NSApplication.sharedApplication().setMainMenu_(
+            _build_main_menu(self.controller)
+        )
+
         if config.OVERLAY_ENABLED:
             from .overlay import Overlay
 
             engine.overlay = Overlay()
 
         controller = self.controller
-        engine.on_state_changed = lambda state: (
+        main_window = self.main_window
+
+        def on_state_changed(state):
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
             )
-        )
+            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"engineStateChanged:", state.value, False
+            )
+
+        def on_meeting_progress(text):
+            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingProgress:", text, False
+            )
+            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingProgress:", text, False
+            )
+
+        def on_meeting_saved(meeting_id):
+            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingSaved:", meeting_id, False
+            )
+            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingSaved:", meeting_id, False
+            )
+
+        engine.on_state_changed = on_state_changed
+        engine.on_meeting_progress = on_meeting_progress
+        engine.on_meeting_saved = on_meeting_saved
 
         # Start first: the model warms up on its worker thread while the
         # user reads the (modal) first-run permissions guidance.
         engine.start()
         controller.engineStateChanged_(engine.state.value)
+        main_window.engineStateChanged_(engine.state.value)
+        # Cold launch from the Dock counts as "the user clicked the icon" —
+        # show the fallback window right away rather than only on a later
+        # reopen click.
+        main_window.show()
         if not permissions.all_granted():
             permissions.show_guidance()
         hotkey_name = config.hotkey_name()
@@ -389,6 +518,35 @@ class AppDelegate(NSObject):
     def applicationWillTerminate_(self, notification):
         if self.engine is not None:
             self.engine.shutdown()
+
+    def applicationShouldTerminateAfterLastWindowClosed_(self, sender):
+        # Background dictation service: closing the main window must not
+        # quit the app, any more than closing Meetings/Training does.
+        return False
+
+    def applicationShouldHandleReopen_hasVisibleWindows_(self, sender, has_visible_windows):
+        # Dock-icon click with no window open (the whole point of the main
+        # window: a way back in when the status item is hidden/overflowed).
+        if not has_visible_windows and self.main_window is not None:
+            self.main_window.show()
+        return True
+
+
+def _build_main_menu(quit_target) -> NSMenu:
+    """A minimal system menu bar (just Quit) so Cmd+Q works with the main
+    window focused. Regular-policy apps don't get one for free without
+    Interface Builder; StatusItemController already implements quitApp_."""
+    menu = NSMenu.alloc().init()
+    app_menu_item = NSMenuItem.alloc().init()
+    menu.addItem_(app_menu_item)
+    app_menu = NSMenu.alloc().init()
+    quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+        "Quit Speakeasy", b"quitApp:", "q"
+    )
+    quit_item.setTarget_(quit_target)
+    app_menu.addItem_(quit_item)
+    app_menu_item.setSubmenu_(app_menu)
+    return menu
 
 
 def _initial_profile(preselected: str | None):
@@ -404,8 +562,11 @@ def _initial_profile(preselected: str | None):
 
 def run_app(profile_name: str | None = None) -> None:
     app = NSApplication.sharedApplication()
-    # No Dock icon / app switcher entry; the packaged app also sets LSUIElement.
-    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    # Regular (not Accessory) policy: gives Speakeasy a normal Dock icon and
+    # app-switcher entry, so ui/main_window.py is reachable even if the menu
+    # bar status item is hidden by overflow. The status item is still the
+    # primary interface.
+    app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
     delegate = AppDelegate.alloc().initWithProfileName_(profile_name)
     app.setDelegate_(delegate)
 

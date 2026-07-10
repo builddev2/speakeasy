@@ -45,6 +45,23 @@ def _migrate_legacy_profiles(dest: Path) -> None:
             print(f"Migrated profile '{src.stem}' to {dest}")
 
 
+def meetings_dir() -> Path:
+    """Saved meeting transcripts (JSON, text only — audio is never persisted)."""
+    d = app_support_dir() / "meetings"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def spool_dir() -> Path:
+    """In-flight meeting audio spools. App-owned: nothing else may live here,
+    because the engine sweeps it clean at every launch — that is what removes
+    an orphaned recording after a crash and keeps the "audio is never
+    persisted" promise."""
+    d = app_support_dir() / "spool"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # -- settings.json --------------------------------------------------------
 
 
@@ -93,3 +110,16 @@ def model_path() -> str:
     if getattr(sys, "frozen", False):
         return str(Path(sys.executable).resolve().parent.parent / "Resources" / "model")
     return config.MODEL_ID
+
+
+def diarization_model_dir() -> Path:
+    """Where the two speaker-diarization ONNX models live.
+
+    Frozen .app → Contents/Resources/diarization (bundled by build_app.sh).
+    Dev checkout → <repo>/models/diarization, populated once by
+    scripts/fetch_diarization_models.sh (build/dev-time download only; the
+    app itself never touches the network).
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent.parent / "Resources" / "diarization"
+    return Path(__file__).resolve().parent.parent / "models" / "diarization"

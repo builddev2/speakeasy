@@ -196,6 +196,11 @@ class TrainingWindowController(NSObject):
                     ui.session_finished(None, saved)
             except _Cancelled:
                 pass
+            except Exception as exc:
+                print(f"training error: {exc}")
+                ui._c.performSelectorOnMainThread_withObject_waitUntilDone_(
+                    b"uiDone:", "Something went wrong — try again.", False
+                )
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()

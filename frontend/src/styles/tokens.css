@@ -77,3 +77,8 @@ body::before {
 }
 
 @keyframes pill { 0%,100% { transform: scaleY(0.24); } 50% { transform: scaleY(1); } }
+
+/* Embedded mode: the native window supplies blur (NSVisualEffectView) and
+   chrome; the page paints only surfaces. Class set by bridge.ts. */
+html.embedded body { background: transparent; }
+html.embedded body::before { display: none; }

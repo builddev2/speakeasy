@@ -17,3 +17,8 @@
 }
 
 @keyframes recdot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.amber {
+  background: #f0b34a;
+  box-shadow: 0 0 7px 1px rgba(240,179,74,0.6);
+}

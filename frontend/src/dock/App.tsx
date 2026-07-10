@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
 import { AppIdentity } from '../components/AppIdentity';
@@ -6,12 +6,33 @@ import { StatusDot } from '../components/StatusDot';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { GlassButton } from '../components/GlassButton';
 import { Waveform } from '../components/Waveform';
+import { bridge } from '../bridge';
 import styles from './App.module.css';
+
+type EngineMode =
+  | 'loading' | 'ready' | 'recording' | 'transcribing' | 'paused'
+  | 'meeting_recording' | 'meeting_processing';
+
+interface AppState {
+  mode: EngineMode;
+  profileName: string;
+  elapsedSeconds: number;
+  progressText: string | null;
+}
 
 interface DockAppProps {
   operatorName?: string;
   readyMessage?: string;
 }
+
+const STATUS: Record<Exclude<EngineMode, 'meeting_recording'>, { text: string; dot: 'green' | 'rec' | 'amber' }> = {
+  loading: { text: 'Loading model…', dot: 'amber' },
+  ready: { text: 'Ready', dot: 'green' },
+  recording: { text: 'Listening…', dot: 'rec' },
+  transcribing: { text: 'Transcribing…', dot: 'amber' },
+  paused: { text: 'Paused', dot: 'amber' },
+  meeting_processing: { text: 'Processing meeting…', dot: 'amber' },
+};
 
 function formatTimer(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
@@ -40,33 +61,84 @@ function TrainIcon() {
 }
 
 export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: DockAppProps) {
-  const [mode, setMode] = useState<'idle' | 'recording'>('idle');
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [app, setApp] = useState<AppState>({
+    mode: 'ready',
+    profileName: operatorName,
+    elapsedSeconds: 0,
+    progressText: null,
+  });
+  const [tick, setTick] = useState(0);
+  const baselineRef = useRef<number | null>(null);
 
-  function toggleMode() {
-    setMode((current) => (current === 'idle' ? 'recording' : 'idle'));
-    setElapsedSeconds(0);
+  function applyState(next: AppState) {
+    if (next.mode === 'meeting_recording') {
+      baselineRef.current = Date.now() - next.elapsedSeconds * 1000;
+    } else {
+      baselineRef.current = null;
+    }
+    setApp(next);
   }
 
   useEffect(() => {
+    if (!bridge.embedded) return;
+    bridge.call<AppState>('app.getState').then(applyState).catch(() => {});
+    return bridge.on('state', (payload) => applyState(payload as AppState));
+  }, []);
+
+  // Browser preview only: R toggles a fake meeting.
+  useEffect(() => {
+    if (bridge.embedded) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'r' || event.key === 'R') {
-        toggleMode();
-      }
+      if (event.key !== 'r' && event.key !== 'R') return;
+      setApp((current) => {
+        const recording = current.mode === 'meeting_recording';
+        baselineRef.current = recording ? null : Date.now();
+        return { ...current, mode: recording ? 'ready' : 'meeting_recording', elapsedSeconds: 0 };
+      });
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  useEffect(() => {
-    if (mode !== 'recording') return;
-    const id = window.setInterval(() => {
-      setElapsedSeconds((current) => current + 1);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [mode]);
+  const isRecording = app.mode === 'meeting_recording';
 
-  const isRecording = mode === 'recording';
+  useEffect(() => {
+    if (!isRecording) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [isRecording]);
+  void tick;
+
+  const elapsed = baselineRef.current === null
+    ? 0
+    : Math.max(0, Math.floor((Date.now() - baselineRef.current) / 1000));
+
+  function onPrimary() {
+    if (bridge.embedded) {
+      void bridge.call(isRecording ? 'app.endMeeting' : 'app.beginMeeting');
+    } else {
+      setApp((current) => {
+        const recording = current.mode === 'meeting_recording';
+        baselineRef.current = recording ? null : Date.now();
+        return { ...current, mode: recording ? 'ready' : 'meeting_recording', elapsedSeconds: 0 };
+      });
+    }
+  }
+
+  function openWindow(name: 'meetings' | 'training') {
+    if (bridge.embedded) void bridge.call('app.openWindow', { name });
+    else console.log('open', name);
+  }
+
+  function onQuit(event: React.MouseEvent) {
+    event.preventDefault();
+    if (bridge.embedded) void bridge.call('app.quit');
+    else console.log('quit');
+  }
+
+  const idleInfo = isRecording ? null : STATUS[app.mode as Exclude<EngineMode, 'meeting_recording'>];
+  const name = bridge.embedded ? app.profileName : operatorName;
+  const primaryDisabled = !isRecording && app.mode !== 'ready';
 
   return (
     <GlassPanel width={360} height={300}>
@@ -78,12 +150,21 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             isRecording ? (
               <>
                 <StatusDot variant="rec" /> Recording meeting{' '}
-                <span className={styles.timer}>· {formatTimer(elapsedSeconds)}</span>
+                <span className={styles.timer}>· {formatTimer(elapsed)}</span>
               </>
             ) : (
               <>
-                <StatusDot variant="green" /> {readyMessage} —{' '}
-                <span className={styles.name}>{operatorName}</span>
+                <StatusDot variant={idleInfo!.dot} />{' '}
+                {app.mode === 'ready' ? (
+                  <>
+                    {bridge.embedded ? 'Ready' : readyMessage} —{' '}
+                    <span className={styles.name}>{name}</span>
+                  </>
+                ) : app.mode === 'meeting_processing' ? (
+                  <span className={styles.progress}>{app.progressText ?? idleInfo!.text}</span>
+                ) : (
+                  idleInfo!.text
+                )}
               </>
             )
           }
@@ -99,18 +180,18 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
         <PrimaryButton
           danger={isRecording}
           className={isRecording ? styles.primaryRecording : styles.primaryIdle}
-          onClick={toggleMode}
+          onClick={primaryDisabled ? undefined : onPrimary}
         >
           {isRecording ? 'End Meeting' : 'Begin Meeting'}
         </PrimaryButton>
 
         <div className={isRecording ? `${styles.row} ${styles.rowDisabled}` : styles.row}>
-          <GlassButton icon={<MeetingsIcon />} label="Meetings" dim={isRecording} />
-          <GlassButton icon={<TrainIcon />} label="Train Profile" dim={isRecording} />
+          <GlassButton icon={<MeetingsIcon />} label="Meetings" dim={isRecording} onClick={() => openWindow('meetings')} />
+          <GlassButton icon={<TrainIcon />} label="Train Profile" dim={isRecording} onClick={() => openWindow('training')} />
         </div>
 
         <div className={styles.foot}>
-          <a className={styles.quit} href="#">Quit Speakeasy</a>
+          <a className={styles.quit} href="#" onClick={onQuit}>Quit Speakeasy</a>
         </div>
       </div>
     </GlassPanel>

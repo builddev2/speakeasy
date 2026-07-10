@@ -64,3 +64,8 @@
   color: rgba(255,255,255,0.7);
   letter-spacing: .4px;
 }
+
+.progress {
+  font: 500 11.5px/1 var(--sans);
+  color: rgba(255,255,255,0.62);
+}

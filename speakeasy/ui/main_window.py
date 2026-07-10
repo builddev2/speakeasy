@@ -6,6 +6,7 @@ selectors on the main thread, and AppDelegate calls show() on launch and
 Dock reopen.
 """
 
+import objc
 from Foundation import NSObject
 
 from speakeasy.engine import State
@@ -15,7 +16,7 @@ from speakeasy.ui.webwindow import WebWindow
 
 class MainWindowController(NSObject):
     def initWithEngine_(self, engine):
-        self = self.init()
+        self = objc.super(MainWindowController, self).init()
         if self is None:
             return None
         self.engine = engine
@@ -60,6 +61,7 @@ class MainWindowController(NSObject):
 
     # -- bridge handlers (main thread) ----------------------------------------
 
+    @objc.python_method
     def _state_payload(self):
         state = self.engine.state
         elapsed = 0.0
@@ -74,20 +76,25 @@ class MainWindowController(NSObject):
             "progressText": self._progress_text,
         }
 
+    @objc.python_method
     def _push_state(self):
         self._web.emit("state", self._state_payload())
 
+    @objc.python_method
     def _get_state(self, params, respond):
         respond(self._state_payload())
 
+    @objc.python_method
     def _begin_meeting(self, params, respond):
         self.engine.begin_meeting()  # submits to control internally
         respond(True)
 
+    @objc.python_method
     def _end_meeting(self, params, respond):
         self.engine.end_meeting()
         respond(True)
 
+    @objc.python_method
     def _open_window(self, params, respond):
         name = params.get("name")
         if name == "meetings":
@@ -110,6 +117,7 @@ class MainWindowController(NSObject):
                 self.training_window.showForProfile_(self.engine.profile)
         respond(True)
 
+    @objc.python_method
     def _quit(self, params, respond):
         respond(True)
         from AppKit import NSApplication

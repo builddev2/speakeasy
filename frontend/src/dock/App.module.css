@@ -1,0 +1,66 @@
+.body {
+  padding: 8px 18px 16px;
+  height: calc(100% - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.primaryIdle {
+  margin-top: 20px;
+}
+
+.primaryRecording {
+  margin-top: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rowDisabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.foot {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.quit {
+  font: 400 12.5px/1 var(--sans);
+  color: rgba(255,255,255,0.32);
+  text-decoration: none;
+}
+
+.quit:hover {
+  color: rgba(255,255,255,0.5);
+}
+
+.name {
+  color: rgba(255,255,255,0.9);
+  font-weight: 600;
+}
+
+.recStatus {
+  margin-top: 9px;
+}
+
+.pillBadge {
+  font: 500 11.5px/1 var(--sans);
+  color: #F0B34A;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(240,179,74,0.13);
+  border: 0.5px solid rgba(240,179,74,0.25);
+}
+
+.timer {
+  font: 600 12.5px/1 var(--mono);
+  color: rgba(255,255,255,0.7);
+  letter-spacing: .4px;
+}

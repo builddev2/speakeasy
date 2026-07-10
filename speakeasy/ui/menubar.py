@@ -276,7 +276,7 @@ class StatusItemController(NSObject):
 
     def meetingSaved_(self, meeting_id):
         if self.meetings_window is not None:
-            self.meetings_window.reload()
+            self.meetings_window.meetingSaved_(meeting_id)
 
     # -- profile menu -----------------------------------------------------
 

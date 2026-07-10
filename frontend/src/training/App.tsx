@@ -1,11 +1,33 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
+import { bridge } from '../bridge';
 import styles from './App.module.css';
 
 interface TrainingAppProps {
   operatorName?: string;
 }
+
+interface SessionInfo {
+  name: string;
+  done: boolean;
+  suggested: boolean;
+}
+
+interface PracticeState {
+  status: string;
+  phrase: string | null;
+  feedback: string[];
+  finished: boolean;
+}
+
+const MOCK_SESSIONS: SessionInfo[] = [
+  { name: 'Everyday phrases', done: true, suggested: false },
+  { name: 'Tech & jargon', done: true, suggested: false },
+  { name: 'Names & proper nouns', done: true, suggested: false },
+  { name: 'Numbers & units', done: false, suggested: true },
+  { name: 'Tricky words & homophones', done: false, suggested: false },
+];
 
 function CheckIcon() {
   return (
@@ -15,36 +37,120 @@ function CheckIcon() {
   );
 }
 
-const CHECKED_SESSIONS = ['Everyday phrases', 'Tech & jargon', 'Names & proper nouns'];
-
 export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
+  const [sessions, setSessions] = useState<SessionInfo[]>(bridge.embedded ? [] : MOCK_SESSIONS);
   const [practiceText, setPracticeText] = useState('');
+  const [practice, setPractice] = useState<PracticeState | null>(null);
+  const [profileName, setProfileName] = useState(operatorName);
+
+  function refreshSessions() {
+    void bridge.call<{ sessions: SessionInfo[]; profileName: string }>('training.listSessions')
+      .then(({ sessions: s, profileName: p }) => {
+        setSessions(s);
+        setProfileName(p);
+      })
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    if (!bridge.embedded) return;
+    refreshSessions();
+    const offPrompt = bridge.on('training.prompt', (payload) => {
+      const { text, status } = payload as { text: string; status: string };
+      setPractice((current) => ({
+        status,
+        phrase: text,
+        feedback: current?.feedback ?? [],
+        finished: false,
+      }));
+    });
+    const offFeedback = bridge.on('training.feedback', (payload) => {
+      const { line } = payload as { line: string };
+      setPractice((current) =>
+        current === null
+          ? null
+          : { ...current, feedback: [...current.feedback.slice(-3), line] },
+      );
+    });
+    const offDone = bridge.on('training.done', (payload) => {
+      const { message } = payload as { message: string };
+      setPractice((current) =>
+        current === null
+          ? { status: message, phrase: null, feedback: [], finished: true }
+          : { ...current, status: message, phrase: null, finished: true },
+      );
+      refreshSessions();
+    });
+    return () => {
+      offPrompt();
+      offFeedback();
+      offDone();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function startSession(name: string) {
+    if (bridge.embedded) {
+      setPractice({ status: 'Starting session…', phrase: null, feedback: [], finished: false });
+      void bridge.call('training.startSession', { name }).catch(() => setPractice(null));
+    } else {
+      console.log('start session', name);
+    }
+  }
+
+  function startPractice() {
+    const term = practiceText.trim();
+    if (term === '') return;
+    setPracticeText('');
+    if (bridge.embedded) {
+      setPractice({ status: 'Starting…', phrase: null, feedback: [], finished: false });
+      void bridge.call('training.practice', { text: term }).catch(() => setPractice(null));
+    } else {
+      console.log('practice', term);
+    }
+  }
 
   return (
     <GlassPanel width={640} height={440}>
-      <TitleBar title={<>Training — <strong>{operatorName}</strong></>} />
+      <TitleBar title={<>Training — <strong>{profileName}</strong></>} />
       <div className={styles.split}>
         <div className={styles.sidebar}>
           <span className={styles.heading}>Sessions</span>
-          {CHECKED_SESSIONS.map((name) => (
-            <div className={styles.item} key={name}>
-              <CheckIcon />
-              <span className={styles.name}>{name}</span>
-            </div>
+          {sessions.map((s) => (
+            <button
+              key={s.name}
+              className={
+                s.suggested
+                  ? `${styles.item} ${styles.itemCurrent} ${styles.itemClickable}`
+                  : `${styles.item} ${styles.itemClickable}`
+              }
+              onClick={() => startSession(s.name)}
+            >
+              {s.done ? <CheckIcon /> : <span className={styles.bullet} />}
+              <span className={s.done ? styles.name : `${styles.name} ${styles.nameTrunc}`}>{s.name}</span>
+              {s.suggested && <span className={styles.star}>★</span>}
+            </button>
           ))}
-          <div className={`${styles.item} ${styles.itemCurrent}`}>
-            <span className={styles.bullet} />
-            <span className={styles.name}>Numbers &amp; units</span>
-            <span className={styles.star}>★</span>
-          </div>
-          <div className={styles.item}>
-            <span className={styles.bullet} />
-            <span className={`${styles.name} ${styles.nameTrunc}`}>Tricky words &amp; homophones</span>
-          </div>
         </div>
         <div className={styles.detail}>
-          <span className={styles.intro}>Short read-aloud sessions teach Speakeasy your words.</span>
-          <h2 className={styles.headline}>Pick a session on the left, or practice your own words below.</h2>
+          {practice === null ? (
+            <>
+              <span className={styles.intro}>Short read-aloud sessions teach Speakeasy your words.</span>
+              <h2 className={styles.headline}>Pick a session on the left, or practice your own words below.</h2>
+            </>
+          ) : (
+            <>
+              <span className={styles.intro}>{practice.status}</span>
+              {practice.phrase !== null && <h2 className={styles.phrase}>"{practice.phrase}"</h2>}
+              {practice.feedback.length > 0 && (
+                <div className={styles.feedback}>
+                  {practice.feedback.map((line, i) => (
+                    <span key={i}>{line}</span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
           <div className={styles.inputRow}>
             <input
               className={styles.textInput}
@@ -52,8 +158,11 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
               placeholder="Your own word or phrase…"
               value={practiceText}
               onChange={(event) => setPracticeText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') startPractice();
+              }}
             />
-            <button className={styles.practiceBtn} onClick={() => console.log('practice', practiceText)}>
+            <button className={styles.practiceBtn} onClick={startPractice}>
               Practice
             </button>
           </div>

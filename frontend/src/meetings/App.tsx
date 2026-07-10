@@ -19,11 +19,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [renameText, setRenameText] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const confirmTimer = useRef<number | null>(null);
+  const selectedIdRef = useRef<string | null>(bridge.embedded ? null : MEETINGS[0].id);
 
   function select(id: string | null, metas: MeetingMeta[]) {
     setRenaming(false);
     setConfirmingDelete(false);
     const target = id !== null && metas.some((m) => m.id === id) ? id : metas[0]?.id ?? null;
+    selectedIdRef.current = target;
     setSelectedId(target);
     if (!bridge.embedded) {
       setDetail(MEETINGS.find((m) => m.id === target) ?? null);
@@ -46,8 +48,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   useEffect(() => {
     if (!bridge.embedded) return;
     refresh(null);
-    return bridge.on('meetings.changed', () => refresh(selectedId));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return bridge.on('meetings.changed', () => refresh(selectedIdRef.current));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
+    };
   }, []);
 
   function onDelete() {

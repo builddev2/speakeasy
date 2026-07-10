@@ -133,3 +133,24 @@
 .spacer {
   margin-left: auto;
 }
+
+.renameInput {
+  font: 600 19px/1.1 var(--sans);
+  letter-spacing: -0.3px;
+  color: rgba(255,255,255,0.97);
+  background: rgba(0,0,0,0.28);
+  border: 1.5px solid var(--coral-1);
+  border-radius: 8px;
+  padding: 2px 8px;
+  outline: none;
+  width: 100%;
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 400 13px/1.4 var(--sans);
+  color: rgba(255,255,255,0.4);
+}

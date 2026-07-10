@@ -1,0 +1,37 @@
+.hero {
+  position: relative;
+  margin-top: 14px;
+  height: 52px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(0,0,0,0.28), rgba(0,0,0,0.14));
+  border: 0.5px solid rgba(255,255,255,0.08);
+}
+
+.bloom {
+  position: absolute;
+  inset: 0;
+  filter: blur(20px);
+  animation: bloom 3s ease-in-out infinite;
+  background: linear-gradient(90deg, rgba(255,59,48,0.5), rgba(255,159,10,0.5), rgba(255,214,10,0.45),
+              rgba(48,209,88,0.45), rgba(10,132,255,0.5), rgba(191,90,242,0.5));
+}
+
+.bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.bar {
+  display: block;
+  width: 4px;
+  height: 100%;
+  border-radius: 2.5px;
+  transform-origin: bottom;
+}
+
+@keyframes bloom { 0%,100% { opacity: 0.5; } 50% { opacity: 0.85; } }

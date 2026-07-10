@@ -1,0 +1,135 @@
+.split {
+  display: flex;
+  height: calc(100% - 34px);
+}
+
+.sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  padding: 12px 8px;
+  border-right: 0.5px solid rgba(255,255,255,0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(255,255,255,0.02);
+  overflow-y: auto;
+}
+
+.heading {
+  font: 600 11px/1 var(--sans);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+  padding: 4px 10px 8px;
+}
+
+.item {
+  padding: 9px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 0.5px solid transparent;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+}
+
+.itemActive {
+  background: rgba(235,152,93,0.16);
+  border-color: rgba(235,152,93,0.28);
+}
+
+.itemTitle {
+  font: 400 13.5px/1.3 var(--sans);
+  color: rgba(255,255,255,0.62);
+}
+
+.itemTitleActive {
+  color: rgba(255,255,255,0.96);
+  font-weight: 600;
+}
+
+.itemSub {
+  margin-top: 3px;
+  font: 400 11.5px/1 var(--sans);
+  color: rgba(255,255,255,0.35);
+}
+
+.itemSubActive {
+  color: rgba(255,255,255,0.5);
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dTitle {
+  font: 600 19px/1.1 var(--sans);
+  letter-spacing: -0.3px;
+  color: rgba(255,255,255,0.97);
+}
+
+.meta {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 400 12.5px/1 var(--sans);
+  color: rgba(255,255,255,0.62);
+}
+
+.sep {
+  opacity: 0.4;
+}
+
+.transcript {
+  margin-top: 14px;
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.30);
+  border: 0.5px solid rgba(255,255,255,0.08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.lines {
+  padding: 14px 16px;
+  font: 400 12px/1.7 var(--mono);
+}
+
+.fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(20,22,24,0), rgba(18,20,22,0.75));
+}
+
+.time {
+  color: rgba(235,152,93,0.72);
+}
+
+.speaker {
+  font-weight: 600;
+}
+
+.text {
+  color: rgba(255,255,255,0.82);
+}
+
+.actionRow {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.spacer {
+  margin-left: auto;
+}

@@ -1,0 +1,79 @@
+:root {
+  /* Brand */
+  --coral-1: #E8955A;
+  --coral-2: #D97844;
+  --red-1:   #FF5A4E;
+  --red-2:   #E23B32;
+
+  /* Semantic status */
+  --green:   #3DDC84;
+  --rec-red: #FF453A;
+  --amber:   #F0B34A;
+
+  /* Neutrals / text on dark glass */
+  --text-hi: rgba(255,255,255,0.97);
+  --text:    rgba(255,255,255,0.88);
+  --text-mid:rgba(255,255,255,0.62);
+  --text-lo: rgba(255,255,255,0.40);
+  --text-xlo:rgba(255,255,255,0.32);
+
+  /* Glass surfaces */
+  --glass-panel: linear-gradient(180deg, rgba(42,46,48,0.52), rgba(22,25,26,0.55));
+  --glass-fill:  rgba(255,255,255,0.08);
+  --glass-fill-2:rgba(255,255,255,0.05);
+  --hairline:    rgba(255,255,255,0.16);
+  --hairline-lo: rgba(255,255,255,0.07);
+
+  /* Speaker palette (transcript color-coding) */
+  --sp-1:#6fd8b0; --sp-2:#F0B34A; --sp-3:#C08CF2; --sp-4:#6EA8FF;
+  --sp-5:#7ED97E; --sp-6:#F0895A; --sp-7:#DE8FB4;
+
+  /* Type */
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, monospace;
+
+  /* Elevation */
+  --shadow-panel: inset 0 1px 0 rgba(255,255,255,0.14),
+                  0 24px 60px -18px rgba(0,0,0,0.65),
+                  0 3px 12px rgba(0,0,0,0.4);
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: #0c1310;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: -10%;
+  z-index: 0;
+  filter: saturate(1.05);
+  background:
+    radial-gradient(closest-side at 22% 26%, rgba(232,149,90,0.55), transparent 70%),
+    radial-gradient(closest-side at 82% 18%, rgba(86,150,255,0.45), transparent 70%),
+    radial-gradient(closest-side at 68% 82%, rgba(191,90,242,0.42), transparent 70%),
+    radial-gradient(closest-side at 14% 88%, rgba(48,209,120,0.40), transparent 70%),
+    linear-gradient(160deg, #16241d, #0c1310 70%);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes pill { 0%,100% { transform: scaleY(0.24); } 50% { transform: scaleY(1); } }

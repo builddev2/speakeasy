@@ -81,10 +81,16 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
       );
       refreshSessions();
     });
+    const offSessions = bridge.on('training.sessions', (payload) => {
+      const { sessions: s, profileName: p } = payload as { sessions: SessionInfo[]; profileName: string };
+      setSessions(s);
+      setProfileName(p);
+    });
     return () => {
       offPrompt();
       offFeedback();
       offDone();
+      offSessions();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

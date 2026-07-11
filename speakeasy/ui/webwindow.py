@@ -96,6 +96,13 @@ class WebWindow:
         self.window = window
 
         config = WKWebViewConfiguration.alloc().init()
+        # Vite emits <script type="module" crossorigin> tags; WebKit treats
+        # file:// as an opaque origin and blocks cross-origin module fetches,
+        # so without these two switches the page renders but its JS silently
+        # never runs (blank window). Both are long-standing WebKit settings
+        # reachable only through KVC.
+        config.preferences().setValue_forKey_(True, "allowFileAccessFromFileURLs")
+        config.setValue_forKey_(True, "allowUniversalAccessFromFileURLs")
         self._script_handler = script_handler_cls.alloc().initWithOwner_(self)
         config.userContentController().addScriptMessageHandler_name_(
             self._script_handler, "speakeasy"

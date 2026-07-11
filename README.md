@@ -28,6 +28,9 @@ for the `.venv` setup).
 
 ### 1. Build the app
 
+Needs Node.js/npm on `PATH` (one-time build prerequisite — `build_app.sh`
+builds the web UI it embeds and never fetches anything at runtime):
+
 ```bash
 cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && scripts/build_app.sh
 ```
@@ -235,6 +238,14 @@ full snapshot instead: `.venv/bin/pip install -r requirements.lock.txt`. Build
 tooling (pytest, pyinstaller) lives in `requirements-dev.txt`.
 
 ### 2. Run it
+
+The dock, meetings, and training windows are WKWebViews hosting a built
+frontend — build it once (needs Node.js/npm; rebuild after editing anything
+under `frontend/`):
+
+```bash
+npm --prefix frontend ci && npm --prefix frontend run build
+```
 
 ```bash
 .venv/bin/python -m speakeasy          # menu-bar app (same as the .app)

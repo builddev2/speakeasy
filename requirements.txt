@@ -27,3 +27,6 @@ pyobjc-core==12.2.1
 pyobjc-framework-Cocoa==12.2.1
 pyobjc-framework-Quartz==12.2.1
 pyobjc-framework-ApplicationServices==12.2.1
+# Hosts the built frontend/ pages (dock, meetings, training windows) in
+# transparent WKWebViews — see ui/webwindow.py.
+pyobjc-framework-WebKit==12.2.1

@@ -98,11 +98,15 @@ class MeetingsWindowController(NSObject):
         panel.setNameFieldStringValue_(f"{meeting.title}.txt")
 
         def completion(response):
-            if response == NSModalResponseOK:
-                path = str(panel.URL().path())
-                render = meetings.render_md if path.endswith(".md") else meetings.render_txt
-                with open(path, "w", encoding="utf-8") as fh:
-                    fh.write(render(meeting))
-            respond(True)
+            try:
+                if response == NSModalResponseOK:
+                    path = str(panel.URL().path())
+                    render = meetings.render_md if path.endswith(".md") else meetings.render_txt
+                    with open(path, "w", encoding="utf-8") as fh:
+                        fh.write(render(meeting))
+            except OSError as exc:
+                print(f"Meeting export failed: {exc}")
+            finally:
+                respond(True)
 
         panel.beginSheetModalForWindow_completionHandler_(self._web.window, completion)

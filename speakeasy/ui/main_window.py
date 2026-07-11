@@ -23,6 +23,12 @@ class MainWindowController(NSObject):
         self.meetings_window = None
         self.training_window = None
         self._progress_text = None
+        # Set by menubar.py after both controllers exist: when present, this
+        # is the single owner of meetings/training windows and _open_window
+        # delegates to it instead of building a second, competing instance
+        # (two TrainingWindowControllers means two engine.pause() calls and
+        # two stacked hotkey event taps — see CLAUDE.md's threading model).
+        self.window_owner = None
 
         dispatcher = BridgeDispatcher()
         dispatcher.register("app.getState", self._get_state)
@@ -56,6 +62,10 @@ class MainWindowController(NSObject):
 
     def meetingSaved_(self, meeting_id):
         self._push_state()
+        # With window_owner set, self.meetings_window stays None forever and
+        # this is a no-op — the owner (StatusItemController) forwards to its
+        # own cached meetings window instead, which is now the authoritative
+        # one. Kept for the no-owner fallback path.
         if self.meetings_window is not None:
             self.meetings_window.meetingSaved_(meeting_id)
 
@@ -97,6 +107,18 @@ class MainWindowController(NSObject):
     @objc.python_method
     def _open_window(self, params, respond):
         name = params.get("name")
+        if self.window_owner is not None:
+            # StatusItemController is the single owner of meetings/training
+            # windows once set (see menubar.py); delegate rather than
+            # building a second, competing instance here.
+            if name == "meetings":
+                self.window_owner.openMeetings_(None)
+            elif name == "training":
+                self.window_owner.openTraining_(None)
+            respond(True)
+            return
+        # Fallback for when no owner is set (e.g. tests instantiating this
+        # controller standalone): keep the old local-cache behavior.
         if name == "meetings":
             if self.meetings_window is None:
                 from speakeasy.ui.meetings_window import MeetingsWindowController

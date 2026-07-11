@@ -18,7 +18,6 @@ interface PracticeState {
   status: string;
   phrase: string | null;
   feedback: string[];
-  finished: boolean;
 }
 
 const MOCK_SESSIONS: SessionInfo[] = [
@@ -61,7 +60,6 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
         status,
         phrase: text,
         feedback: current?.feedback ?? [],
-        finished: false,
       }));
     });
     const offFeedback = bridge.on('training.feedback', (payload) => {
@@ -76,8 +74,8 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
       const { message } = payload as { message: string };
       setPractice((current) =>
         current === null
-          ? { status: message, phrase: null, feedback: [], finished: true }
-          : { ...current, status: message, phrase: null, finished: true },
+          ? { status: message, phrase: null, feedback: [] }
+          : { ...current, status: message, phrase: null },
       );
       refreshSessions();
     });
@@ -97,7 +95,7 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
 
   function startSession(name: string) {
     if (bridge.embedded) {
-      setPractice({ status: 'Starting session…', phrase: null, feedback: [], finished: false });
+      setPractice({ status: 'Starting session…', phrase: null, feedback: [] });
       void bridge.call('training.startSession', { name }).catch(() => setPractice(null));
     } else {
       console.log('start session', name);
@@ -109,7 +107,7 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
     if (term === '') return;
     setPracticeText('');
     if (bridge.embedded) {
-      setPractice({ status: 'Starting…', phrase: null, feedback: [], finished: false });
+      setPractice({ status: 'Starting…', phrase: null, feedback: [] });
       void bridge.call('training.practice', { text: term }).catch(() => setPractice(null));
     } else {
       console.log('practice', term);

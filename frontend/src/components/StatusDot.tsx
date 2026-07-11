@@ -1,7 +1,7 @@
 import styles from './StatusDot.module.css';
 
 interface StatusDotProps {
-  variant: 'green' | 'rec';
+  variant: 'green' | 'rec' | 'amber';
 }
 
 export function StatusDot({ variant }: StatusDotProps) {

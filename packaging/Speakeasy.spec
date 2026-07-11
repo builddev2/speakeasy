@@ -47,8 +47,11 @@ a = Analysis(
             "speakeasy.ui.main_window",
             "speakeasy.ui.permissions",
             "speakeasy.ui.overlay",
+            "speakeasy.ui.webwindow",
+            "speakeasy.ui.webbridge",
             "speakeasy.cli",
             "speakeasy.diarizer",
+            "WebKit",
         ]
     ),
     excludes=[

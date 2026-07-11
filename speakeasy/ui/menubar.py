@@ -276,7 +276,7 @@ class StatusItemController(NSObject):
 
     def meetingSaved_(self, meeting_id):
         if self.meetings_window is not None:
-            self.meetings_window.reload()
+            self.meetings_window.meetingSaved_(meeting_id)
 
     # -- profile menu -----------------------------------------------------
 
@@ -385,6 +385,13 @@ class StatusItemController(NSObject):
         )
 
     def openTraining_(self, sender):
+        # This is now the single entry point for opening Training (the menu
+        # item's own enabled state gates the native menu, but this is also
+        # reached by delegation from the dock window's JS button, which has
+        # no equivalent native disablement) — so the profile guard has to
+        # live here too, matching the old dock-side check exactly.
+        if self.engine.profile is None:
+            return
         from .training_window import TrainingWindowController
 
         if self.training_window is None:
@@ -459,6 +466,11 @@ class AppDelegate(NSObject):
         from .main_window import MainWindowController
 
         self.main_window = MainWindowController.alloc().initWithEngine_(engine)
+        # Single shared owner of meetings/training windows: without this,
+        # opening Training from the Dock window builds a second
+        # TrainingWindowController alongside the status item's, doubling
+        # engine.pause() calls and hotkey event taps (see CLAUDE.md).
+        self.main_window.window_owner = self.controller
         NSApplication.sharedApplication().setMainMenu_(
             _build_main_menu(self.controller)
         )

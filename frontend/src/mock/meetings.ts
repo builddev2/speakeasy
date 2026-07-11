@@ -1,18 +1,25 @@
 export interface TranscriptLine {
   time: string;
-  speaker: string;
+  speakerNumber: number;
+  speakerLabel: string;
   text: string;
 }
 
-export interface Meeting {
+export interface MeetingMeta {
   id: string;
   title: string;
   subtitle: string;
   date: string;
   duration: string;
   speakerCount: number;
+}
+
+export interface MeetingDetail extends MeetingMeta {
   lines: TranscriptLine[];
 }
+
+/** @deprecated kept as alias for phase-1 call sites */
+export type Meeting = MeetingDetail;
 
 export const SPEAKER_PALETTE = [
   '#6fd8b0',
@@ -30,10 +37,10 @@ export function speakerColor(speakerNumber: number, colorCodeSpeakers: boolean):
 }
 
 function line(time: string, speakerNumber: number, text: string): TranscriptLine {
-  return { time: `[${time}]`, speaker: `Speaker ${speakerNumber}:`, text };
+  return { time: `[${time}]`, speakerNumber, speakerLabel: `Speaker ${speakerNumber}`, text };
 }
 
-export const MEETINGS: Meeting[] = [
+export const MEETINGS: MeetingDetail[] = [
   {
     id: 'meeting-1',
     title: 'Meeting — Jul 8, 7:43 PM',

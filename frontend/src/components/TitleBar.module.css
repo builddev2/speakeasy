@@ -27,3 +27,6 @@
   font: 600 13px/1 var(--sans);
   color: rgba(255,255,255,0.72);
 }
+
+:global(html.embedded) .light { display: none; }
+:global(html.embedded) .title { margin-left: 62px; }

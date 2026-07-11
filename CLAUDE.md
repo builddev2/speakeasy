@@ -129,6 +129,14 @@ rebuilds.
   `False` so closing that window doesn't quit the background service, and
   `applicationShouldHandleReopen_hasVisibleWindows_` reopens it on a Dock
   click.
+- **The three windows are web-rendered** (`ui/webwindow.py` hosts the built
+  `frontend/` pages in transparent WKWebViews over the usual glass windows;
+  `ui/webbridge.py` is the pure-logic bridge half, tested without WebKit).
+  All webview calls are main-thread only — engine callbacks keep hopping via
+  `performSelectorOnMainThread`, then `evaluateJavaScript`. Building the app
+  (and running from source) needs `npm --prefix frontend run build` first;
+  node/npm is a build-time-only dependency, nothing web ships beyond the
+  static files in `Resources/frontend/`.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.

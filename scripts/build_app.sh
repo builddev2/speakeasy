@@ -60,6 +60,19 @@ fi
 
 [ -f assets/Speakeasy.icns ] || "$VENV/python" scripts/make_icon.py
 
+# Build the web UI (needs node/npm once at build time — never at runtime).
+if ! command -v npm >/dev/null 2>&1; then
+    echo "error: npm not found — install Node.js; it is needed at build time to build the UI"
+    exit 1
+fi
+echo "Building frontend…"
+npm --prefix frontend ci
+npm --prefix frontend run build
+if [ ! -f frontend/dist/dock.html ]; then
+    echo "error: frontend build produced no dist/dock.html"
+    exit 1
+fi
+
 echo "==> PyInstaller build"
 rm -rf build dist
 "$VENV/python" -m PyInstaller --noconfirm --distpath dist --workpath build \
@@ -73,6 +86,9 @@ echo "==> Bundling diarization models ($(du -sh "$DIAR" | cut -f1))"
 mkdir -p "$APP/Contents/Resources/diarization"
 rsync -aL "$DIAR/segmentation.onnx" "$DIAR/embedding.onnx" "$APP/Contents/Resources/diarization/"
 
+echo "==> Bundling frontend"
+rsync -a --delete frontend/dist/ "$APP/Contents/Resources/frontend/"
+
 echo "==> Sanity checks"
 METALLIB=$(find "$APP" -path "*mlx/lib/mlx.metallib" | head -1)
 [ -n "$METALLIB" ] || { echo "error: mlx.metallib missing from bundle"; exit 1; }
@@ -83,6 +99,7 @@ SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
 [ -f "$APP/Contents/Resources/diarization/segmentation.onnx" ] \
     && [ -f "$APP/Contents/Resources/diarization/embedding.onnx" ] \
     || { echo "error: diarization models missing from bundle"; exit 1; }
+[ -f "$APP/Contents/Resources/frontend/dock.html" ] || { echo "error: frontend missing from bundle"; exit 1; }
 LEFTOVERS=$(find "$APP" \( -iname "*librosa*" -o -iname "*numba*" -o -iname "*llvmlite*" \) | head -3)
 [ -z "$LEFTOVERS" ] || { echo "error: excluded packages leaked into bundle:"; echo "$LEFTOVERS"; exit 1; }
 

@@ -10,3 +10,14 @@
               0 24px 60px -18px rgba(0,0,0,0.65),
               0 3px 12px rgba(0,0,0,0.4);
 }
+
+/* Inside a native window the panel IS the window: native corners/shadow,
+   real blur behind — so no radius/border/backdrop-filter, lighter tint. */
+.embeddedPanel {
+  border-radius: 0;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(42,46,48,0.30), rgba(22,25,26,0.34));
+}

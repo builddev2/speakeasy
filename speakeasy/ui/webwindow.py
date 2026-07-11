@@ -62,7 +62,22 @@ def _make_handler_classes():
         def webView_didFinishNavigation_(self, webview, navigation):
             self.owner._on_page_loaded()
 
-    _handler_classes = (SpeakeasyScriptHandler, SpeakeasyNavDelegate)
+    from AppKit import NSView
+
+    class SpeakeasyDragStrip(NSView):
+        """Transparent strip over the webview's titlebar area.
+
+        WKWebView claims every mouse event, so with full-size content the
+        window can't be dragged at all. This view sits above the webview in
+        the top strip (the page's own titlebar row) and forwards drags to
+        the window; the traffic lights live in the titlebar layer above it
+        and stay clickable.
+        """
+
+        def mouseDown_(self, event):
+            self.window().performWindowDragWithEvent_(event)
+
+    _handler_classes = (SpeakeasyScriptHandler, SpeakeasyNavDelegate, SpeakeasyDragStrip)
     return _handler_classes
 
 
@@ -79,6 +94,7 @@ class WebWindow:
             NSAppearance,
             NSAppearanceNameDarkAqua,
             NSViewHeightSizable,
+            NSViewMinYMargin,
             NSViewWidthSizable,
         )
         from Foundation import NSMakeRect, NSURL
@@ -86,7 +102,7 @@ class WebWindow:
 
         from speakeasy.ui import glass
 
-        script_handler_cls, nav_delegate_cls = _make_handler_classes()
+        script_handler_cls, nav_delegate_cls, drag_strip_cls = _make_handler_classes()
 
         self._dispatcher = dispatcher
         self._queue = EvalQueue()
@@ -119,6 +135,15 @@ class WebWindow:
         webview.setNavigationDelegate_(self._nav_delegate)
         effect.addSubview_(webview)
         self._webview = webview
+
+        # Added after the webview so it sits above it: the top strip (the
+        # page's titlebar row) becomes the window's drag handle.
+        drag_strip = drag_strip_cls.alloc().initWithFrame_(
+            NSMakeRect(0, height - 34, width, 34)
+        )
+        drag_strip.setAutoresizingMask_(NSViewWidthSizable | NSViewMinYMargin)
+        effect.addSubview_(drag_strip)
+        self._drag_strip = drag_strip
 
         dist = settings.frontend_dist_path()
         page_path = dist / f"{page}.html"

@@ -134,3 +134,21 @@ class TestFormatting:
         lines = segments_to_lines(segs)
         assert [l["speakerNumber"] for l in lines] == [1, 2]
         assert [l["speakerLabel"] for l in lines] == ["Alice", "Bob"]
+
+
+class TestJavaScriptNumberIds:
+    def test_integral_float_id_accepted(self):
+        # JS numbers are doubles: WKScriptMessage delivers {id: 1} as 1.0.
+        d = BridgeDispatcher()
+        d.register("ping", lambda params, respond: respond("pong"))
+        sent = []
+        d.dispatch({"id": 3.0, "method": "ping", "params": {}}, sent.append)
+        kind, call_id, payload = _parse_js(sent[0])
+        assert (kind, call_id, payload) == ("_resolve", 3, "pong")
+
+    def test_non_integral_float_id_ignored(self):
+        d = BridgeDispatcher()
+        d.register("ping", lambda params, respond: respond("pong"))
+        sent = []
+        d.dispatch({"id": 3.5, "method": "ping", "params": {}}, sent.append)
+        assert sent == []

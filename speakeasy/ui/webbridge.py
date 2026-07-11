@@ -36,6 +36,9 @@ class BridgeDispatcher:
         if not isinstance(message, dict):
             return
         call_id = message.get("id")
+        # JS numbers are doubles: WKScriptMessage delivers {id: 1} as 1.0.
+        if isinstance(call_id, float) and call_id.is_integer():
+            call_id = int(call_id)
         method = message.get("method")
         if not isinstance(call_id, int) or not isinstance(method, str):
             return

@@ -15,15 +15,19 @@ import sys
 import time
 from pathlib import Path
 
-from speakeasy import config
-from speakeasy.profiles import Profile
-from speakeasy.transcriber import Transcriber, read_wav_mono_f32
-
 
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
         raise SystemExit(2)
+    # Heavy imports (MLX/Parakeet) are deferred past the arg check so the
+    # no-args usage path stays instant and never loads the model. Run by path
+    # (`python scripts/bench_dictation.py`), so put the repo root on sys.path.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from speakeasy import config
+    from speakeasy.profiles import Profile
+    from speakeasy.transcriber import Transcriber, read_wav_mono_f32
+
     wav_dir = Path(sys.argv[1])
     profile = Profile.load(sys.argv[2]) if len(sys.argv) > 2 else None
 

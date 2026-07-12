@@ -26,6 +26,17 @@ MIN_DURATION_SECONDS = 0.3
 # so past this the stream is abandoned and the mic forcibly released.
 RECORDER_STOP_TIMEOUT_SECONDS = 1.5
 
+# --- Dictation silence trimming ---------------------------------------------
+# Trim leading/trailing silence from a dictation clip before inference. Fewer
+# mel frames = faster; it also tightens Parakeet's per-feature normalization
+# (mean/std are taken over the clip's time axis, so lead/tail silence skews the
+# stats for a short utterance). Meetings are NOT trimmed — see transcriber.py.
+DICTATION_TRIM_ENABLED = True
+# A frame counts as speech when its RMS exceeds max(peak_rms * ratio, floor).
+TRIM_THRESHOLD_RATIO = 0.06     # ~ -24 dB below the loudest frame
+TRIM_ABSOLUTE_FLOOR = 0.005     # RMS below this is treated as silence outright
+TRIM_MARGIN_SECONDS = 0.08      # keep 80 ms each side so onsets aren't clipped
+
 # Play system sounds when recording starts/stops.
 SOUNDS_ENABLED = True
 SOUND_START = "/System/Library/Sounds/Pop.aiff"

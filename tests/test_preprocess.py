@@ -28,7 +28,9 @@ def test_leading_and_trailing_silence_removed():
     out = trim_silence(audio, SR)
     # 0.5 s speech + up to 2 * 80 ms margin, well under the 1.5 s original.
     assert len(out) < len(audio)
-    assert len(out) <= int((0.5 + 2 * config.TRIM_MARGIN_SECONDS) * SR) + SR // 100
+    # 0.5 s speech + 80 ms margin each side + one 25 ms analysis frame (the
+    # tail margin is measured past the end of the last voiced frame).
+    assert len(out) <= int((0.5 + 2 * config.TRIM_MARGIN_SECONDS + 0.025) * SR) + SR // 100
 
 
 def test_margin_preserves_onset():
@@ -55,3 +57,16 @@ def test_interior_silence_between_words_is_kept():
 def test_empty_input_returns_empty():
     out = trim_silence(np.empty(0, dtype=np.float32), SR)
     assert len(out) == 0
+
+
+def test_disabled_returns_input_unchanged(monkeypatch):
+    monkeypatch.setattr(config, "DICTATION_TRIM_ENABLED", False)
+    audio = np.concatenate([_silence(0.5), _tone(0.5), _silence(0.5)])
+    out = trim_silence(audio, SR)
+    assert np.array_equal(out, audio)
+
+
+def test_too_short_to_frame_returned_unchanged():
+    audio = _tone(0.01)  # 160 samples < one 400-sample frame
+    out = trim_silence(audio, SR)
+    assert np.array_equal(out, audio)

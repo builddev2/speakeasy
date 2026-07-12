@@ -46,5 +46,5 @@ def trim_silence(audio: np.ndarray, sample_rate: int) -> np.ndarray:
 
     margin = int(config.TRIM_MARGIN_SECONDS * sample_rate)
     start = max(0, starts[voiced[0]] - margin)
-    end = min(len(audio), starts[voiced[-1]] + margin)
+    end = min(len(audio), starts[voiced[-1]] + frame + margin)
     return audio[start:end]

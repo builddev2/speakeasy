@@ -114,6 +114,19 @@ rebuilds.
   branch is `master`.
 - **UI follows Apple glassmorphism** (translucent "glass" styling — see
   `ui/glass.py`, `ui/overlay.py`).
+- **Dictation audio is silence-trimmed before inference** (`preprocess.py`,
+  called at the top of `Transcriber.transcribe`). Meetings (`transcribe_long`)
+  are deliberately *not* trimmed — it would shift transcript timestamps out of
+  sync with the diarization turns `meetings.align_speakers` maps them onto.
+  `trim_silence` never returns an empty array for non-empty input (all-silence
+  clips pass through unchanged, so the model warmup still sees its full second).
+- **Profiles correct two ways** (`profiles.py` `apply()`): exact learned
+  `corrections` (regex) run first, then a `vocabulary` fuzzy snap gated on
+  *both* a phonetic key (`phonetics.py`) and a `difflib` ratio — high-precision
+  by design, so a real word isn't rewritten to a look-alike. Anything that
+  mutates a profile's `vocabulary`/`corrections` must call `_rebuild()`
+  afterwards (as `add_word`/`add_correction` do) or the fuzzy index and the
+  protected-word set go stale until the next reload.
 - **The menu-bar status glyph is a custom template `NSImage`** — a skull at rest
   (`_skull_image()` in `ui/menubar.py`), `mic.fill`/`waveform` while active.
   macOS has no `skull` SF Symbol, so it's drawn in code; keep any new menu-bar

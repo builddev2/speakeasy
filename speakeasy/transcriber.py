@@ -7,7 +7,7 @@ import wave
 from collections.abc import Callable
 from pathlib import Path
 
-from . import config, settings
+from . import config, preprocess, settings
 
 
 class MeetingCancelled(Exception):
@@ -84,6 +84,11 @@ class Transcriber:
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
 
     def transcribe(self, audio: np.ndarray) -> str:
+        # Drop lead/tail silence first: fewer mel frames (latency) and a
+        # tighter per-feature norm (accuracy). Meetings intentionally skip
+        # this — see transcribe_long — to keep timestamps aligned with
+        # diarization.
+        audio = preprocess.trim_silence(audio, config.SAMPLE_RATE)
         # Feed the buffer to the model in-memory — the temp-WAV + ffmpeg
         # round-trip of model.transcribe(path) costs ~100 ms per dictation.
         mel = get_logmel(mx.array(audio), self._model.preprocessor_config)

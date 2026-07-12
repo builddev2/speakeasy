@@ -128,10 +128,14 @@ Click the menu-bar item for:
 
 The speech model is fixed, so it can mishear personal vocabulary — names,
 jargon, technical terms ("Claude" might come out as "clod"). A **profile**
-fixes that with a learned correction layer: you train it once on your words,
-and every future dictation rewrites those misrecognitions automatically. The
-rewrite is a single pre-compiled text substitution, so it adds no latency —
-dictation stays at the usual ~1 second.
+fixes that two ways. It learns **corrections**: you train it once on your
+words, and every future dictation rewrites those exact misrecognitions
+automatically. It also keeps a personal **vocabulary** — any word you add gets
+snapped onto the near-miss spellings the model emits for it ("kubernetis" →
+"Kubernetes"), but only when a word both *sounds* like and closely *spells* the
+vocabulary entry, so ordinary words are left untouched. Both run as cheap text
+passes, so they add no perceptible latency — dictation stays at the usual
+~1 second.
 
 Switch or create profiles from the menu-bar **Profile** submenu. **Guest**
 dictates without corrections. The active profile is shown with a checkmark.
@@ -162,6 +166,11 @@ content ships offline; progress is saved as you go.
   one file per profile, and hand-editable — add corrections directly as
   `"heard": "intended"` pairs. Corrections match whole words,
   case-insensitively; longer phrases win over shorter ones.
+- The `vocabulary` list (words you add during **Custom** training, or by hand)
+  applies the same way to both dictations and meeting transcripts: a near-miss
+  only snaps to a vocabulary word when it clears both a phonetic and a
+  close-spelling check, so a word you actually use isn't rewritten to a
+  look-alike.
 - Training refuses corrections that would rewrite another word the profile
   knows, so real words can't be mapped away by a bad take.
 - Everything stays on-device: profiles are local files; nothing is uploaded.
@@ -283,6 +292,10 @@ Edit `speakeasy/config.py` to change:
 - `MODEL_ID` — the speech model
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
 - `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `PASTE_SETTLE_SECONDS` — timing
+- `DICTATION_TRIM_ENABLED`, `TRIM_*` — trim leading/trailing silence from a
+  dictation before transcription (a touch faster, steadier accuracy)
+- `FUZZY_VOCAB_ENABLED`, `FUZZY_MIN_RATIO`, `FUZZY_MIN_TOKEN_LEN` — vocabulary
+  near-miss snapping sensitivity
 - `OVERLAY_*` — waveform indicator on/off, bar count/size, position, translucency
 - `MEETING_CHUNK_SECONDS`, `MEETING_OVERLAP_SECONDS`, `MEETING_MAX_SECONDS` —
   chunked transcription and the spool size cap
@@ -321,12 +334,21 @@ End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
   use `transcribe_long()`, a from-scratch chunked loop (the same overlap +
   token-merge approach as the library's `transcribe(path, chunk_duration=…)`,
   but without its ffmpeg dependency) with per-chunk cancellation
+- **`preprocess.py`** — trims leading/trailing silence from a dictation before
+  it reaches the model: fewer mel frames (a touch faster) and a tighter
+  per-feature normalization, so a short phrase buried in silence transcribes
+  more reliably. Meetings skip it — trimming would shift transcript timestamps
+  out of sync with the diarization turns they're aligned against
 - **`_mel_shim.py`** — a pure-numpy log-mel filterbank that stands in for
   librosa, so the freeze-fragile numba/llvmlite/scipy tree is dropped from the
   bundle entirely
-- **`profiles.py`** — per-user profiles: personal vocabulary plus learned
-  heard→intended corrections, stored as JSON and applied to each transcript
-  with one pre-compiled regex substitution (microseconds)
+- **`profiles.py`** — per-user profiles: learned heard→intended corrections
+  plus a personal vocabulary, stored as JSON and applied to each transcript.
+  Corrections are one pre-compiled regex pass; the vocabulary adds a second
+  pass that snaps near-miss words onto known terms only when they clear both a
+  phonetic (`phonetics.py`) and a close-spelling gate — still microseconds
+- **`phonetics.py`** — a small vendored Soundex-style phonetic key that gates
+  the vocabulary fuzzy match (no dependency, fully offline)
 - **`training.py`** — the guided training content and alignment: you read a
   line aloud, and the model's actual misrecognitions are saved to the profile
   as corrections

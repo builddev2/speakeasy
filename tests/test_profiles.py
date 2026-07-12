@@ -111,6 +111,15 @@ def test_add_word_dedupes_case_insensitively(make_profile):
     assert p.vocabulary == ["Claude"]
 
 
+def test_add_word_updates_fuzzy_index_without_reload():
+    # A vocab word added at runtime must be usable by the fuzzy snapper
+    # immediately — no app restart / profile reload.
+    p = Profile("t")
+    assert p.apply("kubernetis") == "kubernetis"  # not in vocab yet
+    p.add_word("Kubernetes")
+    assert p.apply("kubernetis") == "Kubernetes"  # snaps right away
+
+
 # -- persistence & loading --------------------------------------------------
 
 

@@ -3,8 +3,10 @@
 The speech model is fixed, so profiles improve accuracy with a correction
 layer: training (training.py) records what the model actually hears when the
 user says their own words, and stores heard → intended mappings here. At
-dictation time apply() rewrites those misrecognitions in the transcript — one
-pre-compiled regex substitution, so it adds no perceptible latency.
+dictation time apply() rewrites those misrecognitions in the transcript: a
+pre-compiled regex for exact learned corrections, then a fuzzy pass that snaps
+near-miss words onto the profile's vocabulary (phonetic key + edit-ratio gate).
+Both are token-cheap, so they add no perceptible latency.
 
 Each profile is a plain JSON file in settings.profiles_dir(), hand-editable:
 
@@ -139,6 +141,7 @@ class Profile:
     def add_word(self, word: str) -> None:
         if normalize(word) not in {normalize(w) for w in self.vocabulary}:
             self.vocabulary.append(word)
+            self._rebuild()
             self.save()
 
     def mark_session_done(self, name: str) -> None:

@@ -140,7 +140,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
                 <span className={styles.sep}>•</span>
                 <span>{detail.duration}</span>
                 <span className={styles.sep}>•</span>
-                <span>{detail.speakerCount} speakers</span>
+                <span>{detail.speakerCount} {detail.speakerCount === 1 ? 'speaker' : 'speakers'}</span>
               </div>
               <div className={styles.transcript}>
                 <div className={styles.lines}>

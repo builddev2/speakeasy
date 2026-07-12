@@ -150,6 +150,7 @@ class StatusItemController(NSObject):
         self.engine = engine
         self.training_window = None  # set lazily by openTraining:
         self.meetings_window = None  # set lazily by openMeetings:
+        self.dock_window = None  # set by AppDelegate once the dock exists
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
             NSVariableStatusItemLength
@@ -326,6 +327,11 @@ class StatusItemController(NSObject):
         settings.set_last_profile(profile.name if profile else None)
         self._rebuild_profile_menu()
         self.engineStateChanged_(self.engine.state.value)
+        # Profile switches don't fire engine.on_state_changed, so push the
+        # dock's state (profileName/canTrain) by hand — we're already on the
+        # main thread here (menu action).
+        if self.dock_window is not None:
+            self.dock_window.engineStateChanged_(self.engine.state.value)
 
     def newProfile_(self, sender):
         alert = NSAlert.alloc().init()
@@ -370,13 +376,7 @@ class StatusItemController(NSObject):
 
     @objc.python_method
     def _sync_train_item(self):
-        can_train = (
-            self.engine.transcriber is not None
-            and self.engine.profile is not None
-            # No training mid-meeting: both want the hotkey and the mic.
-            and self.engine.state
-            not in (State.MEETING_RECORDING, State.MEETING_PROCESSING)
-        )
+        can_train = self.engine.can_train
         self._train_item.setEnabled_(can_train)
         self._train_item.setToolTip_(
             None
@@ -471,6 +471,9 @@ class AppDelegate(NSObject):
         # TrainingWindowController alongside the status item's, doubling
         # engine.pause() calls and hotkey event taps (see CLAUDE.md).
         self.main_window.window_owner = self.controller
+        # Reverse link: profile switches happen in the status-item menu but
+        # must refresh the dock too (no engine state change to ride on).
+        self.controller.dock_window = self.main_window
         NSApplication.sharedApplication().setMainMenu_(
             _build_main_menu(self.controller)
         )

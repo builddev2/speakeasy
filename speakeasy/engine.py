@@ -114,6 +114,17 @@ class DictationEngine:
     def set_profile(self, profile: Profile | None) -> None:
         self.profile = profile
 
+    @property
+    def can_train(self) -> bool:
+        """Training needs a loaded model, a named (non-Guest) profile, and no
+        meeting in flight — training and meetings both want the hotkey and
+        the mic. Single source of truth for the menu item and dock button."""
+        return (
+            self.transcriber is not None
+            and self.profile is not None
+            and self.state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING)
+        )
+
     def pause(self) -> None:
         """Suspend dictation, e.g. while the training window owns the hotkey."""
         self._user_paused = True

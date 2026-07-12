@@ -135,3 +135,65 @@ def test_load_profiles_skips_corrupt_file(profiles_dir, capsys):
 
 def test_list_profiles_empty_for_fresh_dir(profiles_dir):
     assert list_profiles() == []  # no .json files yet
+
+
+# -- fuzzy vocabulary snapping ----------------------------------------------
+
+
+def test_fuzzy_snaps_near_spelling_to_vocab_word():
+    p = Profile("t", vocabulary=["Kubernetes"])
+    assert p.apply("we deployed kubernetis today") == "we deployed Kubernetes today"
+
+
+def test_fuzzy_snaps_misspelled_proper_noun():
+    p = Profile("t", vocabulary=["Anthropic"])
+    assert p.apply("i work at anthropik") == "i work at Anthropic"
+
+
+def test_fuzzy_exact_vocab_word_left_as_written():
+    # An exact (case-insensitive) vocab match is protected: a common-word
+    # homograph like the fruit "apple" is NOT clobbered to the vocab "Apple".
+    p = Profile("t", vocabulary=["Apple"])
+    assert p.apply("i ate an apple") == "i ate an apple"
+
+
+def test_fuzzy_leaves_unrelated_word_alone():
+    p = Profile("t", vocabulary=["Claude"])
+    assert p.apply("the cat sat") == "the cat sat"
+
+
+def test_fuzzy_low_overlap_homophone_does_not_snap():
+    # Passes the phonetic gate but fails the ratio gate — left for corrections.
+    p = Profile("t", vocabulary=["Claude"])
+    assert p.apply("a big clod of dirt") == "a big clod of dirt"
+
+
+def test_fuzzy_preserves_surrounding_punctuation():
+    p = Profile("t", vocabulary=["Kubernetes"])
+    assert p.apply("(kubernetis).") == "(Kubernetes)."
+
+
+def test_fuzzy_ignores_short_tokens():
+    p = Profile("t", vocabulary=["Go"])
+    # "go" is below FUZZY_MIN_TOKEN_LEN, so it is never touched.
+    assert p.apply("we go now") == "we go now"
+
+
+def test_corrections_run_before_fuzzy():
+    # Exact correction wins; fuzzy does not re-touch the produced word.
+    p = Profile("t", vocabulary=["Claude"], corrections={"clod": "Claude"})
+    assert p.apply("hey clod") == "hey Claude"
+
+
+def test_fuzzy_does_not_touch_correction_targets():
+    # "Claude" is a correction target and a vocab word; a correct occurrence
+    # is left exactly as written (no spurious re-snap / casing churn).
+    p = Profile("t", vocabulary=["Claude"], corrections={"clawed": "Claude"})
+    assert p.apply("Claude is here") == "Claude is here"
+
+
+def test_fuzzy_disabled_is_noop(monkeypatch):
+    from speakeasy import config
+    monkeypatch.setattr(config, "FUZZY_VOCAB_ENABLED", False)
+    p = Profile("t", vocabulary=["Kubernetes"])
+    assert p.apply("kubernetis") == "kubernetis"

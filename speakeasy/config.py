@@ -93,3 +93,14 @@ OVERLAY_MAX_BAR_HEIGHT = 34.0 # pt at full voice level
 OVERLAY_MIN_BAR_HEIGHT = 4.0  # pt resting dot
 OVERLAY_BOTTOM_OFFSET = 83.0  # pt above the bottom of the screen
 OVERLAY_ALPHA = 0.4           # bar translucency (lower = more transparent/subtle)
+
+# --- Fuzzy vocabulary correction --------------------------------------------
+# The per-profile `vocabulary` list snaps near-miss transcript words onto the
+# intended word, but only when BOTH gates agree (high precision): a phonetic
+# key match AND a tight edit-distance ratio. Catches model near-spellings of
+# words the user added but never trained ("kubernetis" -> "Kubernetes"); pure
+# homophones with little letter overlap ("clod"->"Claude") do NOT snap and are
+# left to the exact `corrections` layer.
+FUZZY_VOCAB_ENABLED = True
+FUZZY_MIN_RATIO = 0.8        # difflib SequenceMatcher ratio floor to snap
+FUZZY_MIN_TOKEN_LEN = 3      # ignore very short tokens (too collision-prone)

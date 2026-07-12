@@ -20,13 +20,19 @@ import json
 import os
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
 
-from . import settings
+from . import config, settings
+from .phonetics import phonetic_key
 
 # Profile names double as filenames; keep them boring and safe.
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,39}")
 
 _PUNCT_RE = re.compile(r"[^\w\s']+")
+
+# Word tokens for the fuzzy pass: letters and apostrophes, matched in isolation
+# so surrounding punctuation/whitespace is preserved by re.sub.
+_WORD_RE = re.compile(r"[A-Za-z']+")
 
 
 def normalize(text: str) -> str:
@@ -162,21 +168,50 @@ class Profile:
     # -- applying -------------------------------------------------------
 
     def _rebuild(self) -> None:
-        if not self.corrections:
+        # Exact corrections regex (longest-first so phrases beat sub-words).
+        if self.corrections:
+            keys = sorted(self.corrections, key=len, reverse=True)
+            alternation = "|".join(re.escape(k) for k in keys)
+            self._pattern = re.compile(rf"\b(?:{alternation})\b", re.IGNORECASE)
+        else:
             self._pattern = None
-            return
-        # Longest-first so multi-word phrases win over their sub-words.
-        keys = sorted(self.corrections, key=len, reverse=True)
-        alternation = "|".join(re.escape(k) for k in keys)
-        self._pattern = re.compile(rf"\b(?:{alternation})\b", re.IGNORECASE)
+        # Fuzzy vocabulary index: phonetic key -> intended words. Only
+        # single-token vocab entries participate (v1); multi-word phrases are a
+        # documented follow-up. Words never re-snapped: vocab words themselves
+        # (matched case-insensitively) and correction targets.
+        self._vocab_index: dict[str, list[str]] = {}
+        for word in self.vocabulary:
+            if " " in word.strip():
+                continue
+            self._vocab_index.setdefault(phonetic_key(word), []).append(word)
+        self._protected = {normalize(w) for w in self.vocabulary}
+        self._protected |= {normalize(v) for v in self.corrections.values()}
+
+    def _snap_token(self, token: str) -> str:
+        """Snap one word token to a vocab word when both gates pass, else return
+        it unchanged."""
+        low = token.lower()
+        if len(low) < config.FUZZY_MIN_TOKEN_LEN or normalize(token) in self._protected:
+            return token
+        candidates = self._vocab_index.get(phonetic_key(token))
+        if not candidates:
+            return token
+        best, best_ratio = None, config.FUZZY_MIN_RATIO
+        for word in candidates:
+            ratio = SequenceMatcher(None, low, word.lower()).ratio()
+            if ratio >= best_ratio:
+                best, best_ratio = word, ratio
+        return best if best is not None else token
 
     def apply(self, text: str) -> str:
-        """Rewrite learned misrecognitions in a transcript."""
-        if self._pattern is None:
-            return text
-        return self._pattern.sub(
-            lambda m: self.corrections[normalize(m.group(0))], text
-        )
+        """Rewrite learned misrecognitions, then snap vocabulary near-misses."""
+        if self._pattern is not None:
+            text = self._pattern.sub(
+                lambda m: self.corrections[normalize(m.group(0))], text
+            )
+        if config.FUZZY_VOCAB_ENABLED and self._vocab_index:
+            text = _WORD_RE.sub(lambda m: self._snap_token(m.group(0)), text)
+        return text
 
 
 def load_profiles() -> list[Profile]:

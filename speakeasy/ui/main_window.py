@@ -84,6 +84,9 @@ class MainWindowController(NSObject):
             "profileName": profile.name if profile else "Guest",
             "elapsedSeconds": elapsed,
             "progressText": self._progress_text,
+            # Same gate as the menu's Train item; without it the dock button
+            # is a silent no-op for Guest / while the model loads.
+            "canTrain": self.engine.can_train,
         }
 
     @objc.python_method

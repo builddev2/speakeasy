@@ -16,10 +16,11 @@ def _meeting_meta(meeting) -> dict:
         created = datetime.fromisoformat(created)
     minutes = max(1, round(meeting.duration_seconds / 60))
     speaker_count = len({segment.speaker for segment in meeting.segments})
+    speakers = "speaker" if speaker_count == 1 else "speakers"
     return {
         "id": meeting.meeting_id,
         "title": meeting.title,
-        "subtitle": f"{minutes} min · {speaker_count} speakers",
+        "subtitle": f"{minutes} min · {speaker_count} {speakers}",
         "date": created.strftime("%b %-d, %Y · %H:%M"),
         "duration": f"{minutes} min",
         "speakerCount": speaker_count,
@@ -94,7 +95,15 @@ class MeetingsWindowController(NSObject):
 
         meeting = self._load(params)
         panel = NSSavePanel.savePanel()
-        panel.setAllowedFileTypes_(["txt", "md"])
+        # UTType via lookUpClass: AppKit already loads the system framework,
+        # and the pyobjc UniformTypeIdentifiers wrapper isn't a pinned dep.
+        UTType = objc.lookUpClass("UTType")
+        panel.setAllowedContentTypes_(
+            [
+                UTType.typeWithFilenameExtension_("txt"),
+                UTType.typeWithFilenameExtension_("md"),
+            ]
+        )
         panel.setNameFieldStringValue_(f"{meeting.title}.txt")
 
         def completion(response):

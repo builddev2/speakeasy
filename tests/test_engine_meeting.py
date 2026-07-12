@@ -192,3 +192,25 @@ def test_resume_does_not_rearm_hotkey_mid_meeting(meetings_dir, spool_dir):
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     engine.shutdown()
+
+
+def test_can_train_gates(meetings_dir, spool_dir, make_profile):
+    engine = _engine(spool_dir)
+
+    engine.profile = None  # Guest
+    assert engine.can_train is False
+
+    engine.profile = make_profile()
+    assert engine.can_train is True
+
+    engine.transcriber = None  # model still loading
+    assert engine.can_train is False
+    engine.transcriber = FakeTranscriber()
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    assert engine.can_train is False  # meeting owns the hotkey and the mic
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert engine.can_train is True
+    engine.shutdown()

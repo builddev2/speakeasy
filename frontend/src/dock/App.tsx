@@ -18,6 +18,7 @@ interface AppState {
   profileName: string;
   elapsedSeconds: number;
   progressText: string | null;
+  canTrain: boolean;
 }
 
 interface DockAppProps {
@@ -66,6 +67,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     profileName: operatorName,
     elapsedSeconds: 0,
     progressText: null,
+    canTrain: true,
   });
   const [tick, setTick] = useState(0);
   const baselineRef = useRef<number | null>(null);
@@ -187,7 +189,13 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
 
         <div className={isRecording ? `${styles.row} ${styles.rowDisabled}` : styles.row}>
           <GlassButton icon={<MeetingsIcon />} label="Meetings" dim={isRecording} onClick={() => openWindow('meetings')} />
-          <GlassButton icon={<TrainIcon />} label="Train Profile" dim={isRecording} onClick={() => openWindow('training')} />
+          <GlassButton
+            icon={<TrainIcon />}
+            label="Train Profile"
+            dim={isRecording || !app.canTrain}
+            title={app.canTrain ? undefined : 'Pick a profile (not Guest) and wait for the model to load.'}
+            onClick={app.canTrain ? () => openWindow('training') : undefined}
+          />
         </div>
 
         <div className={styles.foot}>

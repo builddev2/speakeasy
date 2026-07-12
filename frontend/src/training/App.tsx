@@ -145,7 +145,7 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
           ) : (
             <>
               <span className={styles.intro}>{practice.status}</span>
-              {practice.phrase !== null && <h2 className={styles.phrase}>"{practice.phrase}"</h2>}
+              {practice.phrase !== null && <h2 className={styles.phrase}>“{practice.phrase}”</h2>}
               {practice.feedback.length > 0 && (
                 <div className={styles.feedback}>
                   {practice.feedback.map((line, i) => (

@@ -12,17 +12,9 @@ import numpy as np
 import sounddevice as sd
 
 from . import config
+from .coreaudio import RecorderBusy, teardown
 
-
-class RecorderBusy(Exception):
-    """start() refused because a previous stop is still unwinding in CoreAudio.
-
-    Opening a new input stream while a prior stop/abort is still executing
-    inside the CoreAudio HAL deadlocks both calls on the HAL mutex (an
-    abandoned, watchdog-timed-out stop is exactly this case). Rather than open
-    concurrently and freeze the whole hotkey pipeline, start() raises this and
-    the engine drops the take, keeping dictation responsive.
-    """
+__all__ = ["Recorder", "RecorderBusy"]
 
 
 class Recorder:
@@ -32,11 +24,6 @@ class Recorder:
         self._stream: sd.InputStream | None = None
         self._recording = False
         self._level = 0.0
-        # Set for the duration of a CoreAudio stream teardown (abort/close).
-        # It gates start()/prewarm() so a new stream is never opened while a
-        # previous stop — including one the watchdog abandoned — is still
-        # running inside the HAL and holding its mutex.
-        self._stopping = threading.Event()
 
     @property
     def level(self) -> float:
@@ -50,9 +37,10 @@ class Recorder:
 
     def prewarm(self) -> None:
         """Open the input stream (stopped) so the first start() is instant."""
-        if self._stopping.is_set():
-            # A prior stop is still unwinding inside CoreAudio; opening now
-            # would deadlock on the HAL mutex (see RecorderBusy / start()).
+        if teardown.in_flight:
+            # A stop — this recorder's or the meeting recorder's — is still
+            # unwinding inside CoreAudio; opening now would deadlock on the HAL
+            # mutex (see coreaudio.teardown / start()).
             return
         if self._stream is None:
             self._stream = sd.InputStream(
@@ -65,11 +53,13 @@ class Recorder:
     def start(self) -> None:
         if self._recording:
             return
-        if self._stopping.is_set():
+        if teardown.in_flight:
             # Don't open a second stream on top of a stop that's still running
             # in the HAL — that is the deadlock this guard exists to prevent.
-            # Drop the take instead; the mic recovers when the stop clears (or
-            # on relaunch if it never does), but the pipeline never freezes.
+            # The stop may be a meeting's, not ours: the HAL mutex is per
+            # process/device, so the guard is too. Drop the take instead; the
+            # mic recovers when the stop clears (or on relaunch if it never
+            # does), but the pipeline never freezes.
             raise RecorderBusy()
         with self._lock:
             self._chunks = []
@@ -123,22 +113,21 @@ class Recorder:
             # to drain — the audio is already harvested above.
             #
             # Mark the teardown in flight across the CoreAudio call: if abort()
-            # itself wedges on the HAL mutex, _stopping stays set (the finally
-            # never runs) and a concurrent start() refuses instead of opening a
-            # second stream that would deadlock against this one.
-            self._stopping.set()
-            try:
-                self._stream.abort()  # kept open for the next recording
-            except Exception:
-                # The device is wedged or gone: drop the stream so the OS
-                # releases the mic and the next start() rebuilds on the default.
+            # itself wedges on the HAL mutex, the marker stays raised (the
+            # context manager never exits) and any concurrent open — dictation's
+            # or a meeting's — refuses instead of deadlocking against this one.
+            with teardown.in_progress():
                 try:
-                    self._stream.close()
+                    self._stream.abort()  # kept open for the next recording
                 except Exception:
-                    pass
-                self._stream = None
-            finally:
-                self._stopping.clear()
+                    # The device is wedged or gone: drop the stream so the OS
+                    # releases the mic and the next start() rebuilds on the
+                    # default device.
+                    try:
+                        self._stream.close()
+                    except Exception:
+                        pass
+                    self._stream = None
         return audio
 
     def force_close(self) -> None:

@@ -10,7 +10,17 @@ import time
 import numpy as np
 import pytest
 
+from speakeasy import coreaudio
 from speakeasy.recorder import Recorder, RecorderBusy
+
+
+@pytest.fixture(autouse=True)
+def clean_guard():
+    """The teardown guard is a process-wide singleton — don't leak a simulated
+    wedge from one test into the next."""
+    coreaudio.teardown.reset()
+    yield
+    coreaudio.teardown.reset()
 
 
 class FakeStream:
@@ -87,33 +97,33 @@ def test_force_close_abandons_stream_without_touching_it():
     assert not stream.closed
 
 
-def test_stop_clears_stopping_flag_on_clean_teardown():
+def test_stop_clears_teardown_marker_on_clean_teardown():
     rec = Recorder()
     _arm(rec, FakeStream())
     rec.stop()
     # A clean abort() returns, so the in-flight marker is cleared and the mic
     # is immediately reusable.
-    assert not rec._stopping.is_set()
+    assert not coreaudio.teardown.in_flight
 
 
 def test_start_refuses_while_a_stop_is_unwinding():
     # The deadlock scenario: the watchdog force_closed a wedged stream (so
     # _stream is None), but that stream's CoreAudio teardown is STILL running
-    # on the abandoned recorder-stop thread (_stopping set). start() must refuse
-    # rather than open a second stream — opening now deadlocks both on the HAL
-    # mutex, which is exactly the hang this fix prevents.
+    # on the abandoned recorder-stop thread. start() must refuse rather than
+    # open a second stream — opening now deadlocks both on the HAL mutex, which
+    # is exactly the hang this guard prevents.
     rec = Recorder()
     rec._stream = None
-    rec._stopping.set()
 
-    with pytest.raises(RecorderBusy):
-        rec.start()
+    with coreaudio.teardown.in_progress():
+        with pytest.raises(RecorderBusy):
+            rec.start()
 
-    assert rec._stream is None      # refused WITHOUT opening a new stream
-    assert rec._recording is False
+        assert rec._stream is None      # refused WITHOUT opening a new stream
+        assert rec._recording is False
 
 
-def test_stopping_flag_stays_set_while_abort_wedges_then_clears():
+def test_teardown_marker_stays_set_while_abort_wedges_then_clears():
     # Realistic concurrency: stop() runs on a background thread and blocks
     # inside abort() (a wedged CoreAudio call). While it blocks, a concurrent
     # start() must refuse; once it unblocks, the mic recovers on its own.
@@ -131,7 +141,7 @@ def test_stopping_flag_stays_set_while_abort_wedges_then_clears():
 
     entered = False
     for _ in range(400):
-        if rec._stopping.is_set():
+        if coreaudio.teardown.in_flight:
             entered = True
             break
         time.sleep(0.005)
@@ -142,4 +152,5 @@ def test_stopping_flag_stays_set_while_abort_wedges_then_clears():
 
     release.set()
     stopper.join(2.0)
-    assert not rec._stopping.is_set()  # recovered once the wedged stop finished
+    # Recovered once the wedged stop finished.
+    assert not coreaudio.teardown.in_flight

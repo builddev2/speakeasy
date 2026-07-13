@@ -328,9 +328,16 @@ End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
   of paying a ~100 ms stream open that could clip your first syllable (the
   mic-in-use indicator still only shows while you're actually recording). A
   stop that wedges inside CoreAudio is timed out and abandoned by a watchdog;
-  while its teardown is still unwinding, the recorder refuses to open a second
-  stream (that would deadlock both on the HAL mutex), so a stuck mic degrades
-  to "try again" / relaunch instead of freezing the whole hotkey pipeline
+  while its teardown is still unwinding, opening a second stream would deadlock
+  both on the HAL mutex, so a stuck mic degrades to "try again" / relaunch
+  instead of freezing the whole hotkey pipeline
+- **`coreaudio.py`** — the process-wide guard that makes the above safe. The
+  HAL mutex is per process/device, and dictation and meetings each own a
+  separate input stream on it, so a wedged teardown on *either* recorder blocks
+  an open on *both*. Both mark their teardown here and both check it before
+  opening; while one is in flight, a dictation take or a Begin Meeting is
+  refused (`RecorderBusy`) rather than deadlocked. Capture self-recovers the
+  moment the wedged call returns
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
@@ -366,7 +373,10 @@ End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
   audio callback only enqueues bytes, drained to a spool WAV by a dedicated
   writer thread, so RAM stays flat regardless of meeting length. Spools live
   in `settings.spool_dir()`, are deleted on every exit path, and are swept
-  clean at the next launch if the app ever crashes mid-meeting
+  clean at the next launch if the app ever crashes mid-meeting. Its stop runs
+  under the same watchdog as dictation's, and it shares the `coreaudio.py`
+  teardown guard — a meeting whose stop wedges can't deadlock the dictation
+  stream that re-arms behind it
 - **`meetings.py`** — the meeting store (JSON per meeting, atomic saves like
   `profiles.py`), `.txt`/`.md` rendering, and the pure `align_speakers()`
   algorithm that maps diarization turns onto transcribed sentences

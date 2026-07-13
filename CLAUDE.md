@@ -58,12 +58,25 @@ single-purpose:
   and **opening a new stream while it runs deadlocks both on the HAL mutex**
   (a real hang we hit: a long take's stop wedged, the watchdog moved on, and
   the next `start()` opened a second stream straight into the deadlock). So
-  `Recorder` sets a `_stopping` flag across the CoreAudio teardown; while it's
-  set, `prewarm()`/`start()` refuse to open — `start()` raises `RecorderBusy`,
-  the engine drops that take and stays idle. The mic self-recovers when the
-  wedged stop finally returns (the flag clears), or stays unavailable until
-  relaunch if it never does — either way the pipeline never freezes. Never
-  open/reopen a CoreAudio input stream without checking `_stopping` first.
+  every CoreAudio teardown is marked in flight on the **process-wide** guard in
+  `speakeasy/coreaudio.py` (`teardown.in_progress()`), and every open consults
+  it first: while a teardown is in flight, `Recorder.prewarm()` refuses
+  silently and `Recorder.start()` / `MeetingRecorder.start()` raise
+  `RecorderBusy`, so the engine drops that take (or that meeting) and stays
+  idle. The mic self-recovers when the wedged stop finally returns (the marker
+  clears), or stays unavailable until relaunch if it never does — either way
+  the pipeline never freezes.
+  **The guard is process-wide because the HAL mutex is** (per process/device),
+  and the two recorders are separate objects on the same device: a wedged
+  `MeetingRecorder.stop()` deadlocks a dictation `Recorder.start()` just as
+  readily as one of its own, and vice versa. A per-instance flag would miss
+  exactly those cross-recorder pairs. Dictation and meetings being mutually
+  exclusive does *not* close this — that only prevents concurrent *recording*,
+  while the watchdog by design leaves a teardown unwinding in the HAL long
+  after the meeting is "over" and dictation has re-armed. Never open, reopen, or
+  start a CoreAudio input stream without checking `coreaudio.teardown.in_flight`
+  first; never clear the marker from a `force_close()` path (the abandoned stop
+  is still in there — that is the whole point).
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the

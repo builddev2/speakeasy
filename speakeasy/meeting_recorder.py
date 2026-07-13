@@ -28,6 +28,7 @@ import numpy as np
 import sounddevice as sd
 
 from . import config, settings
+from .coreaudio import RecorderBusy, teardown
 
 # ~30 s of audio at 16 kHz int16 in ~1 KiB blocks. The exact block size varies
 # by host buffer; this is generous enough that only a genuinely stuck writer
@@ -89,6 +90,12 @@ class MeetingRecorder:
     def start(self) -> None:
         if self._recording:
             return
+        if teardown.in_flight:
+            # A CoreAudio teardown — a previous meeting's or a dictation take's,
+            # the HAL mutex doesn't care which — is still unwinding. Opening now
+            # would deadlock against it and freeze the control thread, so refuse
+            # before anything is allocated (no spool file, no writer thread).
+            raise RecorderBusy()
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         self._path = settings.spool_dir() / f"meeting-{stamp}.wav"
         with _active_lock:
@@ -155,12 +162,19 @@ class MeetingRecorder:
             # abort(), not stop(): same wedged-device rationale as
             # Recorder.stop — there is nothing to drain that we can't afford
             # to lose (at most the final host buffer).
-            try:
-                self._stream.abort()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
+            #
+            # Mark the teardown in flight across both CoreAudio calls. If either
+            # wedges (the watchdog in engine._stop_meeting_recorder_guarded then
+            # abandons this thread mid-HAL), the marker stays raised and the next
+            # open — the dictation stream re-arming after the meeting, or another
+            # meeting — refuses instead of deadlocking on the HAL mutex.
+            with teardown.in_progress():
+                try:
+                    self._stream.abort()
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
         if self._writer is not None:
             self._queue.put(None)  # sentinel: writer exits after the backlog
             self._writer.join(timeout=10.0)

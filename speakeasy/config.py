@@ -83,7 +83,9 @@ SOUND_MEETING_START = "/System/Library/Sounds/Glass.aiff"
 SOUND_MEETING_END = "/System/Library/Sounds/Submarine.aiff"
 
 # Delay after synthesizing Cmd+V before restoring the previous clipboard.
-PASTE_SETTLE_SECONDS = 0.15
+# Busy browser/Electron apps can take several hundred milliseconds to handle
+# the queued event; restoring sooner makes them paste the old clipboard text.
+PASTE_SETTLE_SECONDS = 0.5
 
 # Pause after writing the pasteboard before synthesizing Cmd+V, so the
 # frontmost app observes the new clipboard contents before it reads them.

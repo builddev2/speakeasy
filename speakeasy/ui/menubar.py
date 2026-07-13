@@ -203,8 +203,8 @@ class StatusItemController(NSObject):
         )
         self._cancel_item.setTarget_(self)
         self._cancel_item.setToolTip_(
-            "Discards this meeting. Speaker identification finishes its "
-            "current pass before the cancel lands."
+            "Discards this meeting. Cancellation is checked between "
+            "transcription chunks and speaker-identification passes."
         )
         self._cancel_item.setHidden_(True)
         menu.addItem_(self._cancel_item)

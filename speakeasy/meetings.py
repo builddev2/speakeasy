@@ -196,7 +196,8 @@ class Meeting:
         for index, segment in enumerate(self.segments):
             if index == segment_index or (all_matching and segment.speaker == old):
                 segment.speaker = label
-                segment.profile_id = label if all_matching else segment.profile_id
+                segment.profile_id = None
+                segment.confidence = None
         self.save()
 
 
@@ -329,6 +330,7 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
                 runs.append([item])
             else:
                 runs[-1].append(item)
+        normalized_runs: list[tuple[list[object], int]] = []
         for run in runs:
             duration = sum(max(token.duration, 1e-3) for token, _ in run)
             speaker = run[0][1]
@@ -336,10 +338,22 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
                 len(run) < 2 or duration < config.DIARIZATION_SPLIT_MIN_SECONDS
             ):
                 speaker = winner
-            attributed.append((sentence, [token for token, _ in run], speaker))
+            tokens = [token for token, _ in run]
+            if normalized_runs and normalized_runs[-1][1] == speaker:
+                normalized_runs[-1][0].extend(tokens)
+            else:
+                normalized_runs.append((tokens, speaker))
+        if len(normalized_runs) == 1:
+            attributed.append((sentence, [], normalized_runs[0][1]))
+        else:
+            attributed.extend(
+                (sentence, tokens, speaker) for tokens, speaker in normalized_runs
+            )
 
     # Merge consecutive same-speaker sentences; label by first appearance.
     labels: dict[int, str] = {}
+    profile_ids: dict[int, str | None] = {}
+    profile_labels = {turn.profile_id for turn in turns if turn.profile_id}
     segments: list[MeetingSegment] = []
     for sentence, tokens, speaker in attributed:
         if speaker not in labels:
@@ -347,7 +361,16 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
                 (t.profile_id for t in turns if t.speaker == speaker and t.profile_id),
                 None,
             )
-            labels[speaker] = profile or f"Speaker {len(labels) + 1}"
+            if profile:
+                labels[speaker] = profile
+            else:
+                number = len(labels) + 1
+                label = f"Speaker {number}"
+                while label in profile_labels or label in labels.values():
+                    number += 1
+                    label = f"Speaker {number}"
+                labels[speaker] = label
+            profile_ids[speaker] = profile
         text = (
             " ".join(token.text.strip() for token in tokens).strip()
             if tokens
@@ -362,21 +385,29 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
             if confidence_values
             else None
         )
-        overlap = any(t.overlap for t in related)
-        if segments and segments[-1].speaker == labels[speaker]:
+        start = tokens[0].start if tokens else sentence.start
+        end = tokens[-1].end if tokens else sentence.end
+        overlap = any(
+            t.overlap and t.start < end and t.end > start
+            for t in related
+        )
+        if (
+            segments
+            and segments[-1].speaker == labels[speaker]
+            and segments[-1].overlap == overlap
+        ):
             segments[-1].text = (segments[-1].text + " " + text).strip()
-            segments[-1].end = tokens[-1].end if tokens else sentence.end
-            segments[-1].overlap = segments[-1].overlap or overlap
+            segments[-1].end = end
         else:
             segments.append(
                 MeetingSegment(
                     speaker=labels[speaker],
-                    start=tokens[0].start if tokens else sentence.start,
-                    end=tokens[-1].end if tokens else sentence.end,
+                    start=start,
+                    end=end,
                     text=text,
                     confidence=confidence,
                     overlap=overlap,
-                    profile_id=labels[speaker] if labels[speaker] != f"Speaker {len(labels)}" else None,
+                    profile_id=profile_ids[speaker],
                     cluster_id=speaker,
                 )
             )

@@ -103,9 +103,12 @@ class MainWindowController(NSObject):
         count = params.get("expectedSpeakerCount")
         self.engine.begin_meeting(
             MeetingOptions(
-                expected_speaker_count=int(count) if count else None,
-                expected_profile_ids=tuple(
-                    str(name) for name in params.get("expectedProfileIds", [])
+                expected_speaker_count=(
+                    None if count is None or count == "" else int(count)
+                ),
+                expected_voice_profile_names=tuple(
+                    str(name)
+                    for name in params.get("expectedVoiceProfileNames", [])
                 ),
             )
         )  # submits to control internally

@@ -101,7 +101,12 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       segmentIndex: line.segmentIndex,
       label,
       allMatching,
-    }).then(setDetail);
+    }).then((next) => {
+      setDetail(next);
+      setList((current) => current.map((meta) => meta.id === next.id
+        ? { ...meta, subtitle: next.subtitle, speakerCount: next.speakerCount }
+        : meta));
+    });
   }
 
   return (

@@ -121,10 +121,20 @@ def test_optional_attribution_metadata_round_trips(meetings_dir):
 
 def test_relabel_one_or_all_matching_segments(meetings_dir):
     meeting = Meeting.new(
-        _segments() + [MeetingSegment("Speaker 1", 31, 32, "Again")], 32
+        [
+            MeetingSegment("Speaker 1", 0, 10, "Hello", 0.9, False, "Alice", 1),
+            MeetingSegment("Speaker 2", 11, 30, "Hi", 0.8, False, "Bob", 2),
+            MeetingSegment("Speaker 1", 31, 32, "Again", 0.9, False, "Alice", 1),
+        ],
+        32,
     )
     meeting.save()
     meeting.relabel_speaker(0, "Alice")
     assert [s.speaker for s in meeting.segments] == ["Alice", "Speaker 2", "Speaker 1"]
+    assert meeting.segments[0].profile_id is None
+    assert meeting.segments[0].confidence is None
     meeting.relabel_speaker(2, "Bob", all_matching=True)
-    assert Meeting.load(meeting.meeting_id).segments[2].speaker == "Bob"
+    stored = Meeting.load(meeting.meeting_id).segments[2]
+    assert stored.speaker == "Bob"
+    assert stored.profile_id is None
+    assert stored.confidence is None

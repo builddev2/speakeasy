@@ -6,7 +6,7 @@ only .start/.end/.duration/.text/.tokens are read.
 
 from dataclasses import dataclass, field
 
-from speakeasy.meetings import align_speakers
+from speakeasy.meetings import DiarizationTurn, align_speakers
 
 
 @dataclass
@@ -130,4 +130,43 @@ def test_sustained_speaker_change_splits_sentence():
     assert [(segment.speaker, segment.text) for segment in segments] == [
         ("Speaker 1", "one two"),
         ("Speaker 2", "three four"),
+    ]
+
+
+def test_unsplit_sentence_preserves_model_text():
+    s = Sentence(
+        0.0,
+        2.0,
+        "Hello, world!",
+        [Token(0.0, 1.0, "Hello"), Token(1.0, 2.0, "world")],
+    )
+    assert align_speakers([s], [(0.0, 2.0, 1)])[0].text == "Hello, world!"
+
+
+def test_overlap_metadata_only_marks_intersecting_segment():
+    sentences = [
+        sentence(0.0, 1.0, "Clear."),
+        sentence(2.0, 3.0, "Overlapping."),
+    ]
+    turns = [
+        DiarizationTurn(0.0, 1.0, 1),
+        DiarizationTurn(2.0, 3.0, 1, overlap=True),
+        DiarizationTurn(2.0, 3.0, 2, overlap=True),
+    ]
+    segments = align_speakers(sentences, turns)
+    assert [segment.overlap for segment in segments] == [False, True]
+
+
+def test_existing_reserved_profile_name_does_not_collide_with_anonymous_label():
+    sentences = [
+        sentence(0.0, 1.0, "Anonymous."),
+        sentence(1.0, 2.0, "Identified."),
+    ]
+    turns = [
+        DiarizationTurn(0.0, 1.0, 1),
+        DiarizationTurn(1.0, 2.0, 2, profile_id="Speaker 1"),
+    ]
+    assert [segment.speaker for segment in align_speakers(sentences, turns)] == [
+        "Speaker 2",
+        "Speaker 1",
     ]

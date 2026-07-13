@@ -123,7 +123,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     if (bridge.embedded) {
       void bridge.call(isRecording ? 'app.endMeeting' : 'app.beginMeeting', isRecording ? {} : {
         expectedSpeakerCount: expectedSpeakerCount === '' ? null : Number(expectedSpeakerCount),
-        expectedProfileIds: useVoiceProfiles ? app.voiceProfiles : [],
+        expectedVoiceProfileNames: useVoiceProfiles ? app.voiceProfiles : [],
       });
     } else {
       setApp((current) => {

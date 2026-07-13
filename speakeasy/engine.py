@@ -44,14 +44,14 @@ from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
 @dataclass(frozen=True)
 class MeetingOptions:
     expected_speaker_count: int | None = None
-    expected_profile_ids: tuple[str, ...] = ()
-    audio_source: str = "microphone"
+    expected_voice_profile_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.expected_speaker_count is not None and self.expected_speaker_count < 1:
-            raise ValueError("Expected speaker count must be at least 1.")
-        if self.audio_source not in ("microphone", "call_and_microphone"):
-            raise ValueError(f"Unsupported meeting audio source: {self.audio_source}")
+        if (
+            self.expected_speaker_count is not None
+            and not 1 <= self.expected_speaker_count <= 20
+        ):
+            raise ValueError("Expected speaker count must be between 1 and 20.")
 
 
 def play_sound(sound: str) -> None:
@@ -131,6 +131,8 @@ class DictationEngine:
 
     def set_profile(self, profile: Profile | None) -> None:
         self.profile = profile
+        self.last_dictation_heard = None
+        self.last_dictation_text = None
 
     @property
     def can_train(self) -> bool:
@@ -372,13 +374,14 @@ class DictationEngine:
                     f"Identifying speakers… {70 + int(f * 28)}%"
                 ),
             )
-            if self._meeting_options.expected_profile_ids:
+            if self._meeting_options.expected_voice_profile_names:
                 from .voice_profiles import VoiceProfileStore
 
                 turns = VoiceProfileStore().identify(
                     audio,
                     turns,
-                    list(self._meeting_options.expected_profile_ids),
+                    list(self._meeting_options.expected_voice_profile_names),
+                    cancelled=self._meeting_cancel.is_set,
                 )
             del audio
             if self._meeting_cancel.is_set():
@@ -447,7 +450,9 @@ class DictationEngine:
         """Teach the active profile from the most recent raw ASR result."""
         if self.profile is None or not self.last_dictation_heard:
             return False
-        learned = self.profile.add_correction(self.last_dictation_heard, intended.strip())
+        learned = self.profile.add_correction(
+            self.last_dictation_heard, intended.strip()
+        )
         if learned:
             self.last_dictation_text = intended.strip()
         return learned

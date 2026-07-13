@@ -75,6 +75,10 @@ DIARIZATION_SPLIT_MIN_SECONDS = 0.6
 # diarized cluster. Below this, keep the anonymous "Speaker N" label.
 SPEAKER_MATCH_THRESHOLD = 0.65
 
+# A high score is not enough when two enrolled voices score almost alike.
+# Require this separation from the runner-up or keep the cluster anonymous.
+SPEAKER_MATCH_MARGIN = 0.05
+
 SOUND_MEETING_START = "/System/Library/Sounds/Glass.aiff"
 SOUND_MEETING_END = "/System/Library/Sounds/Submarine.aiff"
 

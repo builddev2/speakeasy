@@ -12,3 +12,9 @@ def test_diarization_error_ignores_anonymous_label_permutation():
     reference = [DiarizationTurn(0, 1, 0), DiarizationTurn(1, 2, 1)]
     hypothesis = [DiarizationTurn(0, 1, 9), DiarizationTurn(1, 2, 4)]
     assert diarization_error_rate(reference, hypothesis, 2) == 0
+
+
+def test_diarization_error_penalizes_extra_hypothesis_speaker():
+    reference = [DiarizationTurn(0, 1, 0)]
+    hypothesis = [DiarizationTurn(0, 1, 9), DiarizationTurn(0, 1, 4)]
+    assert diarization_error_rate(reference, hypothesis, 1) == pytest.approx(1.0)

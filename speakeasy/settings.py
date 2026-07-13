@@ -55,7 +55,7 @@ def meetings_dir() -> Path:
 def voice_profiles_dir() -> Path:
     """Versioned local speaker embeddings; enrollment audio is never stored."""
     d = app_support_dir() / "voice_profiles"
-    d.mkdir(parents=True, exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True, mode=0o700)
     return d
 
 

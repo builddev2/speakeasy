@@ -6,7 +6,6 @@ Usage:
 """
 
 import argparse
-import itertools
 import json
 import re
 import resource
@@ -40,29 +39,48 @@ def _speaker_at(turns, instant: float):
     return frozenset(active)
 
 
+def _max_assignment_score(weights: list[list[int]]) -> int:
+    """Maximum one-to-one row/column score without a factorial search."""
+    if not weights or not weights[0]:
+        return 0
+    if len(weights) > len(weights[0]):
+        weights = [list(column) for column in zip(*weights)]
+    rows, columns = len(weights), len(weights[0])
+    scores = {0: 0}
+    for column in range(columns):
+        next_scores = dict(scores)  # This column may remain unmatched.
+        for mask, score in scores.items():
+            for row in range(rows):
+                if mask & (1 << row):
+                    continue
+                next_mask = mask | (1 << row)
+                next_scores[next_mask] = max(
+                    next_scores.get(next_mask, 0), score + weights[row][column]
+                )
+        scores = next_scores
+    return max(scores.values(), default=0)
+
+
 def diarization_error_rate(reference, hypothesis, duration: float, frame=0.02) -> float:
-    """Frame DER with optimal anonymous-speaker permutation and overlap support."""
+    """Frame DER with optimal anonymous-speaker assignment and overlap support."""
     ref_ids = sorted({turn.speaker for turn in reference})
     hyp_ids = sorted({turn.speaker for turn in hypothesis})
-    best = None
-    targets = ref_ids + [None] * max(0, len(hyp_ids) - len(ref_ids))
-    mappings = itertools.permutations(targets, len(hyp_ids)) if hyp_ids else [()]
-    for assigned in mappings:
-        mapping = dict(zip(hyp_ids, assigned))
-        errors = speech = 0
-        count = max(1, int(duration / frame + 0.5))
-        for index in range(count):
-            instant = (index + 0.5) * frame
-            expected = _speaker_at(reference, instant)
-            actual = frozenset(
-                mapping.get(speaker) for speaker in _speaker_at(hypothesis, instant)
-                if mapping.get(speaker) is not None
-            )
-            speech += max(len(expected), 1)
-            errors += len(expected - actual) + len(actual - expected)
-        score = errors / max(speech, 1)
-        best = score if best is None else min(best, score)
-    return float(best or 0.0)
+    ref_index = {speaker: index for index, speaker in enumerate(ref_ids)}
+    hyp_index = {speaker: index for index, speaker in enumerate(hyp_ids)}
+    cooccurrence = [[0 for _ in hyp_ids] for _ in ref_ids]
+    total_slots = reference_speech = 0
+    count = max(1, int(duration / frame + 0.5))
+    for index in range(count):
+        instant = (index + 0.5) * frame
+        expected = _speaker_at(reference, instant)
+        actual = _speaker_at(hypothesis, instant)
+        reference_speech += len(expected)
+        total_slots += max(len(expected), len(actual))
+        for ref_speaker in expected:
+            for hyp_speaker in actual:
+                cooccurrence[ref_index[ref_speaker]][hyp_index[hyp_speaker]] += 1
+    correct = _max_assignment_score(cooccurrence)
+    return (total_slots - correct) / max(reference_speech, 1)
 
 
 def _load_rttm(path: Path) -> list[meetings.DiarizationTurn]:
@@ -87,15 +105,20 @@ def _load_reference(args):
         segments = data.get("segments", [])
         labels = {}
         turns = []
-        text = data.get("text") or " ".join(str(item.get("text", "")) for item in segments)
+        text = data.get("text") or " ".join(
+            str(item.get("text", "")) for item in segments
+        )
         for item in segments:
             label = str(item["speaker"])
             speaker = labels.setdefault(label, len(labels))
             turns.append(
-                meetings.DiarizationTurn(float(item["start"]), float(item["end"]), speaker)
+                meetings.DiarizationTurn(
+                    float(item["start"]), float(item["end"]), speaker
+                )
             )
         attributed = " ".join(
-            f"{item['speaker']} {item.get('text', '')}" for item in segments
+            f"Speaker {labels[str(item['speaker'])] + 1} {item.get('text', '')}"
+            for item in segments
         )
         return text, turns, attributed
     return args.text.read_text(encoding="utf-8"), _load_rttm(args.rttm), None
@@ -109,7 +132,9 @@ def main() -> None:
     source.add_argument("--text", type=Path, help="plain reference transcript")
     parser.add_argument("--rttm", type=Path, help="required with --text")
     parser.add_argument("--expected-speakers", type=int)
-    parser.add_argument("--model-id", help="cached/bundled Parakeet model id to benchmark")
+    parser.add_argument(
+        "--model-id", help="cached/bundled Parakeet model id to benchmark"
+    )
     args = parser.parse_args()
     if args.text and not args.rttm:
         parser.error("--text requires --rttm")
@@ -154,8 +179,12 @@ def main() -> None:
         "asr_seconds": round(asr_seconds, 3),
         "diarization_seconds": round(diarization_seconds, 3),
         "total_seconds": round(time.perf_counter() - started, 3),
-        "real_time_factor": round((asr_seconds + diarization_seconds) / max(duration, 0.001), 4),
-        "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024, 1),
+        "real_time_factor": round(
+            (asr_seconds + diarization_seconds) / max(duration, 0.001), 4
+        ),
+        "peak_rss_mb": round(
+            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024, 1
+        ),
         "transcript": hypothesis,
     }
     print(json.dumps(output, indent=2))

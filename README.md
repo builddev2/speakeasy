@@ -309,7 +309,9 @@ read but never copied. A 16 kHz mono WAV is required:
 
 The dock meeting panel can optionally use the enrolled profiles and an expected
 speaker count. Speaker labels in saved meetings can be clicked and corrected;
-the correction can apply to one segment or every matching segment.
+the correction can apply to one segment or every matching segment. Identification
+is deliberately conservative: weak, ambiguous, or duplicate matches keep their
+anonymous `Speaker N` label.
 
 ## Waveform indicator
 

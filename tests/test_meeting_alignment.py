@@ -121,3 +121,13 @@ def test_blank_sentences_are_dropped():
     segments = align_speakers(sentences, [(0.0, 2.0, 1)])
     assert len(segments) == 1
     assert segments[0].text == "Kept."
+
+
+def test_sustained_speaker_change_splits_sentence():
+    s = sentence(0.0, 4.0, "one two three four")
+    turns = [(0.0, 2.0, 1), (2.0, 4.0, 2)]
+    segments = align_speakers([s], turns)
+    assert [(segment.speaker, segment.text) for segment in segments] == [
+        ("Speaker 1", "one two"),
+        ("Speaker 2", "three four"),
+    ]

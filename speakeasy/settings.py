@@ -52,6 +52,13 @@ def meetings_dir() -> Path:
     return d
 
 
+def voice_profiles_dir() -> Path:
+    """Versioned local speaker embeddings; enrollment audio is never stored."""
+    d = app_support_dir() / "voice_profiles"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def spool_dir() -> Path:
     """In-flight meeting audio spools. App-owned: nothing else may live here,
     because the engine sweeps it clean at every launch — that is what removes

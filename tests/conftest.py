@@ -31,6 +31,14 @@ def spool_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def voice_profiles_dir(tmp_path, monkeypatch):
+    d = tmp_path / "voice_profiles"
+    d.mkdir()
+    monkeypatch.setattr(settings, "voice_profiles_dir", lambda: d)
+    return d
+
+
+@pytest.fixture
 def make_profile(profiles_dir):
     """Factory for a saved Profile backed by the temp profiles dir."""
 

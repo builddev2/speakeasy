@@ -273,6 +273,44 @@ Terminal, the three permissions attach to **Terminal** (or iTerm), not to the
                                         # meeting store/alignment/recorder/engine flow
 ```
 
+### Accuracy evaluation
+
+Run the fully offline evaluator against consented, locally stored fixtures:
+
+```bash
+.venv/bin/python -m speakeasy.evaluate sample.wav --reference reference.json
+.venv/bin/python -m speakeasy.evaluate sample.wav --text reference.txt --rttm reference.rttm
+```
+
+It reports WER, diarization error, speaker-count error, attributed WER,
+real-time factor, elapsed time, and peak resident memory. JSON references use
+`{"text": "...", "segments": [{"speaker": "Alice", "start": 0.0,
+"end": 1.2, "text": "..."}]}`. Audio fixtures are never bundled by default;
+only add recordings whose participants explicitly consented to repository use.
+
+To compare an already-downloaded MLX model without changing production config:
+
+```bash
+.venv/bin/python -m speakeasy.evaluate sample.wav --reference reference.json \
+  --model-id mlx-community/parakeet-tdt-0.6b-v3
+```
+
+### Speaker enrollment and vocabulary import
+
+Speaker enrollment stores only a local TitaNet embedding; the source WAV is
+read but never copied. A 16 kHz mono WAV is required:
+
+```bash
+.venv/bin/python -m speakeasy --enroll-voice Alice alice-enrollment.wav
+.venv/bin/python -m speakeasy --list-voices
+.venv/bin/python -m speakeasy --delete-voice Alice
+.venv/bin/python -m speakeasy --import-vocabulary Jason terms.txt
+```
+
+The dock meeting panel can optionally use the enrolled profiles and an expected
+speaker count. Speaker labels in saved meetings can be clicked and corrected;
+the correction can apply to one segment or every matching segment.
+
 ## Waveform indicator
 
 While you hold the hotkey, seven glassy pastel-rainbow bars float at the

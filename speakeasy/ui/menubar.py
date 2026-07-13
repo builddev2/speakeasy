@@ -182,6 +182,11 @@ class StatusItemController(NSObject):
         )
         self._train_item.setTarget_(self)
         menu.addItem_(self._train_item)
+        self._correct_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Correct Last Dictation…", b"correctLastDictation:", ""
+        )
+        self._correct_item.setTarget_(self)
+        menu.addItem_(self._correct_item)
         self._sync_train_item()
 
         menu.addItem_(NSMenuItem.separatorItem())
@@ -259,6 +264,11 @@ class StatusItemController(NSObject):
             _symbol(symbol) if symbol else _skull_image()
         )
         self._sync_train_item()
+        self._correct_item.setEnabled_(
+            self.engine.profile is not None
+            and bool(self.engine.last_dictation_heard)
+            and state is State.READY
+        )
         self._sync_meeting_items(state)
 
     @objc.python_method
@@ -399,6 +409,24 @@ class StatusItemController(NSObject):
                 self.engine
             )
         self.training_window.showForProfile_(self.engine.profile)
+
+    def correctLastDictation_(self, sender):
+        if self.engine.profile is None or not self.engine.last_dictation_heard:
+            return
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_("Correct Last Dictation")
+        alert.setInformativeText_(f"Heard: {self.engine.last_dictation_heard}")
+        field = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 0, 320, 24))
+        field.setStringValue_(self.engine.last_dictation_text or "")
+        alert.setAccessoryView_(field)
+        alert.window().setInitialFirstResponder_(field)
+        alert.addButtonWithTitle_("Learn Correction")
+        alert.addButtonWithTitle_("Cancel")
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        if alert.runModal() == NSAlertFirstButtonReturn:
+            if not self.engine.correct_last_dictation(field.stringValue()):
+                self._error("Correction not saved", "The correction was empty or conflicted with the profile.")
+        self.engineStateChanged_(self.engine.state.value)
 
     # -- launch at login ----------------------------------------------------
 

@@ -36,6 +36,7 @@ class MeetingsWindowController(NSObject):
         dispatcher.register("meetings.list", self._list)
         dispatcher.register("meetings.get", self._get)
         dispatcher.register("meetings.rename", self._rename)
+        dispatcher.register("meetings.relabelSpeaker", self._relabel_speaker)
         dispatcher.register("meetings.delete", self._delete)
         dispatcher.register("meetings.copy", self._copy)
         dispatcher.register("meetings.export", self._export)
@@ -81,6 +82,18 @@ class MeetingsWindowController(NSObject):
     def _delete(self, params, respond):
         self._load(params).delete()
         self._list({}, respond)
+
+    @objc.python_method
+    def _relabel_speaker(self, params, respond):
+        meeting = self._load(params)
+        meeting.relabel_speaker(
+            int(params.get("segmentIndex", -1)),
+            str(params.get("label", "")),
+            all_matching=bool(params.get("allMatching", False)),
+        )
+        detail = _meeting_meta(meeting)
+        detail["lines"] = segments_to_lines(meeting.segments)
+        respond(detail)
 
     @objc.python_method
     def _copy(self, params, respond):

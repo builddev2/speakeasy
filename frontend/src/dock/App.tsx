@@ -19,6 +19,7 @@ interface AppState {
   elapsedSeconds: number;
   progressText: string | null;
   canTrain: boolean;
+  voiceProfiles: string[];
 }
 
 interface DockAppProps {
@@ -68,7 +69,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     elapsedSeconds: 0,
     progressText: null,
     canTrain: true,
+    voiceProfiles: [],
   });
+  const [expectedSpeakerCount, setExpectedSpeakerCount] = useState('');
+  const [useVoiceProfiles, setUseVoiceProfiles] = useState(false);
   const [tick, setTick] = useState(0);
   const baselineRef = useRef<number | null>(null);
 
@@ -117,7 +121,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
 
   function onPrimary() {
     if (bridge.embedded) {
-      void bridge.call(isRecording ? 'app.endMeeting' : 'app.beginMeeting');
+      void bridge.call(isRecording ? 'app.endMeeting' : 'app.beginMeeting', isRecording ? {} : {
+        expectedSpeakerCount: expectedSpeakerCount === '' ? null : Number(expectedSpeakerCount),
+        expectedProfileIds: useVoiceProfiles ? app.voiceProfiles : [],
+      });
     } else {
       setApp((current) => {
         const recording = current.mode === 'meeting_recording';
@@ -176,6 +183,32 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
         {isRecording && (
           <div className={styles.recStatus}>
             <span className={styles.pillBadge}>Dictation paused</span>
+          </div>
+        )}
+
+        {!isRecording && app.mode === 'ready' && (
+          <div className={styles.meetingOptions}>
+            <label>
+              Speakers
+              <input
+                type="number"
+                min="1"
+                max="20"
+                placeholder="Auto"
+                value={expectedSpeakerCount}
+                onChange={(event) => setExpectedSpeakerCount(event.target.value)}
+              />
+            </label>
+            {app.voiceProfiles.length > 0 && (
+              <label className={styles.voiceOption}>
+                <input
+                  type="checkbox"
+                  checked={useVoiceProfiles}
+                  onChange={(event) => setUseVoiceProfiles(event.target.checked)}
+                />
+                Identify enrolled voices
+              </label>
+            )}
           </div>
         )}
 

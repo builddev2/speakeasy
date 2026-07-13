@@ -3,6 +3,9 @@ export interface TranscriptLine {
   speakerNumber: number;
   speakerLabel: string;
   text: string;
+  segmentIndex: number;
+  confidence: number | null;
+  overlap: boolean;
 }
 
 export interface MeetingMeta {
@@ -37,7 +40,7 @@ export function speakerColor(speakerNumber: number, colorCodeSpeakers: boolean):
 }
 
 function line(time: string, speakerNumber: number, text: string): TranscriptLine {
-  return { time: `[${time}]`, speakerNumber, speakerLabel: `Speaker ${speakerNumber}`, text };
+  return { time: `[${time}]`, speakerNumber, speakerLabel: `Speaker ${speakerNumber}`, text, segmentIndex: 0, confidence: null, overlap: false };
 }
 
 export const MEETINGS: MeetingDetail[] = [

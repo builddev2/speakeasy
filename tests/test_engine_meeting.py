@@ -15,7 +15,7 @@ import pytest
 
 from speakeasy import config, meetings
 from speakeasy.coreaudio import RecorderBusy
-from speakeasy.engine import DictationEngine, State
+from speakeasy.engine import DictationEngine, MeetingOptions, State
 from speakeasy.transcriber import MeetingCancelled
 
 
@@ -242,4 +242,20 @@ def test_can_train_gates(meetings_dir, spool_dir, make_profile):
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     assert engine.can_train is True
+    engine.shutdown()
+
+
+def test_meeting_options_validate():
+    with pytest.raises(ValueError):
+        MeetingOptions(expected_speaker_count=0)
+    with pytest.raises(ValueError):
+        MeetingOptions(audio_source="internet")
+
+
+def test_correct_last_dictation_learns_active_profile(spool_dir, make_profile):
+    engine = _engine(spool_dir)
+    engine.profile = make_profile()
+    engine.last_dictation_heard = "clod"
+    assert engine.correct_last_dictation("Claude") is True
+    assert engine.profile.apply("clod") == "Claude"
     engine.shutdown()

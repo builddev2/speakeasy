@@ -144,6 +144,22 @@ class Profile:
             self._rebuild()
             self.save()
 
+    def import_vocabulary(self, words) -> int:
+        """Add non-empty words in one rebuild/write; return number added."""
+        existing = {normalize(word) for word in self.vocabulary}
+        added = 0
+        for word in words:
+            word = str(word).strip()
+            key = normalize(word)
+            if key and key not in existing:
+                self.vocabulary.append(word)
+                existing.add(key)
+                added += 1
+        if added:
+            self._rebuild()
+            self.save()
+        return added
+
     def mark_session_done(self, name: str) -> None:
         if name not in self.sessions_done:
             self.sessions_done.append(name)

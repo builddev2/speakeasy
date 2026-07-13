@@ -326,7 +326,11 @@ End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
   the waveform bars. The CoreAudio stream is opened once at startup and kept
   across recordings, so pressing the hotkey starts capture instantly instead
   of paying a ~100 ms stream open that could clip your first syllable (the
-  mic-in-use indicator still only shows while you're actually recording)
+  mic-in-use indicator still only shows while you're actually recording). A
+  stop that wedges inside CoreAudio is timed out and abandoned by a watchdog;
+  while its teardown is still unwinding, the recorder refuses to open a second
+  stream (that would deadlock both on the HAL mutex), so a stuck mic degrades
+  to "try again" / relaunch instead of freezing the whole hotkey pipeline
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the

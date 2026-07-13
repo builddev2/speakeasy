@@ -4,9 +4,13 @@ No real CoreAudio here — a fake stream stands in for sounddevice so we can
 drive the abort/close paths deterministically.
 """
 
-import numpy as np
+import threading
+import time
 
-from speakeasy.recorder import Recorder
+import numpy as np
+import pytest
+
+from speakeasy.recorder import Recorder, RecorderBusy
 
 
 class FakeStream:
@@ -15,6 +19,10 @@ class FakeStream:
         self.aborted = False
         self.stopped = False
         self.closed = False
+        self.started = False
+
+    def start(self):
+        self.started = True
 
     def abort(self):
         self.aborted = True
@@ -77,3 +85,61 @@ def test_force_close_abandons_stream_without_touching_it():
     # The wedged stream is left untouched — closing it could race the in-flight
     # PortAudio call the watchdog is escaping.
     assert not stream.closed
+
+
+def test_stop_clears_stopping_flag_on_clean_teardown():
+    rec = Recorder()
+    _arm(rec, FakeStream())
+    rec.stop()
+    # A clean abort() returns, so the in-flight marker is cleared and the mic
+    # is immediately reusable.
+    assert not rec._stopping.is_set()
+
+
+def test_start_refuses_while_a_stop_is_unwinding():
+    # The deadlock scenario: the watchdog force_closed a wedged stream (so
+    # _stream is None), but that stream's CoreAudio teardown is STILL running
+    # on the abandoned recorder-stop thread (_stopping set). start() must refuse
+    # rather than open a second stream — opening now deadlocks both on the HAL
+    # mutex, which is exactly the hang this fix prevents.
+    rec = Recorder()
+    rec._stream = None
+    rec._stopping.set()
+
+    with pytest.raises(RecorderBusy):
+        rec.start()
+
+    assert rec._stream is None      # refused WITHOUT opening a new stream
+    assert rec._recording is False
+
+
+def test_stopping_flag_stays_set_while_abort_wedges_then_clears():
+    # Realistic concurrency: stop() runs on a background thread and blocks
+    # inside abort() (a wedged CoreAudio call). While it blocks, a concurrent
+    # start() must refuse; once it unblocks, the mic recovers on its own.
+    release = threading.Event()
+
+    class BlockingStream(FakeStream):
+        def abort(self):
+            self.aborted = True
+            release.wait(2.0)
+
+    rec = Recorder()
+    _arm(rec, BlockingStream())
+    stopper = threading.Thread(target=rec.stop, daemon=True)
+    stopper.start()
+
+    entered = False
+    for _ in range(400):
+        if rec._stopping.is_set():
+            entered = True
+            break
+        time.sleep(0.005)
+    assert entered, "stop() never marked the CoreAudio teardown in flight"
+
+    with pytest.raises(RecorderBusy):
+        rec.start()
+
+    release.set()
+    stopper.join(2.0)
+    assert not rec._stopping.is_set()  # recovered once the wedged stop finished

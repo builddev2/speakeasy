@@ -9,7 +9,7 @@ Dock reopen.
 import objc
 from Foundation import NSObject
 
-from speakeasy.engine import State
+from speakeasy.engine import MeetingOptions, State
 from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
 
@@ -36,7 +36,7 @@ class MainWindowController(NSObject):
         dispatcher.register("app.endMeeting", self._end_meeting)
         dispatcher.register("app.openWindow", self._open_window)
         dispatcher.register("app.quit", self._quit)
-        self._web = WebWindow("Speakeasy", 360, 300, "dock", dispatcher)
+        self._web = WebWindow("Speakeasy", 360, 350, "dock", dispatcher)
         self._web.window.setDelegate_(self)
         return self
 
@@ -87,6 +87,7 @@ class MainWindowController(NSObject):
             # Same gate as the menu's Train item; without it the dock button
             # is a silent no-op for Guest / while the model loads.
             "canTrain": self.engine.can_train,
+            "voiceProfiles": self._voice_profile_names(),
         }
 
     @objc.python_method
@@ -99,8 +100,25 @@ class MainWindowController(NSObject):
 
     @objc.python_method
     def _begin_meeting(self, params, respond):
-        self.engine.begin_meeting()  # submits to control internally
+        count = params.get("expectedSpeakerCount")
+        self.engine.begin_meeting(
+            MeetingOptions(
+                expected_speaker_count=(
+                    None if count is None or count == "" else int(count)
+                ),
+                expected_voice_profile_names=tuple(
+                    str(name)
+                    for name in params.get("expectedVoiceProfileNames", [])
+                ),
+            )
+        )  # submits to control internally
         respond(True)
+
+    @objc.python_method
+    def _voice_profile_names(self):
+        from speakeasy.voice_profiles import VoiceProfileStore
+
+        return VoiceProfileStore().names()
 
     @objc.python_method
     def _end_meeting(self, params, respond):

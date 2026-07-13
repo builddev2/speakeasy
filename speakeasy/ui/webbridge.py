@@ -105,7 +105,7 @@ def segments_to_lines(segments) -> list[dict]:
     """
     order: dict[str, int] = {}
     lines: list[dict] = []
-    for seg in segments:
+    for index, seg in enumerate(segments):
         number = order.setdefault(seg.speaker, len(order) + 1)
         lines.append(
             {
@@ -113,6 +113,9 @@ def segments_to_lines(segments) -> list[dict]:
                 "speakerNumber": number,
                 "speakerLabel": seg.speaker,
                 "text": seg.text,
+                "segmentIndex": index,
+                "confidence": getattr(seg, "confidence", None),
+                "overlap": getattr(seg, "overlap", False),
             }
         )
     return lines

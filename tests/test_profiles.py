@@ -206,3 +206,9 @@ def test_fuzzy_disabled_is_noop(monkeypatch):
     monkeypatch.setattr(config, "FUZZY_VOCAB_ENABLED", False)
     p = Profile("t", vocabulary=["Kubernetes"])
     assert p.apply("kubernetis") == "kubernetis"
+
+
+def test_import_vocabulary_rebuilds_once(make_profile):
+    profile = make_profile()
+    assert profile.import_vocabulary(["Kubernetes", "Claude", "Kubernetes", ""]) == 2
+    assert profile.apply("kubernetis") == "Kubernetes"

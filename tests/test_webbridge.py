@@ -127,6 +127,9 @@ class TestFormatting:
             "speakerNumber": 1,
             "speakerLabel": "Speaker 2",
             "text": "hello",
+            "segmentIndex": 0,
+            "confidence": None,
+            "overlap": False,
         }
 
     def test_non_numeric_labels_supported(self):

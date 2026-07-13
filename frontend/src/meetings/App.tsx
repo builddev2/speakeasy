@@ -91,6 +91,24 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
   const selectedMeta = list.find((m) => m.id === selectedId) ?? null;
 
+  function relabelSpeaker(line: MeetingDetail['lines'][number]) {
+    if (!bridge.embedded || selectedId === null) return;
+    const label = window.prompt('Speaker name', line.speakerLabel)?.trim();
+    if (!label) return;
+    const allMatching = window.confirm(`Rename every “${line.speakerLabel}” segment?`);
+    void bridge.call<MeetingDetail>('meetings.relabelSpeaker', {
+      id: selectedId,
+      segmentIndex: line.segmentIndex,
+      label,
+      allMatching,
+    }).then((next) => {
+      setDetail(next);
+      setList((current) => current.map((meta) => meta.id === next.id
+        ? { ...meta, subtitle: next.subtitle, speakerCount: next.speakerCount }
+        : meta));
+    });
+  }
+
   return (
     <GlassPanel width={720} height={480}>
       <TitleBar title="Meetings" />
@@ -150,10 +168,12 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
                       <span
                         className={styles.speaker}
                         style={{ color: speakerColor(ln.speakerNumber, colorCodeSpeakers) }}
+                        title="Click to correct this speaker"
+                        onClick={() => relabelSpeaker(ln)}
                       >
                         {ln.speakerLabel}:
                       </span>{' '}
-                      <span className={styles.text}>{ln.text}</span>
+                      <span className={styles.text}>{ln.overlap ? '[overlap] ' : ''}{ln.text}</span>
                     </div>
                   ))}
                 </div>

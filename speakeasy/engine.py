@@ -27,6 +27,7 @@ import time
 import traceback
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -38,6 +39,19 @@ from .meeting_recorder import MeetingRecorder
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
+
+
+@dataclass(frozen=True)
+class MeetingOptions:
+    expected_speaker_count: int | None = None
+    expected_voice_profile_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            self.expected_speaker_count is not None
+            and not 1 <= self.expected_speaker_count <= 20
+        ):
+            raise ValueError("Expected speaker count must be between 1 and 20.")
 
 
 def play_sound(sound: str) -> None:
@@ -88,6 +102,10 @@ class DictationEngine:
         self._user_paused = False
         self._meeting_active = False
         self._meeting_cancel = threading.Event()
+        self._meeting_options = MeetingOptions()
+        self._diarizer_speaker_count: int | None = None
+        self.last_dictation_heard: str | None = None
+        self.last_dictation_text: str | None = None
 
     # -- lifecycle ------------------------------------------------------
 
@@ -113,6 +131,8 @@ class DictationEngine:
 
     def set_profile(self, profile: Profile | None) -> None:
         self.profile = profile
+        self.last_dictation_heard = None
+        self.last_dictation_text = None
 
     @property
     def can_train(self) -> bool:
@@ -241,10 +261,10 @@ class DictationEngine:
 
     # -- meeting flow -------------------------------------------------------
 
-    def begin_meeting(self) -> None:
+    def begin_meeting(self, options: MeetingOptions | None = None) -> None:
         """Start a meeting recording. Only meaningful from READY — the menu
         item is disabled otherwise, and _begin_meeting re-checks on control."""
-        self.control.submit(self._begin_meeting)
+        self.control.submit(self._begin_meeting, options or MeetingOptions())
 
     def end_meeting(self) -> None:
         self.control.submit(self._end_meeting)
@@ -255,10 +275,11 @@ class DictationEngine:
         executor hop is needed (worker is busy processing anyway)."""
         self._meeting_cancel.set()
 
-    def _begin_meeting(self) -> None:
+    def _begin_meeting(self, options: MeetingOptions) -> None:
         if self.state is not State.READY or self._meeting_active:
             return
         self._meeting_active = True
+        self._meeting_options = options
         # Dictation off for the duration: tear the tap down entirely (the
         # meeting recorder owns the session) and discard any hold in flight —
         # its release will never arrive.
@@ -341,16 +362,27 @@ class DictationEngine:
             )
             if self._meeting_cancel.is_set():
                 raise MeetingCancelled
-            if self.diarizer is None:
+            expected_count = self._meeting_options.expected_speaker_count
+            if self.diarizer is None or self._diarizer_speaker_count != expected_count:
                 from .diarizer import Diarizer
 
-                self.diarizer = Diarizer()
+                self.diarizer = Diarizer(expected_count)
+                self._diarizer_speaker_count = expected_count
             turns = self.diarizer.diarize(
                 audio,
                 progress=lambda f: self.on_meeting_progress(
                     f"Identifying speakers… {70 + int(f * 28)}%"
                 ),
             )
+            if self._meeting_options.expected_voice_profile_names:
+                from .voice_profiles import VoiceProfileStore
+
+                turns = VoiceProfileStore().identify(
+                    audio,
+                    turns,
+                    list(self._meeting_options.expected_voice_profile_names),
+                    cancelled=self._meeting_cancel.is_set,
+                )
             del audio
             if self._meeting_cancel.is_set():
                 raise MeetingCancelled
@@ -381,8 +413,10 @@ class DictationEngine:
             previous = injector.read_clipboard()
             started = time.perf_counter()
             text = self.transcriber.transcribe(audio)
+            self.last_dictation_heard = text
             if self.profile is not None:
                 text = self.profile.apply(text)
+            self.last_dictation_text = text
             elapsed = time.perf_counter() - started
             if text:
                 print(f"  → {text!r}  ({elapsed:.2f}s)")
@@ -411,3 +445,14 @@ class DictationEngine:
             if self.overlay:
                 self.overlay.hide()
             self._set_state(self._idle_state())
+
+    def correct_last_dictation(self, intended: str) -> bool:
+        """Teach the active profile from the most recent raw ASR result."""
+        if self.profile is None or not self.last_dictation_heard:
+            return False
+        learned = self.profile.add_correction(
+            self.last_dictation_heard, intended.strip()
+        )
+        if learned:
+            self.last_dictation_text = intended.strip()
+        return learned

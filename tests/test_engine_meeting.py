@@ -15,7 +15,7 @@ import pytest
 
 from speakeasy import config, meetings
 from speakeasy.coreaudio import RecorderBusy
-from speakeasy.engine import DictationEngine, State
+from speakeasy.engine import DictationEngine, MeetingOptions, State
 from speakeasy.transcriber import MeetingCancelled
 
 
@@ -146,6 +146,33 @@ def test_meeting_happy_path(meetings_dir, spool_dir, make_profile):
     engine.shutdown()
 
 
+def test_selected_voice_profile_is_used_locally(
+    meetings_dir, spool_dir, monkeypatch
+):
+    import speakeasy.voice_profiles as voice_profiles
+
+    calls = []
+
+    class FakeVoiceProfiles:
+        def identify(self, audio, turns, expected_names, *, cancelled):
+            calls.append((expected_names, callable(cancelled)))
+            return [meetings.DiarizationTurn(0.0, 1.0, 0, 0.9, False, "Alice")]
+
+    monkeypatch.setattr(voice_profiles, "VoiceProfileStore", FakeVoiceProfiles)
+    engine = _engine(spool_dir)
+    saved = []
+    engine.on_meeting_saved = saved.append
+    engine.begin_meeting(
+        MeetingOptions(expected_voice_profile_names=("Alice",))
+    )
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert calls == [(["Alice"], True)]
+    assert meetings.Meeting.load(saved[0]).segments[0].speaker == "Alice"
+    engine.shutdown()
+
+
 def test_begin_refused_unless_ready(meetings_dir, spool_dir):
     engine = _engine(spool_dir)
     engine.state = State.TRANSCRIBING
@@ -242,4 +269,31 @@ def test_can_train_gates(meetings_dir, spool_dir, make_profile):
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     assert engine.can_train is True
+    engine.shutdown()
+
+
+def test_meeting_options_validate():
+    with pytest.raises(ValueError):
+        MeetingOptions(expected_speaker_count=0)
+    with pytest.raises(ValueError):
+        MeetingOptions(expected_speaker_count=21)
+
+
+def test_correct_last_dictation_learns_active_profile(spool_dir, make_profile):
+    engine = _engine(spool_dir)
+    engine.profile = make_profile()
+    engine.last_dictation_heard = "clod"
+    assert engine.correct_last_dictation("Claude") is True
+    assert engine.profile.apply("clod") == "Claude"
+    engine.shutdown()
+
+
+def test_switching_profile_clears_last_dictation(spool_dir, make_profile):
+    engine = _engine(spool_dir)
+    engine.profile = make_profile("First")
+    engine.last_dictation_heard = "clod"
+    engine.last_dictation_text = "Claude"
+    engine.set_profile(make_profile("Second"))
+    assert engine.last_dictation_heard is None
+    assert engine.last_dictation_text is None
     engine.shutdown()

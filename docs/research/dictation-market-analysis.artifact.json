@@ -1,0 +1,348 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Where Speakeasy Should Go Next",
+    "description": "A July 2026 market comparison and product roadmap for Speakeasy.",
+    "generatedAt": "2026-07-12T12:00:00-07:00",
+    "charts": [
+      {
+        "id": "roadmap_priority",
+        "title": "Recommended Opportunity Order",
+        "subtitle": "Ordinal decision score, 8 = act first; reflects this report's qualitative user-value, product-fit, and risk assessment",
+        "showDescription": true,
+        "intent": "comparison",
+        "question": "Which Speakeasy opportunities should be addressed first?",
+        "rationale": "A horizontal ranked bar keeps eight long opportunity labels readable and makes the recommendation order explicit without implying market share or measured demand.",
+        "type": "horizontalBar",
+        "dataset": "roadmap_priority",
+        "sourceId": "roadmap_method",
+        "encodings": {
+          "x": {
+            "field": "opportunity",
+            "type": "nominal",
+            "label": "Opportunity"
+          },
+          "y": {
+            "field": "priority_score",
+            "type": "quantitative",
+            "label": "Decision priority",
+            "format": "number"
+          },
+          "tooltip": [
+            {
+              "field": "opportunity",
+              "type": "text",
+              "label": "Opportunity"
+            },
+            {
+              "field": "priority_score",
+              "type": "quantitative",
+              "label": "Priority score",
+              "format": "number"
+            },
+            {
+              "field": "recommendation",
+              "type": "text",
+              "label": "Recommendation"
+            }
+          ]
+        },
+        "layout": "full",
+        "maxRows": 8
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "layout": "full",
+        "body": "# Where Speakeasy Should Go Next"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Executive Summary\n\n- **Speakeasy already has a credible differentiated core.** Its fully offline Parakeet-on-MLX pipeline, deterministic personal vocabulary, explicit CoreAudio safety model, and local speaker-labelled meeting transcripts form a stronger privacy architecture than cloud-first products and a simpler experience than highly configurable hybrid tools.\n\n- **The largest dictation gap is not raw recognition; it is intent-preserving cleanup.** The features users repeatedly praise in Wispr Flow and similar products are filler removal, self-correction handling (for example, ‘Tuesday—actually Wednesday’), automatic structure, accurate names, and output adapted to the destination. Speakeasy handles names and learned substitutions, but still largely pastes the ASR transcript as spoken.\n\n- **The largest meeting gap is system-audio capture.** MacWhisper and Superwhisper can capture app/system audio, while Speakeasy’s shipped recorder is microphone-only. Closing this gap would materially improve Zoom and Teams use, especially with headphones, and is more valuable than adding summaries first.\n\n- **Recommended sequence:** finish system-audio meetings; add a conservative local cleanup mode; make correction a one-step replace-and-learn loop; then add snippets and app-aware modes. Preserve raw dictation, mic-only meetings, and Guest mode as simple fallbacks. Do not add mandatory cloud inference, account sync, default transcript history, or a general plugin framework."
+      },
+      {
+        "id": "scope",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## What the market comparison covers\n\nThere is no reliable public active-user dataset that ranks dictation apps. This report therefore uses a **representative market cohort**, not a popularity league table: Wispr Flow (cloud-polished mainstream workflow), Superwhisper (hybrid power-user workflow), MacWhisper (local transcription and meeting suite), VoiceInk (open-source local-first workflow), plus Willow, Aqua Voice, and Monologue as examples of context-aware, personalized dictation. The sample was selected because these products recur in current product documentation, app reviews, and 2026 comparison discussions.\n\n‘Most enjoyed’ means themes that recur across official feature positioning and independent user feedback. It does not mean measured retention or causal proof. Product claims such as ‘3×’ or ‘4× faster’ are not treated as validated benchmarks."
+      },
+      {
+        "id": "market_archetypes",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Three architectures now define the category\n\n| Architecture | Representative products | Typical pipeline | What users gain | Structural cost |\n|---|---|---|---|---|\n| Cloud-polished input layer | [Wispr Flow](https://wisprflow.ai/features), [Willow](https://willowvoice.com/pricing), [Aqua Voice](https://aquavoice.com/guide) | Global hotkey or keyboard → audio upload → cloud ASR and language cleanup → context-aware insertion | Very natural speech, strong self-correction and formatting, broad language/device support, minimal setup | Network dependency, recurring inference cost, accounts/sync, more complex privacy controls |\n| Hybrid local/cloud workbench | [Superwhisper](https://superwhisper.com/docs/modes/modes), [VoiceInk](https://github.com/Beingpax/VoiceInk), [MacWhisper](https://www.macwhisper.com/) | Capture → selectable local or cloud ASR → optional local/cloud LLM mode → history/editor/insertion | Model choice, privacy control, custom modes, system audio, file workflows | Configuration burden, more failure combinations, inconsistent latency and output semantics |\n| Opinionated local appliance | Speakeasy | Right ⌘ → CoreAudio → one local Parakeet/MLX worker → deterministic profile correction → clipboard paste | Predictable latency, no network, no account, small mental model, auditable data path | English/Apple-Silicon focus, rawer prose, fewer modes, limited external context |\n\n**Implication:** Speakeasy should not try to match the breadth of the hybrid workbenches. Its best position is the most dependable local appliance: fewer choices, strong defaults, and explicit guarantees. It should selectively import the benefits users feel—cleaner output, easier correction, and complete meeting capture—without importing cloud dependence or configuration sprawl."
+      },
+      {
+        "id": "valued_features",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Users value avoided editing more than transcription alone\n\nAcross [Wispr Flow’s feature set](https://wisprflow.ai/features), [G2’s review summary](https://www.g2.com/products/wispr-flow/reviews), [Product Hunt reviews](https://www.producthunt.com/products/wisprflow/reviews), and recent user comparisons, the strongest repeated benefit is that users can speak naturally without cleaning every sentence afterward. The specific mechanisms are consistent:\n\n1. **Self-correction and filler cleanup.** Users expect ‘2 pm—actually 3 pm’ to produce only the final intent, and expect ‘um’, repeated starts, and verbal scaffolding to disappear.\n2. **Context and destination awareness.** Wispr Flow, Superwhisper, VoiceInk, Willow, Aqua, and Monologue all adapt output using some combination of active app, nearby text, selected text, clipboard, screen OCR, or a mode-specific prompt.\n3. **Personal vocabulary that improves with use.** Dictionary, replacement, and learned-correction features appear across nearly every serious product. Speakeasy is already strong here because it uses both exact learned corrections and a conservative phonetic-plus-spelling gate.\n4. **One gesture, any text field.** A reliable global activation key and cursor insertion are table stakes. Users are sensitive to even small reliability failures because dictation is an input method, not a separate destination app.\n5. **Complete meeting and long-form capture.** [Superwhisper](https://superwhisper.com/docs/modes/meeting) and [MacWhisper](https://www.macwhisper.com/) combine dictation with meetings, files, speaker separation, summaries, and system audio. Users value not having to assemble a separate workflow.\n6. **Privacy that is easy to understand.** Local-first users repeatedly choose Superwhisper, VoiceInk, and MacWhisper for local models. Cloud products respond with privacy modes, retention controls, and enterprise policy. Speakeasy’s no-network runtime and immediate audio deletion are simpler and more defensible than a settings-dependent promise.\n\nThe counter-theme is equally important: power-user tools attract users with model and prompt flexibility, but recent comparisons also complain about mode complexity, latency variation, and reliability. Speakeasy should treat predictability as a feature."
+      },
+      {
+        "id": "speakeasy_architecture",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Speakeasy’s architecture is unusually disciplined\n\nThe repository shows a clear, safety-oriented pipeline:\n\n```text\nQuartz Right-Command event tap\n        │ submits only\n        ▼\nSingle control thread ── CoreAudio start/stop + watchdogs\n        │ audio buffer\n        ▼\nSingle worker thread ── Parakeet/MLX transcription\n        │                (model creation and inference stay together)\n        ▼\nProfile correction ── exact learned replacements, then gated fuzzy vocabulary\n        │\n        ▼\nClipboard paste + restoration ── text appears in the frontmost app\n```\n\nMeetings reuse the same worker sequentially for chunked transcription, ONNX diarization, speaker alignment, profile correction, and save. A bounded writer thread keeps disk I/O out of the audio callback. Temporary audio is deleted on success, cancellation, failure, quit, and next-launch crash recovery.\n\nThis is stronger than a generic ‘runs locally’ claim. The model-thread constraint, HAL stop watchdog, recorder busy guard, event-tap isolation, and main-thread UI marshaling encode failures the project has already encountered. New capabilities must fit those boundaries instead of creating new executors or opening competing audio streams.\n\nCurrent strengths versus the market:\n\n- **Privacy:** stronger and easier to explain than cloud-first competitors; no privacy toggle is required.\n- **Latency path:** direct in-memory mel generation avoids file and ffmpeg round trips for short dictation.\n- **Personalization:** high-precision learned corrections, fuzzy vocabulary, guided training, and—on the current working branch—speaker enrollment and relabeling for meetings.\n- **Reliability:** defensive CoreAudio lifecycle and a deliberately small state machine.\n- **Meeting data minimization:** local diarization and transcript-only persistence.\n\nCurrent disadvantages:\n\n- Dictation output has no general intent-preserving cleanup layer.\n- The visible correction command learns for the future but does not automatically replace the already pasted text.\n- Meeting capture is still microphone-only; the `MeetingOptions.audio_source` field is scaffolded but not connected to a system-audio recorder.\n- There are no snippets, per-app modes, file transcription entry point, or configurable hotkey.\n- The bundled model makes the app large and Apple-Silicon-only, and the fixed ASR model limits language/model choice."
+      },
+      {
+        "id": "roadmap",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## The highest-value roadmap is narrow\n\n| Priority | Opportunity | User benefit | Architectural fit | Main risk | Recommendation |\n|---|---|---|---|---|---|\n| 1 | System audio + microphone meetings | Captures remote participants through headphones; closes the largest current meeting failure | Medium: the meeting pipeline and `audio_source` option already exist | Screen Recording permission, stream mixing, clock drift, and CoreAudio/ScreenCaptureKit teardown | **Build next.** Add one meeting capture implementation that mixes both sources before the existing spool writer; keep mic-only as the default fallback |\n| 2 | Conservative local cleanup mode | Removes the post-dictation editing pass; matches the category’s most praised benefit | High if implemented as a bounded text stage after ASR | Silent meaning changes and added latency | **Prototype in layers.** Start deterministic: filler removal, repeated starts, explicit ‘actually/no’ backtracking, spoken list/paragraph commands. Make Raw and Clean explicit modes and preserve the raw ASR text for correction learning |\n| 3 | Replace-and-learn correction | Fixes the current text immediately and improves future takes | High: last raw and corrected dictation are already retained in memory | Editing arbitrary app text reliably | **Make surgical.** When the user invokes Correct Last Dictation, offer ‘Replace and Learn’ using a targeted undo/reinsert sequence only when the last insertion is still plausibly current; otherwise retain ‘Learn Only’ |\n| 4 | Profile snippets and replacements | Fast insertion of recurring links, phrases, signatures, and templates | High: profile JSON and exact replacement machinery already exist | Trigger collisions with ordinary speech | **Add after cleanup.** Use explicit spoken triggers and show them in Training/Profile UI; no general macro engine |\n| 5 | App-aware modes without screen capture | Automatically chooses Raw/Clean style and profile based on the active app | Medium: bundle ID is cheap local metadata | Hidden mode switches can surprise users | **Keep v1 small.** Rules map app bundle IDs to an existing profile and cleanup level; show the active mode in the overlay |\n| 6 | File transcription through the meeting pipeline | Reuses local long-form transcription and diarization for recordings | High: most processing already exists | File formats, ffmpeg dependency, and long-running UX | **Consider later.** Accept only WAV first to avoid expanding the runtime dependency surface |\n| 7 | Local meeting summary and action items | Turns transcripts into decisions and follow-up | Low-to-medium under the current bundle and latency constraints | A useful local LLM materially increases app size, RAM, latency, and hallucination risk | **Defer.** First ship complete audio capture and excellent transcripts; evaluate summarization as a separately downloadable, fully local add-on only if user demand is demonstrated |\n| 8 | Usage statistics or transcript history | Makes productivity visible and supports rediscovery | Low product fit | Erodes data-minimization story and adds little core value | **Do not prioritize.** Keep no dictation history by default; a short in-memory undo buffer is enough |\n\nThis ordering deliberately puts meeting completeness above summaries and puts deterministic cleanup above a general local LLM. Both are simpler, testable improvements that preserve Speakeasy’s product promise."
+      },
+      {
+        "id": "roadmap_chart_note",
+        "type": "markdown",
+        "layout": "full",
+        "body": "**The recommendation concentrates effort on three outcomes:** complete call capture, less editing after dictation, and a correction loop that fixes both the current and future result. The ordinal chart below only visualizes that decision order; it is not a measured demand score."
+      },
+      {
+        "id": "roadmap_chart",
+        "type": "chart",
+        "layout": "full",
+        "chartId": "roadmap_priority"
+      },
+      {
+        "id": "do_not_copy",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Features to resist copying\n\n- **Mandatory cloud transcription or cleanup.** Wispr Flow’s speed, language breadth, and polishing are attractive, but its architecture requires a network connection and more nuanced data controls. That conflicts directly with Speakeasy’s defining constraint.\n- **A model/provider marketplace.** Superwhisper, VoiceInk, and MacWhisper gain flexibility from selectable local and cloud models. Speakeasy would inherit configuration, support, and reliability costs that undermine its appliance-like simplicity.\n- **Default dictation history or audio retention.** History is convenient, but Speakeasy’s stronger promise is that ordinary dictation leaves no archive and meeting audio disappears. Preserve that default.\n- **Cross-platform expansion.** Windows and mobile would require different capture, permission, insertion, packaging, and acceleration architectures. They are new products, not incremental features.\n- **Team dashboards and shared cloud dictionaries.** These are monetization and administration features for cloud services. They require identity, sync, policy, and storage systems that are disproportionate for a local app.\n- **A general automation or plugin framework.** Snippets and a few app rules solve the high-value cases with far less surface area."
+      },
+      {
+        "id": "success_measures",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Validate the roadmap with local, privacy-safe measures\n\nBefore broadening the feature set, measure whether the first three improvements reduce friction:\n\n1. **End-to-end latency:** release-to-paste median and 95th percentile for 5-, 15-, and 45-second dictations on the supported Mac baseline. Clean mode should have a stated latency budget relative to Raw.\n2. **Correction burden:** on a consented local evaluation script, count manual edits needed after Raw versus Clean output. Track meaning-changing cleanup errors separately; one semantic regression matters more than several retained filler words.\n3. **Correction-loop success:** percentage of Correct Last Dictation attempts that replace the intended previous insertion without disturbing surrounding text. If this cannot be made reliably high across common apps, ship Learn Only and avoid pretending otherwise.\n4. **Meeting coverage:** successful mic-plus-system capture across Zoom, Teams, browser calls, speakers, headphones, source changes, and permission-denied paths. Verify that all temporary mixed audio still follows the existing deletion guarantees.\n5. **Reliability guardrails:** no new event-tap blocking, no model access outside `worker`, no competing stream opened while `_stopping`, and no UI access off the AppKit main thread.\n\nThese can be measured locally without telemetry. If product telemetry is ever added, it should be opt-in, aggregate-only, and never include audio, transcript text, clipboard content, screen content, vocabulary, or speaker embeddings."
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Further questions\n\n- Is Speakeasy primarily a personal tool for one English-speaking Apple-Silicon user, or is distribution to a broader audience now a goal? The answer changes how much settings, onboarding, and hardware variance matter.\n- Should ‘fully offline’ also mean **no optional cloud/BYOK path**, or only that all core workflows must work locally? This report assumes no runtime network path at all.\n- Does the user prefer verbatim dictation or ready-to-send prose by default? The safest product answer is two explicit modes with Raw remaining the baseline until Clean earns trust.\n- Which meeting use case matters most: in-person rooms, headphone-based video calls, or imported recordings? System-audio priority is highest for the second.\n- Is the current speaker-enrollment branch intended for the next release? If so, system-audio capture should be designed against that branch rather than master."
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Caveats and assumptions\n\n- Research is current to July 12, 2026. Competitor features, pricing, and privacy behavior change frequently.\n- Product architecture is inferred from public documentation except for VoiceInk, whose source repository is public. Public marketing pages do not expose complete implementation details.\n- User-enjoyment themes come from a mix of official positioning, G2/Product Hunt/App Store summaries, and recent Reddit discussions. Review samples are self-selected, can contain promotional participation, and are not representative usage data.\n- The Speakeasy comparison reflects the checked-out branch, which includes meeting speaker-enrollment work beyond `master`. No runtime performance or recognition benchmark was run for this report.\n- Recommendation priority is qualitative: user impact, strategic fit, implementation scope, and architectural risk were assessed from available evidence, not scored from customer research or telemetry."
+      }
+    ],
+    "sources": [
+      {
+        "id": "speakeasy_repo",
+        "label": "Speakeasy repository: README, engine, transcriber, profiles, recorder, meeting pipeline",
+        "path": "README.md"
+      },
+      {
+        "id": "wispr_features",
+        "label": "Wispr Flow features",
+        "href": "https://wisprflow.ai/features"
+      },
+      {
+        "id": "wispr_privacy",
+        "label": "Wispr Flow data controls",
+        "href": "https://wisprflow.ai/data-controls"
+      },
+      {
+        "id": "superwhisper_modes",
+        "label": "Superwhisper modes and architecture",
+        "href": "https://superwhisper.com/docs/modes/modes"
+      },
+      {
+        "id": "superwhisper_meetings",
+        "label": "Superwhisper meeting mode",
+        "href": "https://superwhisper.com/docs/modes/meeting"
+      },
+      {
+        "id": "voiceink_repo",
+        "label": "VoiceInk public repository",
+        "href": "https://github.com/Beingpax/VoiceInk"
+      },
+      {
+        "id": "voiceink_context",
+        "label": "VoiceInk context awareness",
+        "href": "https://tryvoiceink.com/docs/context-awareness"
+      },
+      {
+        "id": "macwhisper",
+        "label": "MacWhisper features",
+        "href": "https://www.macwhisper.com/"
+      },
+      {
+        "id": "willow",
+        "label": "Willow features and pricing",
+        "href": "https://willowvoice.com/pricing"
+      },
+      {
+        "id": "aqua",
+        "label": "Aqua Voice user guide",
+        "href": "https://aquavoice.com/guide"
+      },
+      {
+        "id": "monologue",
+        "label": "Monologue features",
+        "href": "https://www.monologue.to/"
+      },
+      {
+        "id": "g2_reviews",
+        "label": "G2 Wispr Flow review summary",
+        "href": "https://www.g2.com/products/wispr-flow/reviews"
+      },
+      {
+        "id": "producthunt_reviews",
+        "label": "Product Hunt Wispr Flow reviews",
+        "href": "https://www.producthunt.com/products/wisprflow/reviews"
+      },
+      {
+        "id": "roadmap_method",
+        "label": "Qualitative roadmap prioritization documented in this report",
+        "path": "docs/research/dictation-market-analysis.artifact.json",
+        "query": {
+          "engine": "SQLite",
+          "sql": "WITH roadmap_priority(opportunity, priority_score, recommendation) AS (VALUES ('System audio meetings', 8, 'Build next'), ('Conservative local cleanup', 7, 'Prototype in layers'), ('Replace-and-learn correction', 6, 'Make surgical'), ('Profile snippets', 5, 'Add after cleanup'), ('App-aware modes', 4, 'Keep v1 small'), ('WAV file transcription', 3, 'Consider later'), ('Local meeting summaries', 2, 'Defer'), ('Usage stats or history', 1, 'Do not prioritize')) SELECT opportunity, priority_score, recommendation FROM roadmap_priority ORDER BY priority_score DESC;",
+          "description": "Ordinal recommendation order based on user benefit, strategic fit, implementation scope, and architectural risk. Scores are ranks, not measured market demand.",
+          "language": "SQL",
+          "metric_definitions": [
+            "priority_score is an ordinal rank from 8 (act first) to 1 (lowest priority) assigned from the report's recommendation order; intervals between scores have no quantitative meaning"
+          ]
+        }
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-12T12:00:00-07:00",
+    "status": "ready",
+    "datasets": {
+      "roadmap_priority": [
+        {
+          "opportunity": "System audio meetings",
+          "priority_score": 8,
+          "recommendation": "Build next"
+        },
+        {
+          "opportunity": "Conservative local cleanup",
+          "priority_score": 7,
+          "recommendation": "Prototype in layers"
+        },
+        {
+          "opportunity": "Replace-and-learn correction",
+          "priority_score": 6,
+          "recommendation": "Make surgical"
+        },
+        {
+          "opportunity": "Profile snippets",
+          "priority_score": 5,
+          "recommendation": "Add after cleanup"
+        },
+        {
+          "opportunity": "App-aware modes",
+          "priority_score": 4,
+          "recommendation": "Keep v1 small"
+        },
+        {
+          "opportunity": "WAV file transcription",
+          "priority_score": 3,
+          "recommendation": "Consider later"
+        },
+        {
+          "opportunity": "Local meeting summaries",
+          "priority_score": 2,
+          "recommendation": "Defer"
+        },
+        {
+          "opportunity": "Usage stats or history",
+          "priority_score": 1,
+          "recommendation": "Do not prioritize"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "speakeasy_repo",
+      "label": "Speakeasy repository: README, engine, transcriber, profiles, recorder, meeting pipeline",
+      "path": "README.md"
+    },
+    {
+      "id": "wispr_features",
+      "label": "Wispr Flow features",
+      "href": "https://wisprflow.ai/features"
+    },
+    {
+      "id": "wispr_privacy",
+      "label": "Wispr Flow data controls",
+      "href": "https://wisprflow.ai/data-controls"
+    },
+    {
+      "id": "superwhisper_modes",
+      "label": "Superwhisper modes and architecture",
+      "href": "https://superwhisper.com/docs/modes/modes"
+    },
+    {
+      "id": "superwhisper_meetings",
+      "label": "Superwhisper meeting mode",
+      "href": "https://superwhisper.com/docs/modes/meeting"
+    },
+    {
+      "id": "voiceink_repo",
+      "label": "VoiceInk public repository",
+      "href": "https://github.com/Beingpax/VoiceInk"
+    },
+    {
+      "id": "voiceink_context",
+      "label": "VoiceInk context awareness",
+      "href": "https://tryvoiceink.com/docs/context-awareness"
+    },
+    {
+      "id": "macwhisper",
+      "label": "MacWhisper features",
+      "href": "https://www.macwhisper.com/"
+    },
+    {
+      "id": "willow",
+      "label": "Willow features and pricing",
+      "href": "https://willowvoice.com/pricing"
+    },
+    {
+      "id": "aqua",
+      "label": "Aqua Voice user guide",
+      "href": "https://aquavoice.com/guide"
+    },
+    {
+      "id": "monologue",
+      "label": "Monologue features",
+      "href": "https://www.monologue.to/"
+    },
+    {
+      "id": "g2_reviews",
+      "label": "G2 Wispr Flow review summary",
+      "href": "https://www.g2.com/products/wispr-flow/reviews"
+    },
+    {
+      "id": "producthunt_reviews",
+      "label": "Product Hunt Wispr Flow reviews",
+      "href": "https://www.producthunt.com/products/wisprflow/reviews"
+    },
+    {
+      "id": "roadmap_method",
+      "label": "Qualitative roadmap prioritization documented in this report",
+      "path": "docs/research/dictation-market-analysis.artifact.json",
+      "query": {
+        "engine": "SQLite",
+        "sql": "WITH roadmap_priority(opportunity, priority_score, recommendation) AS (VALUES ('System audio meetings', 8, 'Build next'), ('Conservative local cleanup', 7, 'Prototype in layers'), ('Replace-and-learn correction', 6, 'Make surgical'), ('Profile snippets', 5, 'Add after cleanup'), ('App-aware modes', 4, 'Keep v1 small'), ('WAV file transcription', 3, 'Consider later'), ('Local meeting summaries', 2, 'Defer'), ('Usage stats or history', 1, 'Do not prioritize')) SELECT opportunity, priority_score, recommendation FROM roadmap_priority ORDER BY priority_score DESC;",
+        "description": "Ordinal recommendation order based on user benefit, strategic fit, implementation scope, and architectural risk. Scores are ranks, not measured market demand.",
+        "language": "SQL",
+        "metric_definitions": [
+          "priority_score is an ordinal rank from 8 (act first) to 1 (lowest priority) assigned from the report's recommendation order; intervals between scores have no quantitative meaning"
+        ]
+      }
+    }
+  ]
+}

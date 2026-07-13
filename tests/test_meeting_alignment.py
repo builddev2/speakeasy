@@ -33,7 +33,7 @@ def sentence(start, end, text):
     words = text.split()
     step = (end - start) / max(len(words), 1)
     tokens = [
-        Token(start + i * step, start + (i + 1) * step, w)
+        Token(start + i * step, start + (i + 1) * step, w if i == 0 else f" {w}")
         for i, w in enumerate(words)
     ]
     return Sentence(start, end, text, tokens)
@@ -130,6 +130,28 @@ def test_sustained_speaker_change_splits_sentence():
     assert [(segment.speaker, segment.text) for segment in segments] == [
         ("Speaker 1", "one two"),
         ("Speaker 2", "three four"),
+    ]
+
+
+def test_split_sentence_preserves_subword_spacing():
+    s = Sentence(
+        0.0,
+        4.0,
+        "Hello, congratulations.",
+        [
+            Token(0.0, 0.7, "Hello"),
+            Token(0.7, 1.4, ","),
+            Token(2.0, 2.5, " con"),
+            Token(2.5, 3.0, "grat"),
+            Token(3.0, 3.5, "ulations"),
+            Token(3.5, 4.0, "."),
+        ],
+    )
+    turns = [(0.0, 1.4, 1), (2.0, 4.0, 2)]
+    segments = align_speakers([s], turns)
+    assert [(segment.speaker, segment.text) for segment in segments] == [
+        ("Speaker 1", "Hello,"),
+        ("Speaker 2", "congratulations."),
     ]
 
 

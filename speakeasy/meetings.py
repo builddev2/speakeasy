@@ -372,7 +372,7 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
                 labels[speaker] = label
             profile_ids[speaker] = profile
         text = (
-            " ".join(token.text.strip() for token in tokens).strip()
+            "".join(token.text for token in tokens).strip()
             if tokens
             else sentence.text.strip()
         )

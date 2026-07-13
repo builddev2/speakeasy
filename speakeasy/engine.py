@@ -36,7 +36,7 @@ from . import config, injector, meeting_recorder, meetings
 from .hotkey import HotkeyListener
 from .meeting_recorder import MeetingRecorder
 from .profiles import Profile
-from .recorder import Recorder
+from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
 
 
@@ -179,7 +179,18 @@ class DictationEngine:
         self.control.submit(self._stop_recording)
 
     def _start_recording(self) -> None:
-        self.recorder.start()
+        try:
+            self.recorder.start()
+        except RecorderBusy:
+            # A prior stop is still unwinding in CoreAudio; opening now would
+            # deadlock. Drop this take and stay idle — the hotkey stays live,
+            # and the next press works once the stop clears (or after relaunch
+            # if the mic is genuinely wedged).
+            print("  → (mic busy — a previous stop is still releasing; try again)")
+            if self.overlay:
+                self.overlay.hide()
+            self._set_state(self._idle_state())
+            return
         if self.overlay:
             self.overlay.show_recording(lambda: self.recorder.level)
         play_sound(config.SOUND_START)

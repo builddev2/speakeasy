@@ -3,7 +3,8 @@
 import threading
 
 from speakeasy import config
-from speakeasy.engine import DictationEngine
+from speakeasy.engine import DictationEngine, State
+from speakeasy.recorder import RecorderBusy
 
 
 class HangingRecorder:
@@ -49,3 +50,19 @@ def test_guarded_stop_returns_audio_on_the_fast_path():
     engine.recorder = QuickRecorder()
     audio = engine._stop_recorder_guarded()
     assert audio.shape == (8,)
+
+
+def test_start_recording_stays_idle_when_mic_is_busy():
+    """If the recorder refuses (a prior stop still unwinding), the engine drops
+    the take and stays idle rather than propagating — the hotkey stays live."""
+    engine = DictationEngine()
+    engine.transcriber = object()  # non-None so idle resolves to READY
+
+    class BusyRecorder:
+        def start(self):
+            raise RecorderBusy()
+
+    engine.recorder = BusyRecorder()
+    engine._start_recording()
+
+    assert engine.state is State.READY  # stayed idle, never entered RECORDING

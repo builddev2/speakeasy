@@ -14,6 +14,17 @@ import sounddevice as sd
 from . import config
 
 
+class RecorderBusy(Exception):
+    """start() refused because a previous stop is still unwinding in CoreAudio.
+
+    Opening a new input stream while a prior stop/abort is still executing
+    inside the CoreAudio HAL deadlocks both calls on the HAL mutex (an
+    abandoned, watchdog-timed-out stop is exactly this case). Rather than open
+    concurrently and freeze the whole hotkey pipeline, start() raises this and
+    the engine drops the take, keeping dictation responsive.
+    """
+
+
 class Recorder:
     def __init__(self) -> None:
         self._chunks: list[np.ndarray] = []
@@ -21,6 +32,11 @@ class Recorder:
         self._stream: sd.InputStream | None = None
         self._recording = False
         self._level = 0.0
+        # Set for the duration of a CoreAudio stream teardown (abort/close).
+        # It gates start()/prewarm() so a new stream is never opened while a
+        # previous stop — including one the watchdog abandoned — is still
+        # running inside the HAL and holding its mutex.
+        self._stopping = threading.Event()
 
     @property
     def level(self) -> float:
@@ -34,6 +50,10 @@ class Recorder:
 
     def prewarm(self) -> None:
         """Open the input stream (stopped) so the first start() is instant."""
+        if self._stopping.is_set():
+            # A prior stop is still unwinding inside CoreAudio; opening now
+            # would deadlock on the HAL mutex (see RecorderBusy / start()).
+            return
         if self._stream is None:
             self._stream = sd.InputStream(
                 samplerate=config.SAMPLE_RATE,
@@ -45,6 +65,12 @@ class Recorder:
     def start(self) -> None:
         if self._recording:
             return
+        if self._stopping.is_set():
+            # Don't open a second stream on top of a stop that's still running
+            # in the HAL — that is the deadlock this guard exists to prevent.
+            # Drop the take instead; the mic recovers when the stop clears (or
+            # on relaunch if it never does), but the pipeline never freezes.
+            raise RecorderBusy()
         with self._lock:
             self._chunks = []
         self._level = 0.0
@@ -95,6 +121,12 @@ class Recorder:
             # A hung stop() there freezes the caller's thread and, with it, the
             # whole hotkey pipeline, leaving the mic held open. There is nothing
             # to drain — the audio is already harvested above.
+            #
+            # Mark the teardown in flight across the CoreAudio call: if abort()
+            # itself wedges on the HAL mutex, _stopping stays set (the finally
+            # never runs) and a concurrent start() refuses instead of opening a
+            # second stream that would deadlock against this one.
+            self._stopping.set()
             try:
                 self._stream.abort()  # kept open for the next recording
             except Exception:
@@ -105,6 +137,8 @@ class Recorder:
                 except Exception:
                     pass
                 self._stream = None
+            finally:
+                self._stopping.clear()
         return audio
 
     def force_close(self) -> None:

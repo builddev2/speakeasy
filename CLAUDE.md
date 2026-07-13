@@ -53,7 +53,17 @@ single-purpose:
   a single serialization point: if a recorder call blocks, the whole hotkey
   pipeline freezes — recorder stop runs under a timeout watchdog
   (`engine._stop_recorder_guarded`, and its meeting counterpart
-  `_stop_meeting_recorder_guarded`) for exactly this reason.
+  `_stop_meeting_recorder_guarded`) for exactly this reason. But the watchdog
+  only frees `control`; the abandoned `stop()` keeps running inside the HAL,
+  and **opening a new stream while it runs deadlocks both on the HAL mutex**
+  (a real hang we hit: a long take's stop wedged, the watchdog moved on, and
+  the next `start()` opened a second stream straight into the deadlock). So
+  `Recorder` sets a `_stopping` flag across the CoreAudio teardown; while it's
+  set, `prewarm()`/`start()` refuse to open — `start()` raises `RecorderBusy`,
+  the engine drops that take and stays idle. The mic self-recovers when the
+  wedged stop finally returns (the flag clears), or stays unavailable until
+  relaunch if it never does — either way the pipeline never freezes. Never
+  open/reopen a CoreAudio input stream without checking `_stopping` first.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the

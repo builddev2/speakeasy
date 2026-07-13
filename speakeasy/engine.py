@@ -266,6 +266,17 @@ class DictationEngine:
         self.recorder.stop()
         try:
             self.meeting_recorder.start()
+        except RecorderBusy:
+            # A CoreAudio teardown (a wedged dictation stop, or a previous
+            # meeting's) is still unwinding in the HAL. Opening the meeting
+            # stream now would deadlock against it — and this runs on control,
+            # with no watchdog, so it would freeze the whole pipeline. Refuse the
+            # meeting instead; the mic recovers when the stop finally returns.
+            print("  → (mic busy — a previous stop is still releasing; try again)")
+            self._meeting_active = False
+            self._listener.resume()
+            self._set_state(self._idle_state())
+            return
         except Exception:
             traceback.print_exc()
             self._meeting_active = False

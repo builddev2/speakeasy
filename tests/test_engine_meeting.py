@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from speakeasy import config, meetings
+from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, State
 from speakeasy.transcriber import MeetingCancelled
 
@@ -152,6 +153,34 @@ def test_begin_refused_unless_ready(meetings_dir, spool_dir):
     time.sleep(0.2)
     assert engine.state is State.TRANSCRIBING
     assert engine._listener.running is True
+    engine.shutdown()
+
+
+def test_begin_refused_while_a_coreaudio_teardown_is_in_flight(
+    meetings_dir, spool_dir
+):
+    # Begin Meeting while a prior stop is still unwinding in the HAL: the open
+    # must be refused, not attempted. _begin_meeting runs on the control thread
+    # with no watchdog, so a deadlock here would freeze the whole pipeline —
+    # instead the engine stays idle with the hotkey live.
+    engine = _engine(spool_dir)
+
+    def refuse():
+        raise RecorderBusy()
+
+    engine.meeting_recorder.start = refuse
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.READY and not engine._meeting_active)
+    assert engine._listener.running is True  # dictation re-armed, not stranded off
+    assert not list(spool_dir.iterdir())  # no orphan spool
+
+    # The control thread is still alive: a later meeting still goes through.
+    engine.meeting_recorder = FakeMeetingRecorder(spool_dir)
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
     engine.shutdown()
 
 

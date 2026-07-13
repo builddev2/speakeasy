@@ -18,11 +18,19 @@
   --text-xlo:rgba(255,255,255,0.32);
 
   /* Glass surfaces */
-  --glass-panel: linear-gradient(180deg, rgba(42,46,48,0.52), rgba(22,25,26,0.55));
+  --glass-panel: linear-gradient(145deg, rgba(255,255,255,0.055), rgba(18,21,22,0.12));
+  --glass-window: linear-gradient(
+    145deg,
+    rgba(255,255,255,0.0375) 0%,
+    rgba(19,22,23,0.05) 46%,
+    rgba(8,10,11,0.08) 100%
+  );
+  --glass-pane: rgba(7,9,10,0.11);
+  --glass-sidebar: rgba(255,255,255,0.0125);
   --glass-fill:  rgba(255,255,255,0.08);
   --glass-fill-2:rgba(255,255,255,0.05);
   --hairline:    rgba(255,255,255,0.16);
-  --hairline-lo: rgba(255,255,255,0.07);
+  --hairline-lo: rgba(255,255,255,0.10);
 
   /* Speaker palette (transcript color-coding) */
   --sp-1:#6fd8b0; --sp-2:#F0B34A; --sp-3:#C08CF2; --sp-4:#6EA8FF;

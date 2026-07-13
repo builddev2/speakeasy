@@ -108,7 +108,7 @@
   bottom: 0;
   height: 44px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(10,12,13,0), rgba(10,12,13,0.56));
+  background: linear-gradient(180deg, rgba(10,12,13,0), rgba(10,12,13,0.28));
 }
 
 .time {

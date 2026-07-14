@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import config, preprocess, settings
+from .dictation_benchmark import DictationTiming
 
 
 class MeetingCancelled(Exception):
@@ -83,16 +84,39 @@ class Transcriber:
         # a second of silence rather than on the user's first dictation.
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(
+        self, audio: np.ndarray, *, timing: DictationTiming | None = None
+    ) -> str:
         # Drop lead/tail silence first: fewer mel frames (latency) and a
         # tighter per-feature norm (accuracy). Meetings intentionally skip
         # this — see transcribe_long — to keep timestamps aligned with
         # diarization.
-        audio = preprocess.trim_silence(audio, config.SAMPLE_RATE)
+        if timing is not None:
+            timing.samples_before = len(audio)
+            timing.mark("trim_started")
+        try:
+            audio = preprocess.trim_silence(audio, config.SAMPLE_RATE)
+            if timing is not None:
+                timing.samples_after = len(audio)
+        finally:
+            if timing is not None:
+                timing.mark("trim_finished")
         # Feed the buffer to the model in-memory — the temp-WAV + ffmpeg
         # round-trip of model.transcribe(path) costs ~100 ms per dictation.
-        mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
-        result = self._model.generate(mel)[0]
+        if timing is not None:
+            timing.mark("mel_started")
+        try:
+            mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
+        finally:
+            if timing is not None:
+                timing.mark("mel_finished")
+        if timing is not None:
+            timing.mark("inference_started")
+        try:
+            result = self._model.generate(mel)[0]
+        finally:
+            if timing is not None:
+                timing.mark("inference_finished")
         return result.text.strip()
 
     def transcribe_long(

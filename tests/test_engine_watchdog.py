@@ -31,9 +31,10 @@ def test_guarded_stop_gives_up_and_releases_the_mic(monkeypatch):
     rec = HangingRecorder()
     engine.recorder = rec
 
-    audio = engine._stop_recorder_guarded()
+    stopped = engine._stop_recorder_guarded()
 
-    assert audio.size == 0          # this take is dropped, not awaited forever
+    assert stopped.audio.size == 0  # this take is dropped, not awaited forever
+    assert stopped.outcome == "timeout"
     assert rec.force_closed is True  # mic forcibly released
     rec.release.set()               # let the orphaned stop() thread exit
 
@@ -48,8 +49,9 @@ def test_guarded_stop_returns_audio_on_the_fast_path():
             return np.ones(8, dtype="float32")
 
     engine.recorder = QuickRecorder()
-    audio = engine._stop_recorder_guarded()
-    assert audio.shape == (8,)
+    stopped = engine._stop_recorder_guarded()
+    assert stopped.audio.shape == (8,)
+    assert stopped.outcome == "normal"
 
 
 def test_start_recording_stays_idle_when_mic_is_busy():

@@ -29,11 +29,13 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
+from itertools import count
 from pathlib import Path
 
 import numpy as np
 
 from . import config, injector, meeting_recorder, meetings
+from .dictation_benchmark import DictationTiming
 from .hotkey import HotkeyListener
 from .meeting_recorder import MeetingRecorder
 from .profiles import Profile
@@ -52,6 +54,12 @@ class MeetingOptions:
             and not 1 <= self.expected_speaker_count <= 20
         ):
             raise ValueError("Expected speaker count must be between 1 and 20.")
+
+
+@dataclass(frozen=True)
+class _RecorderStopResult:
+    audio: np.ndarray
+    outcome: str
 
 
 def play_sound(sound: str) -> None:
@@ -106,6 +114,9 @@ class DictationEngine:
         self._diarizer_speaker_count: int | None = None
         self.last_dictation_heard: str | None = None
         self.last_dictation_text: str | None = None
+        self._dictation_take_ids = count(1)
+        self._dictation_clock_ns = time.perf_counter_ns
+        self._recorder_busy = False
 
     # -- lifecycle ------------------------------------------------------
 
@@ -196,9 +207,11 @@ class DictationEngine:
         self.control.submit(self._start_recording)
 
     def _on_hold_end(self) -> None:
-        self.control.submit(self._stop_recording)
+        release_received = self._dictation_clock_ns()
+        self.control.submit(self._stop_recording, release_received)
 
     def _start_recording(self) -> None:
+        self._recorder_busy = False
         try:
             self.recorder.start()
         except RecorderBusy:
@@ -210,6 +223,7 @@ class DictationEngine:
             if self.overlay:
                 self.overlay.hide()
             self._set_state(self._idle_state())
+            self._recorder_busy = True
             return
         if self.overlay:
             self.overlay.show_recording(lambda: self.recorder.level)
@@ -217,23 +231,68 @@ class DictationEngine:
         self._set_state(State.RECORDING)
         print("● recording...")
 
-    def _stop_recording(self) -> None:
-        audio = self._stop_recorder_guarded()
-        if self.recorder.duration_seconds(audio) < config.MIN_DURATION_SECONDS:
-            play_sound(config.SOUND_STOP)
-            print("  → (too short, ignored)")
-            if self.overlay:
-                self.overlay.hide()
-            self._set_state(self._idle_state())
+    def _stop_recording(self, release_received: int | None = None) -> None:
+        timing = DictationTiming(
+            next(self._dictation_take_ids), clock_ns=self._dictation_clock_ns
+        )
+        timing.mark(
+            "release_received",
+            self._dictation_clock_ns()
+            if release_received is None
+            else release_received,
+        )
+        timing.mark("control_stop_started")
+        timing.mark("recorder_stop_started")
+        try:
+            stopped = self._stop_recorder_guarded(timing)
+        except Exception:
+            traceback.print_exc()
+            timing.mark("recorder_stop_finished")
+            self._finish_dictation(timing, "pipeline_exception")
+            return
+        timing.recorder_stop_outcome = stopped.outcome
+        recorder_busy, self._recorder_busy = self._recorder_busy, False
+        try:
+            too_short = (
+                self.recorder.duration_seconds(stopped.audio)
+                < config.MIN_DURATION_SECONDS
+            )
+        except Exception:
+            traceback.print_exc()
+            self._finish_dictation(timing, "pipeline_exception")
+            return
+        if recorder_busy or stopped.outcome == "timeout" or too_short:
+            status = (
+                "recorder_busy"
+                if recorder_busy
+                else (
+                    "recorder_stop_timeout"
+                    if stopped.outcome == "timeout"
+                    else "recording_too_short"
+                )
+            )
+            try:
+                play_sound(config.SOUND_STOP)
+                print("  → (too short, ignored)")
+            finally:
+                self._finish_dictation(timing, status)
             return
         # Kick off transcription before the sound: Popen costs ~10-30 ms.
-        self.worker.submit(self._transcribe_and_paste, audio)
+        timing.mark("worker_submitted")
+        try:
+            self.worker.submit(self._transcribe_and_paste, stopped.audio, timing)
+        except Exception:
+            traceback.print_exc()
+            self._finish_dictation(timing, "pipeline_exception")
+            return
         if self.overlay:
             self.overlay.show_transcribing()
         play_sound(config.SOUND_STOP)
         self._set_state(State.TRANSCRIBING)
 
-    def _stop_recorder_guarded(self) -> np.ndarray:
+    def _stop_recorder_guarded(
+        self, timing: DictationTiming | None = None
+    ) -> _RecorderStopResult:
         """Stop the recorder without letting a wedged CoreAudio call freeze
         the control thread (and, since every hotkey press funnels through it,
         the whole dictation pipeline).
@@ -250,14 +309,18 @@ class DictationEngine:
             try:
                 result.append(self.recorder.stop())
             finally:
+                if timing is not None:
+                    timing.mark("recorder_stop_finished")
                 done.set()
 
         threading.Thread(target=run, name="recorder-stop", daemon=True).start()
         if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS) and result:
-            return result[0]
+            return _RecorderStopResult(result[0], "normal")
         print("  → (recorder stop timed out; releasing the mic)")
         self.recorder.force_close()
-        return np.empty(0, dtype=np.float32)
+        if timing is not None:
+            timing.mark("recorder_stop_finished")
+        return _RecorderStopResult(np.empty(0, dtype=np.float32), "timeout")
 
     # -- meeting flow -------------------------------------------------------
 
@@ -406,16 +469,58 @@ class DictationEngine:
                 self._listener.resume()
             self._set_state(self._idle_state())
 
-    def _transcribe_and_paste(self, audio) -> None:
-        previous = None
+    def _finish_dictation(self, timing: DictationTiming, status: str) -> None:
+        timing.mark("cleanup_started")
         try:
-            # Save the clipboard now so the read overlaps with the GPU work.
-            previous = injector.read_clipboard()
+            if self.overlay:
+                self.overlay.hide()
+            self._set_state(self._idle_state())
+        except Exception:
+            traceback.print_exc()
+            if status == "success":
+                status = "pipeline_exception"
+        finally:
+            timing.mark("pipeline_finished")
+            timing.emit(status)
+
+    def _transcribe_and_paste(
+        self, audio, timing: DictationTiming | None = None
+    ) -> None:
+        previous = None
+        status = "pipeline_exception"
+        if timing is not None:
+            timing.mark("worker_started")
+        try:
+            # Save the clipboard before transcription, preserving the existing
+            # worker-thread ordering.
+            if timing is not None:
+                timing.mark("clipboard_read_started")
+            try:
+                previous = injector.read_clipboard()
+            finally:
+                if timing is not None:
+                    timing.mark("clipboard_read_finished")
             started = time.perf_counter()
-            text = self.transcriber.transcribe(audio)
+            try:
+                if timing is None:
+                    text = self.transcriber.transcribe(audio)
+                else:
+                    text = self.transcriber.transcribe(audio, timing=timing)
+            except Exception:
+                status = "transcription_exception"
+                raise
             self.last_dictation_heard = text
             if self.profile is not None:
-                text = self.profile.apply(text)
+                if timing is not None:
+                    timing.profile_active = True
+                    timing.mark("profile_started")
+                try:
+                    text = self.profile.apply(text)
+                finally:
+                    if timing is not None:
+                        timing.mark("profile_finished")
+            elif timing is not None:
+                timing.profile_active = False
             self.last_dictation_text = text
             elapsed = time.perf_counter() - started
             if text:
@@ -424,7 +529,16 @@ class DictationEngine:
                 # injected keystroke can never re-trigger recording.
                 self._listener.pause()
                 try:
-                    injector.insert_text(text)
+                    if timing is not None:
+                        timing.mark("insertion_started")
+                    try:
+                        if timing is None:
+                            injector.insert_text(text)
+                        else:
+                            injector.insert_text(text, timing=timing)
+                    except Exception:
+                        status = "insertion_exception"
+                        raise
                 finally:
                     # Don't re-arm the hotkey if the user paused dictation
                     # (training window open) while we were transcribing.
@@ -433,18 +547,34 @@ class DictationEngine:
                 # Let the target app consume the paste before restoring the
                 # clipboard — after resume(), so it's off the hotkey-dead window.
                 time.sleep(config.PASTE_SETTLE_SECONDS)
+                if timing is not None:
+                    timing.mark("paste_settle_finished")
+                status = "success"
             else:
                 print("  → (no speech detected)")
+                status = "empty_transcription"
         except Exception:
             traceback.print_exc()
         finally:
             # Always restore, even if transcription or the paste itself
             # raised — otherwise the dictated text is stranded on the
             # clipboard and the user's prior clipboard is lost.
-            injector.restore_clipboard(previous)
-            if self.overlay:
-                self.overlay.hide()
-            self._set_state(self._idle_state())
+            if timing is None:
+                injector.restore_clipboard(previous)
+                if self.overlay:
+                    self.overlay.hide()
+                self._set_state(self._idle_state())
+                return
+            timing.mark("clipboard_restore_started")
+            try:
+                injector.restore_clipboard(previous)
+            except Exception:
+                traceback.print_exc()
+                if status == "success":
+                    status = "pipeline_exception"
+            finally:
+                timing.mark("clipboard_restore_finished")
+                self._finish_dictation(timing, status)
 
     def correct_last_dictation(self, intended: str) -> bool:
         """Teach the active profile from the most recent raw ASR result."""

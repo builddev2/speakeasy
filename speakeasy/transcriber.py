@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import config, preprocess, settings
+from .dictation_benchmark import DictationTiming
 
 
 class MeetingCancelled(Exception):
@@ -56,15 +57,29 @@ from parakeet_mlx.audio import get_logmel
 
 
 def read_wav_mono_f32(path: Path) -> np.ndarray:
-    """Read a 16 kHz mono int16 WAV (a meeting spool) as float32 in [-1, 1]."""
+    """Read a PCM16 WAV and convert it to the model's 16 kHz mono format."""
     with wave.open(str(path)) as w:
-        if w.getframerate() != config.SAMPLE_RATE or w.getnchannels() != 1:
+        sample_rate = w.getframerate()
+        channels = w.getnchannels()
+        if w.getsampwidth() != 2 or sample_rate <= 0 or channels <= 0:
             raise ValueError(
-                f"Expected {config.SAMPLE_RATE} Hz mono spool, got "
-                f"{w.getframerate()} Hz / {w.getnchannels()} ch: {path}"
+                f"Expected PCM16 meeting spool, got {w.getsampwidth() * 8}-bit / "
+                f"{sample_rate} Hz / {channels} ch: {path}"
             )
         data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
-    return data.astype(np.float32) / 32768.0
+    complete = len(data) - (len(data) % channels)
+    if complete == 0:
+        return np.empty(0, dtype=np.float32)
+    audio = data[:complete].reshape(-1, channels).astype(np.float32).mean(axis=1)
+    audio /= 32768.0
+    if sample_rate == config.SAMPLE_RATE:
+        return audio
+    output_frames = max(1, round(len(audio) * config.SAMPLE_RATE / sample_rate))
+    source_positions = np.arange(len(audio), dtype=np.float64)
+    target_positions = np.arange(output_frames, dtype=np.float64) * (
+        sample_rate / config.SAMPLE_RATE
+    )
+    return np.interp(target_positions, source_positions, audio).astype(np.float32)
 
 
 class Transcriber:
@@ -83,16 +98,39 @@ class Transcriber:
         # a second of silence rather than on the user's first dictation.
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(
+        self, audio: np.ndarray, *, timing: DictationTiming | None = None
+    ) -> str:
         # Drop lead/tail silence first: fewer mel frames (latency) and a
         # tighter per-feature norm (accuracy). Meetings intentionally skip
         # this — see transcribe_long — to keep timestamps aligned with
         # diarization.
-        audio = preprocess.trim_silence(audio, config.SAMPLE_RATE)
+        if timing is not None:
+            timing.samples_before = len(audio)
+            timing.mark("trim_started")
+        try:
+            audio = preprocess.trim_silence(audio, config.SAMPLE_RATE)
+            if timing is not None:
+                timing.samples_after = len(audio)
+        finally:
+            if timing is not None:
+                timing.mark("trim_finished")
         # Feed the buffer to the model in-memory — the temp-WAV + ffmpeg
         # round-trip of model.transcribe(path) costs ~100 ms per dictation.
-        mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
-        result = self._model.generate(mel)[0]
+        if timing is not None:
+            timing.mark("mel_started")
+        try:
+            mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
+        finally:
+            if timing is not None:
+                timing.mark("mel_finished")
+        if timing is not None:
+            timing.mark("inference_started")
+        try:
+            result = self._model.generate(mel)[0]
+        finally:
+            if timing is not None:
+                timing.mark("inference_finished")
         return result.text.strip()
 
     def transcribe_long(

@@ -13,6 +13,7 @@ import Quartz
 from AppKit import NSPasteboard, NSPasteboardTypeString
 
 from . import config
+from .dictation_benchmark import DictationTiming
 
 _CMD_KEYCODE = 55
 _V_KEYCODE = 9  # 'v' on the ANSI layout
@@ -62,9 +63,11 @@ def _post_cmd_v() -> None:
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
-def insert_text(text: str) -> None:
+def insert_text(text: str, *, timing: DictationTiming | None = None) -> None:
     if not text:
         return
     _set_clipboard(text)
     time.sleep(config.CLIPBOARD_SETTLE_SECONDS)  # let the app observe the new pasteboard
     _post_cmd_v()
+    if timing is not None:
+        timing.mark("paste_dispatched")

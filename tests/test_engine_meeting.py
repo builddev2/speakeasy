@@ -16,6 +16,7 @@ import pytest
 from speakeasy import config, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
+from speakeasy.meeting_recorder import MeetingRecording
 from speakeasy.transcriber import MeetingCancelled
 
 
@@ -105,6 +106,75 @@ class FakeDiarizer:
         return [(0.0, 1.0, 0)]
 
 
+class FakeDualMeetingRecorder:
+    def __init__(self, spool_dir, *, empty_system=False):
+        self.mic_path = spool_dir / "meeting-mic.wav"
+        self.system_path = spool_dir / "meeting-system.wav"
+        self.empty_system = empty_system
+        self.elapsed_seconds = 0.0
+        self.level = 0.0
+        self.capture_mode = "mic_only"
+        self.system_audio_status = "available"
+
+    @staticmethod
+    def _write(path, value, frames=config.SAMPLE_RATE * 2):
+        with wave.open(str(path), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(config.SAMPLE_RATE)
+            output.writeframes(np.full(frames, value, dtype=np.int16).tobytes())
+
+    def start(self):
+        self._write(self.mic_path, 1000)
+        self._write(self.system_path, 0, frames=0 if self.empty_system else config.SAMPLE_RATE * 2)
+        self.capture_mode = "mic_and_system"
+        self.system_audio_status = "capturing"
+
+    def stop(self):
+        return MeetingRecording(
+            mic_path=self.mic_path,
+            system_path=self.system_path,
+            mic_start_ns=1_000_000_000,
+            system_start_ns=1_500_000_000,
+            capture_mode="mic_and_system",
+            system_audio_status="captured",
+        )
+
+    def force_close(self):
+        pass
+
+    def take_recording(self):
+        return self.stop()
+
+    def discard(self):
+        self.mic_path.unlink(missing_ok=True)
+        self.system_path.unlink(missing_ok=True)
+
+
+class FakeDualTranscriber:
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        progress(1.0)
+        result = type("Result", (), {})()
+        if float(np.mean(audio)) > 0.001:
+            result.sentences = [Sentence(0.1, 0.6, "local hello")]
+        else:
+            result.sentences = [
+                Sentence(0.0, 0.8, "remote one"),
+                Sentence(1.0, 1.8, "remote two"),
+            ]
+        return result
+
+
+class FakeRemoteDiarizer:
+    def __init__(self):
+        self.audio_lengths = []
+
+    def diarize(self, samples, progress=lambda f: None):
+        self.audio_lengths.append(len(samples))
+        progress(1.0)
+        return [(0.0, 0.8, 4), (1.0, 1.8, 9)]
+
+
 def _engine(spool_dir):
     engine = DictationEngine()
     engine._listener = SpyListener()
@@ -143,6 +213,136 @@ def test_meeting_happy_path(meetings_dir, spool_dir, make_profile):
     assert stored.segments[0].text == "Claude says hello"  # profile applied
     assert not list(spool_dir.iterdir())  # spool deleted after processing
     assert engine._listener.running is True  # hotkey re-armed
+    engine.shutdown()
+
+
+def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = FakeDualTranscriber()
+    diarizer = FakeRemoteDiarizer()
+    engine.diarizer = diarizer
+    engine._diarizer_speaker_count = 2
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting(MeetingOptions(expected_speaker_count=2))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    assert engine.meeting_recorder.capture_mode == "mic_and_system"
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = meetings.Meeting.load(saved[0])
+    assert [(s.speaker, s.start) for s in stored.segments] == [
+        ("You", 0.1),
+        ("Speaker 1", 0.5),
+        ("Speaker 2", 1.5),
+    ]
+    assert diarizer.audio_lengths == [config.SAMPLE_RATE * 2]
+    assert stored.capture_mode == "mic_and_system"
+    assert stored.track_offsets_seconds == {"mic": 0.0, "system": 0.5}
+    assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_empty_system_track_falls_back_to_existing_mic_diarization(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir, empty_system=True)
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = meetings.Meeting.load(saved[0])
+    assert stored.capture_mode == "mic_only"
+    assert stored.system_audio_status == "empty_track"
+    assert stored.segments[0].speaker == "Speaker 1"
+    assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_enrolled_profile_matching_applies_only_to_remote_track(
+    meetings_dir, spool_dir, monkeypatch
+):
+    import speakeasy.voice_profiles as voice_profiles
+
+    identified_lengths = []
+
+    class FakeVoiceProfiles:
+        def identify(self, audio, turns, expected_names, *, cancelled):
+            identified_lengths.append(len(audio))
+            return [
+                meetings.DiarizationTurn(0.0, 0.8, 4, 0.9, False, "Alice"),
+                meetings.DiarizationTurn(1.0, 1.8, 9),
+            ]
+
+    monkeypatch.setattr(voice_profiles, "VoiceProfileStore", FakeVoiceProfiles)
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = FakeDualTranscriber()
+    engine.diarizer = FakeRemoteDiarizer()
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting(
+        MeetingOptions(expected_voice_profile_names=("Alice",))
+    )
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = meetings.Meeting.load(saved[0])
+    assert [s.speaker for s in stored.segments] == ["You", "Alice", "Speaker 2"]
+    assert identified_lengths == [config.SAMPLE_RATE * 2]
+    engine.shutdown()
+
+
+def test_cancel_set_during_remote_diarization_discards_both_tracks(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = FakeDualTranscriber()
+
+    class CancellingDiarizer(FakeRemoteDiarizer):
+        def diarize(self, samples, progress=lambda f: None):
+            engine.cancel_meeting_processing()
+            return super().diarize(samples, progress)
+
+    engine.diarizer = CancellingDiarizer()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert meetings.list_meetings() == []
+    assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_dual_track_processing_failure_cleans_both_spools(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+
+    class FailingTranscriber:
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            raise RuntimeError("synthetic failure")
+
+    engine.transcriber = FailingTranscriber()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert meetings.list_meetings() == []
+    assert not list(spool_dir.iterdir())
     engine.shutdown()
 
 

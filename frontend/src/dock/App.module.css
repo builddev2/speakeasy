@@ -76,6 +76,9 @@
 
 .recStatus {
   margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .pillBadge {
@@ -85,6 +88,16 @@
   border-radius: 6px;
   background: rgba(240,179,74,0.13);
   border: 0.5px solid rgba(240,179,74,0.25);
+}
+
+.captureGood,
+.captureWarning {
+  font: 500 10.5px/1 var(--sans);
+  color: rgba(255,255,255,0.62);
+}
+
+.captureWarning {
+  color: #F0B34A;
 }
 
 .timer {

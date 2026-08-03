@@ -137,3 +137,20 @@ def frontend_dist_path() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent.parent / "Resources" / "frontend"
     return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+def system_audio_helper_path() -> Path:
+    """Bundled process-tap helper, or the dev build output."""
+    if getattr(sys, "frozen", False):
+        return (
+            Path(sys.executable).resolve().parent.parent
+            / "Resources"
+            / "native"
+            / "SpeakeasySystemAudioCapture"
+        )
+    return (
+        Path(__file__).resolve().parent.parent
+        / "build"
+        / "native"
+        / "SpeakeasySystemAudioCapture"
+    )

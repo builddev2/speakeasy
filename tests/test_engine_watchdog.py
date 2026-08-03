@@ -4,6 +4,7 @@ import threading
 
 from speakeasy import config
 from speakeasy.engine import DictationEngine, State
+from speakeasy.meeting_recorder import MeetingRecording
 from speakeasy.recorder import RecorderBusy
 
 
@@ -31,9 +32,10 @@ def test_guarded_stop_gives_up_and_releases_the_mic(monkeypatch):
     rec = HangingRecorder()
     engine.recorder = rec
 
-    audio = engine._stop_recorder_guarded()
+    stopped = engine._stop_recorder_guarded()
 
-    assert audio.size == 0          # this take is dropped, not awaited forever
+    assert stopped.audio.size == 0  # this take is dropped, not awaited forever
+    assert stopped.outcome == "timeout"
     assert rec.force_closed is True  # mic forcibly released
     rec.release.set()               # let the orphaned stop() thread exit
 
@@ -48,8 +50,9 @@ def test_guarded_stop_returns_audio_on_the_fast_path():
             return np.ones(8, dtype="float32")
 
     engine.recorder = QuickRecorder()
-    audio = engine._stop_recorder_guarded()
-    assert audio.shape == (8,)
+    stopped = engine._stop_recorder_guarded()
+    assert stopped.audio.shape == (8,)
+    assert stopped.outcome == "normal"
 
 
 def test_start_recording_stays_idle_when_mic_is_busy():
@@ -66,3 +69,34 @@ def test_start_recording_stays_idle_when_mic_is_busy():
     engine._start_recording()
 
     assert engine.state is State.READY  # stayed idle, never entered RECORDING
+
+
+def test_guarded_dual_track_stop_times_out_without_blocking_control(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(config, "RECORDER_STOP_TIMEOUT_SECONDS", 0.1)
+    engine = DictationEngine()
+
+    class HangingMeetingRecorder:
+        def __init__(self):
+            self.release = threading.Event()
+            self.force_closed = False
+
+        def stop(self):
+            self.release.wait()
+            return None
+
+        def force_close(self):
+            self.force_closed = True
+
+        def take_recording(self):
+            return MeetingRecording(mic_path=tmp_path / "mic.wav")
+
+    recorder = HangingMeetingRecorder()
+    engine.meeting_recorder = recorder
+
+    recording = engine._stop_meeting_recorder_guarded()
+
+    assert recording.mic_path == tmp_path / "mic.wav"
+    assert recorder.force_closed is True
+    recorder.release.set()

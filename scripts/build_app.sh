@@ -1,8 +1,8 @@
 #!/bin/bash
 # Build the standalone Speakeasy.app into dist/, and optionally install it.
 #
-# Steps: PyInstaller bundle → copy the speech model from the local HF cache
-# into Contents/Resources/model → sanity-check the bundle → codesign.
+# Steps: frontend + PyInstaller + native system-audio helper → copy bundled
+# models/resources → sanity-check the bundle → codesign.
 #
 # Usage: scripts/build_app.sh [--install]
 #   --install   also update /Applications/Speakeasy.app in place (see below).
@@ -78,6 +78,9 @@ rm -rf build dist
 "$VENV/python" -m PyInstaller --noconfirm --distpath dist --workpath build \
     packaging/Speakeasy.spec
 
+echo "==> Building system-audio helper"
+scripts/build_system_audio_helper.sh
+
 echo "==> Bundling model ($(du -sh "$SNAP" | cut -f1))"
 mkdir -p "$APP/Contents/Resources/model"
 rsync -aL "$SNAP/config.json" "$SNAP/model.safetensors" "$APP/Contents/Resources/model/"
@@ -88,6 +91,10 @@ rsync -aL "$DIAR/segmentation.onnx" "$DIAR/embedding.onnx" "$APP/Contents/Resour
 
 echo "==> Bundling frontend"
 rsync -a --delete frontend/dist/ "$APP/Contents/Resources/frontend/"
+
+echo "==> Bundling system-audio helper"
+mkdir -p "$APP/Contents/Resources/native"
+rsync -a build/native/SpeakeasySystemAudioCapture "$APP/Contents/Resources/native/"
 
 echo "==> Sanity checks"
 METALLIB=$(find "$APP" -path "*mlx/lib/mlx.metallib" | head -1)
@@ -100,6 +107,8 @@ SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
     && [ -f "$APP/Contents/Resources/diarization/embedding.onnx" ] \
     || { echo "error: diarization models missing from bundle"; exit 1; }
 [ -f "$APP/Contents/Resources/frontend/dock.html" ] || { echo "error: frontend missing from bundle"; exit 1; }
+[ -x "$APP/Contents/Resources/native/SpeakeasySystemAudioCapture" ] \
+    || { echo "error: system-audio helper missing from bundle"; exit 1; }
 LEFTOVERS=$(find "$APP" \( -iname "*librosa*" -o -iname "*numba*" -o -iname "*llvmlite*" \) | head -3)
 [ -z "$LEFTOVERS" ] || { echo "error: excluded packages leaked into bundle:"; echo "$LEFTOVERS"; exit 1; }
 

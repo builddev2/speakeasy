@@ -20,6 +20,8 @@ interface AppState {
   progressText: string | null;
   canTrain: boolean;
   voiceProfiles: string[];
+  captureMode: 'mic_only' | 'mic_and_system';
+  systemAudioStatus: string;
 }
 
 interface DockAppProps {
@@ -40,6 +42,13 @@ function formatTimer(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
   const seconds = (totalSeconds % 60).toString().padStart(2, '0');
   return `${minutes}:${seconds}`;
+}
+
+function captureStatusText(status: string): string {
+  if (status === 'requires_macos_14_2') return 'Microphone only — system audio needs macOS 14.2+';
+  if (status === 'helper_missing') return 'Microphone only — system audio helper unavailable';
+  if (status === 'permission_denied_or_unavailable') return 'Microphone only — system audio permission denied';
+  return 'Microphone only — remote voices need speakers';
 }
 
 function MeetingsIcon() {
@@ -70,6 +79,8 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     progressText: null,
     canTrain: true,
     voiceProfiles: [],
+    captureMode: 'mic_only',
+    systemAudioStatus: 'available',
   });
   const [expectedSpeakerCount, setExpectedSpeakerCount] = useState('');
   const [useVoiceProfiles, setUseVoiceProfiles] = useState(false);
@@ -183,13 +194,18 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
         {isRecording && (
           <div className={styles.recStatus}>
             <span className={styles.pillBadge}>Dictation paused</span>
+            <span className={app.captureMode === 'mic_and_system' ? styles.captureGood : styles.captureWarning}>
+              {app.captureMode === 'mic_and_system'
+                ? 'Microphone + system audio'
+                : captureStatusText(app.systemAudioStatus)}
+            </span>
           </div>
         )}
 
         {!isRecording && app.mode === 'ready' && (
           <div className={styles.meetingOptions}>
             <label>
-              Speakers
+              Remote speakers
               <input
                 type="number"
                 min="1"

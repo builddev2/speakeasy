@@ -115,6 +115,11 @@ app = BUNDLE(
             "audio is deleted as soon as the transcript is saved. "
             "Audio never leaves this Mac."
         ),
+        "NSAudioCaptureUsageDescription": (
+            "Speakeasy captures system audio during meetings so remote "
+            "participants are transcribed while you use headphones. Audio "
+            "is processed on-device and deleted after transcription."
+        ),
         "NSHumanReadableCopyright": "Local-only dictation. No network, ever.",
     },
 )

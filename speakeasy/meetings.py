@@ -71,12 +71,18 @@ class Meeting:
         created: str,
         duration_seconds: float,
         segments: list[MeetingSegment],
+        capture_mode: str = "mic_only",
+        system_audio_status: str = "legacy_unknown",
+        track_offsets_seconds: dict[str, float] | None = None,
     ) -> None:
         self.meeting_id = meeting_id
         self.title = title
         self.created = created
         self.duration_seconds = duration_seconds
         self.segments = segments
+        self.capture_mode = capture_mode
+        self.system_audio_status = system_audio_status
+        self.track_offsets_seconds = track_offsets_seconds or {"mic": 0.0}
 
     # -- storage --------------------------------------------------------
 
@@ -85,7 +91,15 @@ class Meeting:
         return settings.meetings_dir() / f"{self.meeting_id}.json"
 
     @classmethod
-    def new(cls, segments: list[MeetingSegment], duration_seconds: float) -> "Meeting":
+    def new(
+        cls,
+        segments: list[MeetingSegment],
+        duration_seconds: float,
+        *,
+        capture_mode: str = "mic_only",
+        system_audio_status: str = "unavailable",
+        track_offsets_seconds: dict[str, float] | None = None,
+    ) -> "Meeting":
         now = datetime.now()
         meeting_id = f"{now.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2)}"
         # e.g. "Meeting — Jul 8, 2:32 PM" (%-I is glibc/BSD strftime; fine on macOS)
@@ -96,6 +110,9 @@ class Meeting:
             created=now.isoformat(timespec="seconds"),
             duration_seconds=duration_seconds,
             segments=segments,
+            capture_mode=capture_mode,
+            system_audio_status=system_audio_status,
+            track_offsets_seconds=track_offsets_seconds,
         )
 
     @classmethod
@@ -106,6 +123,9 @@ class Meeting:
             raise ValueError(f"Invalid meeting id: {meeting_id!r}")
         path = settings.meetings_dir() / f"{meeting_id}.json"
         data = json.loads(path.read_text(encoding="utf-8"))
+        raw_offsets = data.get("track_offsets_seconds", {"mic": 0.0})
+        if not isinstance(raw_offsets, dict):
+            raw_offsets = {"mic": 0.0}
         segments = [
             MeetingSegment(
                 speaker=str(s["speaker"]),
@@ -129,6 +149,15 @@ class Meeting:
             created=data.get("created") or "",
             duration_seconds=float(data.get("duration_seconds", 0.0)),
             segments=segments,
+            capture_mode=str(data.get("capture_mode", "mic_only")),
+            system_audio_status=str(
+                data.get("system_audio_status", "legacy_unknown")
+            ),
+            track_offsets_seconds={
+                str(name): float(offset)
+                for name, offset in raw_offsets.items()
+                if name in {"mic", "system"}
+            },
         )
 
     def save(self) -> None:
@@ -142,6 +171,13 @@ class Meeting:
                     "title": self.title,
                     "created": self.created,
                     "duration_seconds": self.duration_seconds,
+                    "capture_mode": self.capture_mode,
+                    "system_audio_status": self.system_audio_status,
+                    "track_offsets_seconds": {
+                        name: round(offset, 6)
+                        for name, offset in self.track_offsets_seconds.items()
+                        if name in {"mic", "system"}
+                    },
                     "segments": [
                         {
                             "speaker": s.speaker,
@@ -412,3 +448,50 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
                 )
             )
     return segments
+
+
+def known_speaker_segments(sentences, speaker: str = "You") -> list[MeetingSegment]:
+    """Convert one known-source ASR track without running diarization."""
+    segments = []
+    for sentence in sentences or []:
+        text = sentence.text.strip()
+        if not text:
+            continue
+        if segments and segments[-1].speaker == speaker:
+            segments[-1].text = (segments[-1].text + " " + text).strip()
+            segments[-1].end = float(sentence.end)
+        else:
+            segments.append(
+                MeetingSegment(
+                    speaker=speaker,
+                    start=float(sentence.start),
+                    end=float(sentence.end),
+                    text=text,
+                )
+            )
+    return segments
+
+
+def shift_segments(
+    segments: list[MeetingSegment], offset_seconds: float
+) -> list[MeetingSegment]:
+    for segment in segments:
+        segment.start = max(0.0, segment.start + offset_seconds)
+        segment.end = max(segment.start, segment.end + offset_seconds)
+    return segments
+
+
+def merge_tracks(*tracks: list[MeetingSegment]) -> list[MeetingSegment]:
+    """Chronologically merge independent tracks without transcript cleanup.
+
+    Deliberately do not remove similar text across tracks: repeated phrases and
+    real overlap are valid meeting content, while speaker-mode echo cannot be
+    distinguished reliably from text alone.
+    """
+    indexed = [
+        (segment.start, segment.end, track_index, segment_index, segment)
+        for track_index, track in enumerate(tracks)
+        for segment_index, segment in enumerate(track)
+    ]
+    indexed.sort(key=lambda item: item[:4])
+    return [item[-1] for item in indexed]

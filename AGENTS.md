@@ -18,11 +18,13 @@ a speaker-labelled transcript. Only the transcript is persisted — audio is
 deleted the moment processing ends (success, cancel, error, or crash-recovery
 sweep at next launch). See `engine.py` (`begin_meeting`/`end_meeting`/
 `_process_meeting`), `meeting_recorder.py`, `meetings.py`, `diarizer.py`.
-**Known limitation:** capture is mic-only — on a Zoom/Teams call, remote
-participants are only transcribed if played through speakers, not headphones
-(see README's [Meeting transcription](README.md#meeting-transcription)
-section). A future enhancement could add system-audio capture via
-ScreenCaptureKit (macOS 13+, needs the Screen Recording permission).
+On macOS 14.2+, meetings capture microphone and outgoing system audio as
+separate temporary tracks through a bundled Core Audio process-tap helper.
+The mic is the known local user (`You`); only the system track is diarized,
+then both transcripts are shifted by their first-buffer offsets and merged.
+macOS 14.0–14.1 or denied/unavailable system capture falls back visibly to the
+original mic-only diarization mode. See README's
+[Meeting transcription](README.md#meeting-transcription) section.
 
 ## Hard constraints
 
@@ -75,6 +77,12 @@ single-purpose:
   drains a bounded queue fed by the mic callback into the spool WAV. The
   audio callback itself must never touch disk or block; it only
   `put_nowait`s into the queue and drops frames if the writer falls behind.
+- **system-audio helper process** — owns the macOS 14.2+ Core Audio process
+  tap and private aggregate device. Its realtime callback only copies into a
+  bounded queue; its separate writer queue downmixes and writes the temporary
+  system WAV. Keeping tap teardown out of the main process prevents a wedged
+  system stop from holding Speakeasy's microphone HAL lock. The control
+  executor still serializes helper start/stop, and its stop is bounded/killed.
 - Meeting cancellation is a polled `threading.Event`
   (`engine._meeting_cancel`), not a thread — `cancel_meeting_processing()`
   just sets it, and the worker checks it between transcription chunks and
@@ -90,6 +98,7 @@ UI objects are main-thread only; engine callbacks hop threads via
 .venv/bin/python -m speakeasy --cli      # terminal front end
 .venv/bin/python -m pytest               # tests (pure logic + recorder/hotkey/engine units)
 scripts/fetch_diarization_models.sh      # one-time: download + checksum the 2 diarization ONNX models
+scripts/build_system_audio_helper.sh     # build the macOS 14.2+ process-tap helper
 scripts/build_app.sh                     # build dist/Speakeasy.app (PyInstaller + bundled model)
 scripts/build_app.sh --install           # build AND update /Applications in place
 ```
@@ -107,8 +116,8 @@ scripts/build_app.sh --install           # build AND update /Applications in pla
 
 ## Permissions / TCC gotcha
 
-The app needs Microphone, Accessibility, and Input Monitoring, granted to the
-`.app` (or to Terminal when run from source). macOS keys the Accessibility /
+The app needs Microphone, Accessibility, and Input Monitoring, plus optional
+Screen & System Audio Recording for headphone-compatible meetings. macOS keys the Accessibility /
 Input Monitoring grants on the code signature. **Replacing the whole
 `/Applications/Speakeasy.app` (e.g. `rm -rf` + `mv`) can drop the grant and
 force a re-prompt; a dead Right ⌘ hotkey + a re-prompt is this, not a code

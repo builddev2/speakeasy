@@ -70,12 +70,18 @@ rsync -a --delete dist/Speakeasy.app/ /Applications/Speakeasy.app/
 ### 2. Grant macOS permissions (one time)
 
 Launch Speakeasy (from Spotlight or `/Applications`). It appears in the menu
-bar and, on first run, guides you through granting three permissions **to
-Speakeasy itself** in **System Settings → Privacy & Security**:
+bar and, on first run, guides you through the three permissions needed for
+dictation **to Speakeasy itself** in **System Settings → Privacy & Security**:
 
 - **Microphone** — to record your voice (prompts automatically on first recording)
 - **Accessibility** — to paste the transcribed text (simulated ⌘V)
 - **Input Monitoring** — to detect the Right Command hotkey
+
+Meeting system-audio capture has one additional, optional grant on macOS
+14.2+: **Screen & System Audio Recording**. macOS prompts the first time you
+begin a meeting. Speakeasy captures audio only—never screen pixels. If you
+deny or later revoke it, the meeting continues visibly in microphone-only
+mode; with headphones, remote participants will not be captured in that mode.
 
 After enabling **Accessibility** and **Input Monitoring**, quit Speakeasy from
 its menu-bar item and reopen it for the changes to take effect.
@@ -177,16 +183,20 @@ content ships offline; progress is saved as you go.
 
 ## Meeting transcription
 
-Click **Begin Meeting** in the menu bar to start recording (the icon becomes a
-record symbol and the status line reads *Recording meeting — dictation
-paused*). Meetings can run up to a couple of hours; the menu shows the elapsed
-time. Click **End Meeting** when you're done, and Speakeasy processes the
-recording entirely on-device:
+Click **Begin Meeting** in the menu bar to start recording. On macOS 14.2+,
+Speakeasy records your microphone and outgoing system audio as separate
+temporary tracks, so remote participants are captured while you wear
+headphones. The status explicitly says **microphone + system audio** or
+**microphone only**. Meetings can run up to a couple of hours; the menu shows
+the elapsed time. Click **End Meeting** when you're done, and Speakeasy
+processes the recording entirely on-device:
 
-1. the audio is transcribed in chunks (progress shows in the menu),
-2. voices are separated by a local speaker-diarization model, and
-3. the transcript is saved with each line attributed to **Speaker 1**,
-   **Speaker 2**, … in speaking order.
+1. each available track is transcribed in chunks (progress shows in the menu),
+2. microphone speech is labelled **You**, while only the clean system track is
+   separated by the local speaker-diarization model, and
+3. both tracks are shifted by their real first-buffer offsets, merged on one
+   timeline, and saved with remote voices as **Speaker 1**, **Speaker 2**, …
+   (or an enrolled name when a confident match exists).
 
 A 2-hour meeting takes several minutes to process; **Cancel Processing** in
 the menu discards it. When it finishes, the transcript appears under
@@ -198,23 +208,27 @@ the menu discards it. When it finishes, the transcript appears under
 
 While a meeting records, hold-to-talk dictation is off (both would fight over
 the mic and the model); it re-arms the moment processing starts. The active
-profile's corrections are applied to the transcript, and it counts speakers
-automatically — nothing to configure.
+profile's corrections are applied to both tracks. The optional speaker count
+means **remote speakers** with dual-track capture; in microphone-only fallback
+it necessarily applies to every voice audible on the mixed mic track.
 
-**Privacy: the audio itself is never kept.** During the meeting it spools to
-a temporary file, which is deleted as soon as the transcript is saved — and
+**Privacy: the audio itself is never kept.** During the meeting both tracks
+spool to temporary files, which are deleted as soon as the transcript is saved — and
 also on cancel, on failure, on quit, and (if the app ever crashes mid-meeting)
 swept at the next launch. Transcripts are plain JSON in
 `~/Library/Application Support/Speakeasy/meetings/`. Everything — recording,
 transcription, speaker identification — runs offline; nothing leaves your Mac.
 
-**Limitation — it hears what your mic hears.** On a Zoom/Teams call, Speakeasy
-records alongside the call without interfering (macOS shares the mic between
-apps), but remote participants are only captured if they play through your
-**speakers**. With headphones on, their voices never reach the mic and won't
-be in the transcript. A future enhancement could capture system audio directly
-via ScreenCaptureKit (macOS 13+, requires the Screen Recording permission and
-mixing the mic and system streams).
+**Fallback and speaker-mode limitation.** macOS 14.0–14.1, a denied/revoked
+system-audio grant, or an unavailable capture helper falls back safely to the
+original mic-only meeting pipeline. In that mode remote participants are only
+captured through speakers, and every voice audible on the mic is diarized;
+Speakeasy does not falsely label the whole mixed track as **You**. With system
+capture active, speaker playback can still bleed into the microphone and
+appear twice. Speakeasy preserves both segments rather than risk deleting a
+real repeated phrase or overlapping speech; headphones provide the cleanest
+**You** versus remote-speaker separation. A global system tap also includes
+unrelated notification or music audio played during the meeting.
 
 ## Development (run from source)
 
@@ -254,6 +268,7 @@ under `frontend/`):
 
 ```bash
 npm --prefix frontend ci && npm --prefix frontend run build
+scripts/build_system_audio_helper.sh
 ```
 
 ```bash
@@ -263,8 +278,9 @@ npm --prefix frontend ci && npm --prefix frontend run build
 ```
 
 `--profile NAME` skips the picker (handy for a launch alias). When run from
-Terminal, the three permissions attach to **Terminal** (or iTerm), not to the
-`.app` — grant them there too if you develop from source.
+Terminal, dictation permissions attach to **Terminal** (or iTerm), not to the
+`.app` — grant them there too if you develop from source. The system-audio
+helper embeds its own usage description for source runs.
 
 ### Tests
 
@@ -352,10 +368,11 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 ```
 
 ```
-Begin Meeting ─► mic spools to a temp WAV (dictation hotkey disabled)
-End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
-                  (sherpa-onnx) ─► align text to speakers ─► save transcript
-                  ─► delete the temp WAV ─► dictation hotkey re-armed
+Begin Meeting ─► mic + system audio spool separately (dictation disabled)
+End Meeting   ─► transcribe both tracks; mic = You; diarize system track
+                  ─► apply first-buffer offsets ─► chronological merge
+                  ─► save transcript ─► delete both temporary WAVs
+                  ─► dictation hotkey re-armed
 ```
 
 - **`hotkey.py`** — global hold-to-talk listener built on a raw Quartz
@@ -409,7 +426,8 @@ End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
   `mic.fill`/`waveform` while active
 - **`ui/training_window.py`** — the native glass training window opened from the
   menu bar
-- **`meeting_recorder.py`** — long-form mic capture: an int16 stream whose
+- **`meeting_recorder.py`** — dual-track coordination plus long-form mic
+  capture: an int16 stream whose
   audio callback only enqueues bytes, drained to a spool WAV by a dedicated
   writer thread, so RAM stays flat regardless of meeting length. Spools live
   in `settings.spool_dir()`, are deleted on every exit path, and are swept
@@ -417,6 +435,13 @@ End Meeting   ─► chunked transcription (Parakeet) + speaker diarization
   under the same watchdog as dictation's, and it shares the `coreaudio.py`
   teardown guard — a meeting whose stop wedges can't deadlock the dictation
   stream that re-arms behind it
+- **`system_audio.py` + `native/SystemAudioCapture.swift`** — macOS 14.2+
+  Core Audio process-tap capture through a small bundled helper process. Its
+  realtime callback only copies into a bounded queue; a separate writer queue
+  downmixes to PCM16 and writes the temporary system WAV. Process isolation
+  keeps a wedged system-tap teardown from holding Speakeasy's microphone HAL
+  lock. The helper is feature-gated, so the app's macOS 14.0 minimum remains
+  unchanged and unsupported/denied starts fall back visibly to mic-only
 - **`meetings.py`** — the meeting store (JSON per meeting, atomic saves like
   `profiles.py`), `.txt`/`.md` rendering, and the pure `align_speakers()`
   algorithm that maps diarization turns onto transcribed sentences

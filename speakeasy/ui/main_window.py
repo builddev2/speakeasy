@@ -79,6 +79,7 @@ class MainWindowController(NSObject):
         if state is State.MEETING_RECORDING and recorder is not None:
             elapsed = float(recorder.elapsed_seconds)
         profile = self.engine.profile
+        meeting_recorder = getattr(self.engine, "meeting_recorder", None)
         return {
             "mode": state.value,
             "profileName": profile.name if profile else "Guest",
@@ -88,6 +89,10 @@ class MainWindowController(NSObject):
             # is a silent no-op for Guest / while the model loads.
             "canTrain": self.engine.can_train,
             "voiceProfiles": self._voice_profile_names(),
+            "captureMode": getattr(meeting_recorder, "capture_mode", "mic_only"),
+            "systemAudioStatus": getattr(
+                meeting_recorder, "system_audio_status", "unavailable"
+            ),
         }
 
     @objc.python_method

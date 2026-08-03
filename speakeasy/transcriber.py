@@ -57,15 +57,29 @@ from parakeet_mlx.audio import get_logmel
 
 
 def read_wav_mono_f32(path: Path) -> np.ndarray:
-    """Read a 16 kHz mono int16 WAV (a meeting spool) as float32 in [-1, 1]."""
+    """Read a PCM16 WAV and convert it to the model's 16 kHz mono format."""
     with wave.open(str(path)) as w:
-        if w.getframerate() != config.SAMPLE_RATE or w.getnchannels() != 1:
+        sample_rate = w.getframerate()
+        channels = w.getnchannels()
+        if w.getsampwidth() != 2 or sample_rate <= 0 or channels <= 0:
             raise ValueError(
-                f"Expected {config.SAMPLE_RATE} Hz mono spool, got "
-                f"{w.getframerate()} Hz / {w.getnchannels()} ch: {path}"
+                f"Expected PCM16 meeting spool, got {w.getsampwidth() * 8}-bit / "
+                f"{sample_rate} Hz / {channels} ch: {path}"
             )
         data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
-    return data.astype(np.float32) / 32768.0
+    complete = len(data) - (len(data) % channels)
+    if complete == 0:
+        return np.empty(0, dtype=np.float32)
+    audio = data[:complete].reshape(-1, channels).astype(np.float32).mean(axis=1)
+    audio /= 32768.0
+    if sample_rate == config.SAMPLE_RATE:
+        return audio
+    output_frames = max(1, round(len(audio) * config.SAMPLE_RATE / sample_rate))
+    source_positions = np.arange(len(audio), dtype=np.float64)
+    target_positions = np.arange(output_frames, dtype=np.float64) * (
+        sample_rate / config.SAMPLE_RATE
+    )
+    return np.interp(target_positions, source_positions, audio).astype(np.float32)
 
 
 class Transcriber:

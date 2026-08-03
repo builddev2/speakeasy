@@ -25,6 +25,7 @@ import subprocess
 import threading
 import time
 import traceback
+import wave
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -37,7 +38,7 @@ import numpy as np
 from . import config, injector, meeting_recorder, meetings
 from .dictation_benchmark import DictationTiming
 from .hotkey import HotkeyListener
-from .meeting_recorder import MeetingRecorder
+from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
@@ -45,6 +46,8 @@ from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
 
 @dataclass(frozen=True)
 class MeetingOptions:
+    # Remote speakers in dual-track mode. In mic-only fallback, source
+    # separation is impossible, so this constrains every voice audible on mic.
     expected_speaker_count: int | None = None
     expected_voice_profile_names: tuple[str, ...] = ()
 
@@ -91,7 +94,7 @@ class DictationEngine:
 
     def __init__(self) -> None:
         self.recorder = Recorder()
-        self.meeting_recorder = MeetingRecorder()
+        self.meeting_recorder = MeetingCaptureRecorder()
         self.worker = ThreadPoolExecutor(max_workers=1)
         self.control = ThreadPoolExecutor(max_workers=1)
         self.transcriber: Transcriber | None = None
@@ -367,16 +370,19 @@ class DictationEngine:
             self._listener.resume()
             self._set_state(self._idle_state())
             return
-        play_sound(config.SOUND_MEETING_START)
+        # Do not inject our own start chime into the global system track.
+        # Mic-only fallback keeps the existing audible cue.
+        if getattr(self.meeting_recorder, "capture_mode", "mic_only") != "mic_and_system":
+            play_sound(config.SOUND_MEETING_START)
         self._set_state(State.MEETING_RECORDING)
         print("● meeting recording...")
 
     def _end_meeting(self) -> None:
         if not self._meeting_active or self.state is not State.MEETING_RECORDING:
             return
-        wav_path = self._stop_meeting_recorder_guarded()
+        recording = self._stop_meeting_recorder_guarded()
         play_sound(config.SOUND_MEETING_END)
-        if wav_path is None:
+        if recording is None:
             # Nothing made it to disk; back to dictation.
             self._meeting_active = False
             if not self._user_paused:
@@ -385,14 +391,14 @@ class DictationEngine:
             return
         self._meeting_cancel.clear()
         self._set_state(State.MEETING_PROCESSING)
-        self.worker.submit(self._process_meeting, wav_path)
+        self.worker.submit(self._process_meeting, recording)
 
-    def _stop_meeting_recorder_guarded(self) -> Path | None:
+    def _stop_meeting_recorder_guarded(self) -> MeetingRecording | None:
         """meeting_recorder.stop() under the same watchdog as the dictation
         recorder: a wedged CoreAudio stop must not freeze the control thread.
         On timeout the stream is abandoned but the spool is kept — everything
         up to the wedge is already on disk and still worth transcribing."""
-        result: list[Path | None] = []
+        result: list[MeetingRecording | Path | None] = []
         done = threading.Event()
 
         def run() -> None:
@@ -403,57 +409,148 @@ class DictationEngine:
 
         threading.Thread(target=run, name="meeting-stop", daemon=True).start()
         if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS) and result:
-            return result[0]
+            stopped = result[0]
+            if isinstance(stopped, Path):
+                return MeetingRecording(mic_path=stopped)
+            return stopped
         print("  → (meeting recorder stop timed out; releasing the mic)")
         self.meeting_recorder.force_close()
-        return self.meeting_recorder.take_path()
+        if hasattr(self.meeting_recorder, "take_recording"):
+            return self.meeting_recorder.take_recording()
+        path = self.meeting_recorder.take_path()
+        return MeetingRecording(mic_path=path) if path else None
 
-    def _process_meeting(self, wav_path: Path) -> None:
+    def _read_meeting_track(self, path: Path | None) -> np.ndarray:
+        if path is None or not path.is_file():
+            return np.empty(0, dtype=np.float32)
+        try:
+            return read_wav_mono_f32(path)
+        except (OSError, EOFError, ValueError, wave.Error):
+            print("  → meeting track unavailable or truncated")
+            return np.empty(0, dtype=np.float32)
+
+    def _diarize_track(self, audio, progress):
+        expected_count = self._meeting_options.expected_speaker_count
+        if self.diarizer is None or self._diarizer_speaker_count != expected_count:
+            from .diarizer import Diarizer
+
+            self.diarizer = Diarizer(expected_count)
+            self._diarizer_speaker_count = expected_count
+        turns = self.diarizer.diarize(audio, progress=progress)
+        if self._meeting_options.expected_voice_profile_names:
+            from .voice_profiles import VoiceProfileStore
+
+            turns = VoiceProfileStore().identify(
+                audio,
+                turns,
+                list(self._meeting_options.expected_voice_profile_names),
+                cancelled=self._meeting_cancel.is_set,
+            )
+        return turns
+
+    def _process_meeting(self, recording: MeetingRecording) -> None:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
         no matter how this exits — audio is never persisted."""
         try:
-            self.on_meeting_progress("Transcribing meeting… 0%")
-            audio = read_wav_mono_f32(wav_path)
-            duration = len(audio) / config.SAMPLE_RATE
-            result = self.transcriber.transcribe_long(
-                audio,
-                progress=lambda f: self.on_meeting_progress(
-                    f"Transcribing meeting… {int(f * 70)}%"
-                ),
-                cancel=self._meeting_cancel,
-            )
-            if self._meeting_cancel.is_set():
-                raise MeetingCancelled
-            expected_count = self._meeting_options.expected_speaker_count
-            if self.diarizer is None or self._diarizer_speaker_count != expected_count:
-                from .diarizer import Diarizer
+            offsets = recording.track_offsets_seconds
+            mic_audio = self._read_meeting_track(recording.mic_path)
+            system_audio = self._read_meeting_track(recording.system_path)
+            dual_track = recording.capture_mode == "mic_and_system" and len(system_audio)
+            if not len(mic_audio) and not len(system_audio):
+                raise ValueError("Meeting contained no readable audio")
 
-                self.diarizer = Diarizer(expected_count)
-                self._diarizer_speaker_count = expected_count
-            turns = self.diarizer.diarize(
-                audio,
-                progress=lambda f: self.on_meeting_progress(
-                    f"Identifying speakers… {70 + int(f * 28)}%"
-                ),
-            )
-            if self._meeting_options.expected_voice_profile_names:
-                from .voice_profiles import VoiceProfileStore
-
-                turns = VoiceProfileStore().identify(
-                    audio,
-                    turns,
-                    list(self._meeting_options.expected_voice_profile_names),
-                    cancelled=self._meeting_cancel.is_set,
+            if dual_track:
+                mic_sentences = []
+                if len(mic_audio):
+                    self.on_meeting_progress("Transcribing your track… 0%")
+                    mic_result = self.transcriber.transcribe_long(
+                        mic_audio,
+                        progress=lambda f: self.on_meeting_progress(
+                            f"Transcribing your track… {int(f * 35)}%"
+                        ),
+                        cancel=self._meeting_cancel,
+                    )
+                    mic_sentences = mic_result.sentences
+                if self._meeting_cancel.is_set():
+                    raise MeetingCancelled
+                self.on_meeting_progress("Transcribing system audio… 35%")
+                system_result = self.transcriber.transcribe_long(
+                    system_audio,
+                    progress=lambda f: self.on_meeting_progress(
+                        f"Transcribing system audio… {35 + int(f * 35)}%"
+                    ),
+                    cancel=self._meeting_cancel,
                 )
-            del audio
-            if self._meeting_cancel.is_set():
-                raise MeetingCancelled
-            segments = meetings.align_speakers(result.sentences, turns)
+                if self._meeting_cancel.is_set():
+                    raise MeetingCancelled
+                turns = self._diarize_track(
+                    system_audio,
+                    lambda f: self.on_meeting_progress(
+                        f"Identifying remote speakers… {70 + int(f * 28)}%"
+                    ),
+                )
+                if self._meeting_cancel.is_set():
+                    raise MeetingCancelled
+                local_segments = meetings.shift_segments(
+                    meetings.known_speaker_segments(mic_sentences),
+                    offsets.get("mic", 0.0),
+                )
+                remote_segments = meetings.shift_segments(
+                    meetings.align_speakers(system_result.sentences, turns),
+                    offsets.get("system", 0.0),
+                )
+                segments = meetings.merge_tracks(local_segments, remote_segments)
+                capture_mode = "mic_and_system"
+                system_status = recording.system_audio_status
+            else:
+                # Existing safe fallback: the mic may contain both the local
+                # user and speaker bleed, so preserve multi-speaker diarization
+                # instead of falsely labelling every audible voice as You.
+                audio = mic_audio if len(mic_audio) else system_audio
+                self.on_meeting_progress("Transcribing meeting… 0%")
+                result = self.transcriber.transcribe_long(
+                    audio,
+                    progress=lambda f: self.on_meeting_progress(
+                        f"Transcribing meeting… {int(f * 70)}%"
+                    ),
+                    cancel=self._meeting_cancel,
+                )
+                if self._meeting_cancel.is_set():
+                    raise MeetingCancelled
+                turns = self._diarize_track(
+                    audio,
+                    lambda f: self.on_meeting_progress(
+                        f"Identifying speakers… {70 + int(f * 28)}%"
+                    ),
+                )
+                if self._meeting_cancel.is_set():
+                    raise MeetingCancelled
+                segments = meetings.shift_segments(
+                    meetings.align_speakers(result.sentences, turns),
+                    offsets.get("mic", 0.0),
+                )
+                capture_mode = "mic_only"
+                system_status = (
+                    "empty_track"
+                    if recording.capture_mode == "mic_and_system"
+                    else recording.system_audio_status
+                )
             if self.profile is not None:
                 for segment in segments:
                     segment.text = self.profile.apply(segment.text)
-            meeting = meetings.Meeting.new(segments, duration_seconds=duration)
+            duration = max(
+                offsets.get("mic", 0.0) + len(mic_audio) / config.SAMPLE_RATE,
+                offsets.get("system", 0.0)
+                + len(system_audio) / config.SAMPLE_RATE,
+            )
+            meeting = meetings.Meeting.new(
+                segments,
+                duration_seconds=duration,
+                capture_mode=capture_mode,
+                system_audio_status=system_status,
+                track_offsets_seconds=offsets,
+            )
             meeting.save()
             print(f"  → meeting saved: {meeting.title} ({len(segments)} segments)")
             self.on_meeting_saved(meeting.meeting_id)
@@ -462,8 +559,9 @@ class DictationEngine:
         except Exception:
             traceback.print_exc()
         finally:
-            wav_path.unlink(missing_ok=True)
-            meeting_recorder.release_spool(wav_path)
+            for path in recording.paths:
+                path.unlink(missing_ok=True)
+                meeting_recorder.release_spool(path)
             self._meeting_active = False
             if not self._user_paused:
                 self._listener.resume()
@@ -524,7 +622,7 @@ class DictationEngine:
             self.last_dictation_text = text
             elapsed = time.perf_counter() - started
             if text:
-                print(f"  → {text!r}  ({elapsed:.2f}s)")
+                print(f"  → transcription complete ({elapsed:.2f}s)")
                 # Deaf-en the hotkey tap while we synthesize Cmd+V so the
                 # injected keystroke can never re-trigger recording.
                 self._listener.pause()

@@ -57,11 +57,10 @@ _STATE_SYMBOL = {
     State.MEETING_PROCESSING: "waveform.circle",
 }
 
-# Mic-only capture disclaimer, shown on the Begin/End Meeting item.
 _MEETING_TOOLTIP = (
-    "Records from the microphone — on video calls, use speakers so other "
-    "participants are captured. Only the transcript is saved; audio is "
-    "deleted after processing."
+    "On macOS 14.2+, records microphone and system audio separately. "
+    "If system audio is unavailable or denied, Speakeasy visibly falls back "
+    "to microphone-only. Temporary audio is deleted after processing."
 )
 _GUEST_TAG = "\x00guest"  # representedObject marker distinct from any name
 
@@ -258,6 +257,18 @@ class StatusItemController(NSObject):
         text = _STATE_TEXT[state]
         if state is State.READY:
             text = f"Ready — {profile.name if profile else 'Guest'}"
+        elif state is State.MEETING_RECORDING:
+            recorder = self.engine.meeting_recorder
+            if getattr(recorder, "capture_mode", "mic_only") == "mic_and_system":
+                text = "Recording meeting — microphone + system audio"
+            else:
+                status = getattr(recorder, "system_audio_status", "unavailable")
+                reason = {
+                    "requires_macos_14_2": "requires macOS 14.2+",
+                    "permission_denied_or_unavailable": "permission denied",
+                    "helper_missing": "capture helper unavailable",
+                }.get(status, "system audio unavailable")
+                text = f"Recording meeting — microphone only ({reason})"
         self._status_line.setTitle_(text)
         symbol = _STATE_SYMBOL.get(state)
         self._item.button().setImage_(

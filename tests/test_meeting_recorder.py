@@ -69,6 +69,40 @@ def test_spool_round_trip(spool_dir, fake_stream):
     path.unlink()
 
 
+def test_first_buffer_uses_callback_time_on_shared_monotonic_clock(
+    spool_dir, fake_stream, monkeypatch
+):
+    monkeypatch.setattr(meeting_recorder.monotonic_time, "monotonic_ns", lambda: 5_000_000_000)
+    timing = type(
+        "Timing",
+        (),
+        {"currentTime": 20.0, "inputBufferAdcTime": 19.75},
+    )()
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, timing, None)
+    path = rec.stop()
+    assert rec.first_buffer_ns == 4_750_000_000
+    path.unlink()
+
+
+def test_bounded_queue_overflow_counts_dropped_frames(
+    spool_dir, fake_stream, monkeypatch
+):
+    rec = MeetingRecorder()
+    rec.start()
+
+    class FullQueue:
+        def put_nowait(self, block):
+            raise meeting_recorder.queue.Full
+
+    rec._queue = FullQueue()
+    rec._on_audio(_block(80), 80, None, None)
+    assert rec.dropped_frames == 80
+    rec.force_close()
+    rec.discard()
+
+
 def test_stop_without_start_is_none(spool_dir, fake_stream):
     assert MeetingRecorder().stop() is None
 

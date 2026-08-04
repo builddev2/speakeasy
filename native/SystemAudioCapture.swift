@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 
 private let queueCapacity = 256
+private var selectedProcessMonitor: DispatchSourceTimer?
 
 private struct AudioPacket {
     let hostTime: UInt64
@@ -55,6 +56,53 @@ private final class WaveWriter {
     }
 }
 
+private final class StreamingMonoResampler {
+    private let inputFramesPerOutputFrame: Double
+    private var buffer: [Float] = []
+    private var bufferStart = 0
+    private var nextInputPosition = 0.0
+
+    init(inputSampleRate: Double, outputSampleRate: Double) {
+        inputFramesPerOutputFrame = inputSampleRate / outputSampleRate
+    }
+
+    func append(_ samples: [Float]) -> [Int16] {
+        buffer.append(contentsOf: samples)
+        return drain()
+    }
+
+    func finish() -> [Int16] {
+        if let last = buffer.last {
+            buffer.append(last)
+        }
+        let output = drain()
+        buffer.removeAll(keepingCapacity: false)
+        return output
+    }
+
+    private func drain() -> [Int16] {
+        var output: [Int16] = []
+        while true {
+            let localPosition = nextInputPosition - Double(bufferStart)
+            let lower = Int(localPosition.rounded(.down))
+            guard lower >= 0, lower + 1 < buffer.count else { break }
+            let fraction = Float(localPosition - Double(lower))
+            let sample = buffer[lower] + (buffer[lower + 1] - buffer[lower]) * fraction
+            output.append(pcm16(sample))
+            nextInputPosition += inputFramesPerOutputFrame
+        }
+        if buffer.count > 1 {
+            let consumed = Int(nextInputPosition.rounded(.down)) - bufferStart
+            let discard = max(0, min(buffer.count - 1, consumed))
+            if discard > 0 {
+                buffer.removeFirst(discard)
+                bufferStart += discard
+            }
+        }
+        return output
+    }
+}
+
 private extension Data {
     mutating func appendASCII(_ value: String) {
         append(value.data(using: .ascii)!)
@@ -66,8 +114,79 @@ private extension Data {
     }
 }
 
+private func audioProcessObject(for processID: pid_t) throws -> AudioObjectID {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var requestedPID = processID
+    var objectID = AudioObjectID(kAudioObjectUnknown)
+    var size = UInt32(MemoryLayout<AudioObjectID>.size)
+    let status = withUnsafePointer(to: &requestedPID) { qualifier in
+        AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            UInt32(MemoryLayout<pid_t>.size),
+            qualifier,
+            &size,
+            &objectID
+        )
+    }
+    try check(status, "process_resolve")
+    guard objectID != kAudioObjectUnknown else {
+        throw CaptureError("selected_app_unavailable")
+    }
+    return objectID
+}
+
+private func eligibleAudioProcessIDs() throws -> [pid_t] {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyProcessObjectList,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var size: UInt32 = 0
+    try check(
+        AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size
+        ),
+        "process_list_size"
+    )
+    var objects = [AudioObjectID](
+        repeating: kAudioObjectUnknown,
+        count: Int(size) / MemoryLayout<AudioObjectID>.size
+    )
+    guard !objects.isEmpty else { return [] }
+    let status = objects.withUnsafeMutableBufferPointer { buffer in
+        AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            buffer.baseAddress!
+        )
+    }
+    try check(status, "process_list")
+    return objects.compactMap { objectID in
+        var pidAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyPID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var processID: pid_t = 0
+        var pidSize = UInt32(MemoryLayout<pid_t>.size)
+        let pidStatus = AudioObjectGetPropertyData(
+            objectID, &pidAddress, 0, nil, &pidSize, &processID
+        )
+        return pidStatus == noErr && processID > 0 ? processID : nil
+    }
+}
+
 @available(macOS 14.2, *)
 private final class SystemTapRecorder {
+    private let outputSampleRate = 16_000
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
@@ -79,14 +198,29 @@ private final class SystemTapRecorder {
     private let slots = DispatchSemaphore(value: queueCapacity)
     private let statsLock = NSLock()
     private var writer: WaveWriter!
+    private var resampler: StreamingMonoResampler!
     private var format = AudioStreamBasicDescription()
     private var maxFrames: UInt64 = 0
     private var firstHostTime: UInt64?
     private var framesWritten: UInt64 = 0
     private var droppedFrames: UInt64 = 0
+    private var queuedPackets = 0
+    private var writerLagged = false
+    private var writerLagReported = false
+    private var nonzeroSignalSeen = false
+    private var writerErrorReported = false
+    private let selectedProcessID: pid_t?
+    private let selectedProcessObjectID: AudioObjectID?
 
-    init(path: String, maxSeconds: Int) throws {
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+    init(path: String, maxSeconds: Int, selectedProcessID: pid_t?) throws {
+        self.selectedProcessID = selectedProcessID
+        let selectedObjectID = try selectedProcessID.map {
+            try audioProcessObject(for: $0)
+        }
+        self.selectedProcessObjectID = selectedObjectID
+        let description = selectedObjectID.map {
+            CATapDescription(stereoMixdownOfProcesses: [$0])
+        } ?? CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         description.name = "Speakeasy system audio"
         description.isPrivate = true
         description.muteBehavior = .unmuted
@@ -102,14 +236,23 @@ private final class SystemTapRecorder {
                   format.mFormatFlags & kAudioFormatFlagIsFloat != 0 else {
                 throw CaptureError("unsupported_format")
             }
-            writer = try WaveWriter(path: path, sampleRate: Int(format.mSampleRate.rounded()))
-            maxFrames = UInt64(maxSeconds) * UInt64(format.mSampleRate.rounded())
+            resampler = StreamingMonoResampler(
+                inputSampleRate: format.mSampleRate,
+                outputSampleRate: Double(outputSampleRate)
+            )
+            writer = try WaveWriter(path: path, sampleRate: outputSampleRate)
+            maxFrames = UInt64(maxSeconds) * UInt64(outputSampleRate)
             try createAggregate(tapUUID: description.uuid)
             try startIO()
         } catch {
             cleanup()
             throw error
         }
+    }
+
+    func selectedProcessIsAvailable() -> Bool {
+        guard let selectedProcessID, let selectedProcessObjectID else { return true }
+        return (try? audioProcessObject(for: selectedProcessID)) == selectedProcessObjectID
     }
 
     private static func readFormat(_ tapID: AudioObjectID) throws -> AudioStreamBasicDescription {
@@ -163,9 +306,17 @@ private final class SystemTapRecorder {
         guard slots.wait(timeout: .now()) == .success else {
             if statsLock.try() {
                 droppedFrames &+= estimatedFrameCount(inputData)
+                writerLagged = true
                 statsLock.unlock()
             }
             return
+        }
+        if statsLock.try() {
+            queuedPackets += 1
+            if queuedPackets >= queueCapacity * 3 / 4 {
+                writerLagged = true
+            }
+            statsLock.unlock()
         }
         let audioBuffers = UnsafeMutableAudioBufferListPointer(
             UnsafeMutablePointer(mutating: inputData)
@@ -194,8 +345,29 @@ private final class SystemTapRecorder {
             channelsPerBuffer: channels
         )
         writerQueue.async { [weak self] in
-            defer { self?.slots.signal() }
+            defer {
+                self?.packetFinished()
+                self?.slots.signal()
+            }
             self?.write(packet)
+        }
+    }
+
+    private func packetFinished() {
+        statsLock.lock()
+        queuedPackets = max(0, queuedPackets - 1)
+        statsLock.unlock()
+    }
+
+    private func emitWriterLagIfNeeded() {
+        statsLock.lock()
+        let shouldEmit = writerLagged && !writerLagReported
+        if shouldEmit {
+            writerLagReported = true
+        }
+        statsLock.unlock()
+        if shouldEmit {
+            emit(["event": "writer_lag"])
         }
     }
 
@@ -206,13 +378,14 @@ private final class SystemTapRecorder {
     }
 
     private func write(_ packet: AudioPacket) {
+        emitWriterLagIfNeeded()
         if firstHostTime == nil {
             firstHostTime = packet.hostTime
             emit(["event": "first_buffer", "host_time_ns": hostTimeNanos(packet.hostTime)])
         }
         guard framesWritten < maxFrames else { return }
-        let allowed = min(packet.frameCount, Int(maxFrames - framesWritten))
-        var mono = [Int16](repeating: 0, count: allowed)
+        let allowed = packet.frameCount
+        var mono = [Float](repeating: 0, count: allowed)
         let nonInterleaved = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
         if nonInterleaved {
             for frame in 0..<allowed {
@@ -228,7 +401,7 @@ private final class SystemTapRecorder {
                         }
                     }
                 }
-                mono[frame] = pcm16(sum / max(1, count))
+                mono[frame] = sum / max(1, count)
             }
         } else {
             let channels = max(1, Int(format.mChannelsPerFrame))
@@ -239,15 +412,28 @@ private final class SystemTapRecorder {
                     for channel in 0..<channels {
                         sum += values[frame * channels + channel]
                     }
-                    mono[frame] = pcm16(sum / Float(channels))
+                    mono[frame] = sum / Float(channels)
                 }
             }
         }
+        if !nonzeroSignalSeen && mono.contains(where: { abs($0) > 0.0001 }) {
+            nonzeroSignalSeen = true
+            emit(["event": "nonzero_signal"])
+        }
+        writeOutput(resampler.append(mono))
+    }
+
+    private func writeOutput(_ samples: [Int16]) {
+        let allowed = min(samples.count, Int(maxFrames - framesWritten))
+        guard allowed > 0 else { return }
         do {
-            try writer.write(samples: mono)
+            try writer.write(samples: Array(samples.prefix(allowed)))
             framesWritten &+= UInt64(allowed)
         } catch {
-            // The parent validates the resulting track before transcription.
+            if !writerErrorReported {
+                writerErrorReported = true
+                emit(["event": "writer_error"])
+            }
         }
     }
 
@@ -257,6 +443,8 @@ private final class SystemTapRecorder {
         }
         cleanup()
         writerQueue.sync {}
+        emitWriterLagIfNeeded()
+        writeOutput(resampler.finish())
         writer.close()
         emit([
             "event": "stopped",
@@ -311,18 +499,38 @@ private func emit(_ payload: [String: Any]) {
 @main
 private struct SystemAudioCaptureMain {
     static func main() {
-        guard CommandLine.arguments.count == 3 else {
-            emit(["event": "error", "reason": "invalid_arguments"])
-            exit(2)
-        }
         guard #available(macOS 14.2, *) else {
             emit(["event": "error", "reason": "requires_macos_14_2"])
             exit(3)
         }
+        if CommandLine.arguments.count == 2,
+           CommandLine.arguments[1] == "--list-pids" {
+            do {
+                emit(["event": "eligible_processes", "pids": try eligibleAudioProcessIDs()])
+                exit(0)
+            } catch {
+                emit(["event": "error", "reason": "process_list_failed"])
+                exit(5)
+            }
+        }
+        guard CommandLine.arguments.count == 3 || CommandLine.arguments.count == 5 else {
+            emit(["event": "error", "reason": "invalid_arguments"])
+            exit(2)
+        }
+        var selectedProcessID: pid_t?
+        if CommandLine.arguments.count == 5 {
+            guard CommandLine.arguments[3] == "--pid",
+                  let value = Int32(CommandLine.arguments[4]), value > 0 else {
+                emit(["event": "error", "reason": "invalid_selected_pid"])
+                exit(2)
+            }
+            selectedProcessID = value
+        }
         do {
             let recorder = try SystemTapRecorder(
                 path: CommandLine.arguments[1],
-                maxSeconds: Int(CommandLine.arguments[2]) ?? 10_800
+                maxSeconds: Int(CommandLine.arguments[2]) ?? 10_800,
+                selectedProcessID: selectedProcessID
             )
             emit(["event": "ready"])
             signal(SIGTERM, SIG_IGN)
@@ -333,6 +541,18 @@ private struct SystemAudioCaptureMain {
                 exit(0)
             }
             stopSource.resume()
+            if selectedProcessID != nil {
+                let monitor = DispatchSource.makeTimerSource(queue: .main)
+                monitor.schedule(deadline: .now() + 0.5, repeating: 0.5)
+                monitor.setEventHandler {
+                    guard !recorder.selectedProcessIsAvailable() else { return }
+                    emit(["event": "error", "reason": "selected_app_unavailable"])
+                    recorder.stop()
+                    exit(6)
+                }
+                monitor.resume()
+                selectedProcessMonitor = monitor
+            }
             dispatchMain()
         } catch let error as CaptureError {
             emit(["event": "error", "reason": error.reason])

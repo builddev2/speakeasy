@@ -111,11 +111,40 @@ def test_saved_json_is_hand_editable(meetings_dir):
         "created",
         "duration_seconds",
         "capture_mode",
+        "capture_health",
+        "capture_scope",
         "system_audio_status",
         "track_offsets_seconds",
         "segments",
     }
     assert data["segments"][0]["speaker"] == "Speaker 1"
+
+
+def test_capture_health_persists_only_privacy_safe_whitelisted_fields(meetings_dir):
+    meeting = Meeting.new(
+        _segments(),
+        duration_seconds=60,
+        capture_health={
+            "capture_mode": "mic_and_system",
+            "capture_scope": "selected",
+            "system_nonzero_signal": True,
+            "system_dropped_frames": 4,
+            "meeting_name": "Private planning call",
+            "application_name": "Private App",
+            "device_name": "Private Headset",
+            "transcript": "private words",
+        },
+    )
+    meeting.save()
+
+    raw = json.loads(meeting.path.read_text())
+    assert raw["capture_health"] == {
+        "capture_mode": "mic_and_system",
+        "capture_scope": "selected",
+        "system_nonzero_signal": True,
+        "system_dropped_frames": 4,
+    }
+    assert Meeting.load(meeting.meeting_id).capture_health == raw["capture_health"]
 
 
 def test_optional_attribution_metadata_round_trips(meetings_dir):
@@ -135,14 +164,17 @@ def test_capture_provenance_round_trips_without_audio_paths(meetings_dir):
         capture_mode="mic_and_system",
         system_audio_status="captured",
         track_offsets_seconds={"mic": 0.0, "system": 0.31234567},
+        capture_scope="global",
     )
     meeting.save()
     raw = json.loads(meeting.path.read_text())
     assert raw["capture_mode"] == "mic_and_system"
+    assert raw["capture_scope"] == "global"
     assert raw["track_offsets_seconds"] == {"mic": 0.0, "system": 0.312346}
     assert "path" not in json.dumps(raw).lower()
     loaded = Meeting.load(meeting.meeting_id)
     assert loaded.system_audio_status == "captured"
+    assert loaded.capture_scope == "global"
 
 
 def test_relabel_one_or_all_matching_segments(meetings_dir):

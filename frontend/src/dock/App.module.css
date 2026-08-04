@@ -12,6 +12,7 @@
 .meetingOptions {
   margin-top: 12px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   font: 500 11.5px/1 var(--sans);
@@ -26,6 +27,20 @@
 
 .meetingOptions input[type="number"] {
   width: 52px;
+  padding: 4px 6px;
+  color: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.08);
+  border: 0.5px solid rgba(255,255,255,0.16);
+  border-radius: 6px;
+}
+
+.captureOption {
+  flex-basis: 100%;
+}
+
+.captureOption select {
+  min-width: 190px;
+  max-width: 240px;
   padding: 4px 6px;
   color: rgba(255,255,255,0.85);
   background: rgba(255,255,255,0.08);

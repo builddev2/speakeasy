@@ -66,6 +66,21 @@ def read_wav_mono_f32(path: Path) -> np.ndarray:
                 f"Expected PCM16 meeting spool, got {w.getsampwidth() * 8}-bit / "
                 f"{sample_rate} Hz / {channels} ch: {path}"
             )
+        if sample_rate == config.SAMPLE_RATE and channels == 1:
+            audio = np.empty(w.getnframes(), dtype=np.float32)
+            written = 0
+            while written < len(audio):
+                raw = w.readframes(
+                    min(config.SAMPLE_RATE * 60, len(audio) - written)
+                )
+                samples = np.frombuffer(raw, dtype=np.int16)
+                if not len(samples):
+                    break
+                audio[written : written + len(samples)] = samples
+                written += len(samples)
+            audio = audio[:written]
+            audio /= 32768.0
+            return audio
         data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
     complete = len(data) - (len(data) % channels)
     if complete == 0:
@@ -150,13 +165,57 @@ class Transcriber:
         diarization turns are aligned against. Same thread rule as
         transcribe(): worker only.
         """
+        return self._transcribe_long_source(
+            len(audio),
+            lambda start, end: audio[start:end],
+            progress=progress,
+            cancel=cancel,
+        )
+
+    def transcribe_long_wav(
+        self,
+        path: Path,
+        *,
+        progress: Callable[[float], None] = lambda fraction: None,
+        cancel: threading.Event | None = None,
+    ):
+        """Transcribe a 16 kHz mono meeting spool without loading it whole."""
+        with wave.open(str(path)) as source:
+            if (
+                source.getsampwidth() != 2
+                or source.getframerate() != config.SAMPLE_RATE
+                or source.getnchannels() != 1
+            ):
+                raise ValueError(f"Expected 16 kHz mono PCM16 meeting spool: {path}")
+
+            def read_chunk(start: int, end: int) -> np.ndarray:
+                source.setpos(start)
+                raw = source.readframes(end - start)
+                return (
+                    np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                )
+
+            return self._transcribe_long_source(
+                source.getnframes(),
+                read_chunk,
+                progress=progress,
+                cancel=cancel,
+            )
+
+    def _transcribe_long_source(
+        self,
+        total: int,
+        read_chunk: Callable[[int, int], np.ndarray],
+        *,
+        progress: Callable[[float], None],
+        cancel: threading.Event | None,
+    ):
         sample_rate = config.SAMPLE_RATE
         chunk_samples = int(config.MEETING_CHUNK_SECONDS * sample_rate)
         overlap_samples = int(config.MEETING_OVERLAP_SECONDS * sample_rate)
         hop = self._model.preprocessor_config.hop_length
 
         all_tokens = []
-        total = len(audio)
         for start in range(0, total, chunk_samples - overlap_samples):
             if cancel is not None and cancel.is_set():
                 raise MeetingCancelled
@@ -164,7 +223,7 @@ class Transcriber:
             if end - start < hop:
                 break  # prevent zero-length log mel (same guard as upstream)
             mel = get_logmel(
-                mx.array(audio[start:end]), self._model.preprocessor_config
+                mx.array(read_chunk(start, end)), self._model.preprocessor_config
             )
             chunk_result = self._model.generate(mel)[0]
             offset = start / sample_rate

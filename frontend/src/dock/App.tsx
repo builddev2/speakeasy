@@ -21,12 +21,28 @@ interface AppState {
   canTrain: boolean;
   voiceProfiles: string[];
   captureMode: 'mic_only' | 'mic_and_system';
+  captureScope: 'global' | 'selected' | 'mic_only' | 'selected_app_unavailable';
   systemAudioStatus: string;
+  captureHealth: {
+    system_first_buffer?: boolean;
+    system_nonzero_signal?: boolean;
+    mic_writer_failed?: boolean;
+    system_writer_failed?: boolean;
+    mic_writer_lagged?: boolean;
+    system_writer_lagged?: boolean;
+    helper_exited?: boolean;
+    helper_exit_reason?: string | null;
+  };
 }
 
 interface DockAppProps {
   operatorName?: string;
   readyMessage?: string;
+}
+
+interface CaptureApplication {
+  pid: number;
+  name: string;
 }
 
 const STATUS: Record<Exclude<EngineMode, 'meeting_recording'>, { text: string; dot: 'green' | 'rec' | 'amber' }> = {
@@ -48,7 +64,25 @@ function captureStatusText(status: string): string {
   if (status === 'requires_macos_14_2') return 'Microphone only — system audio needs macOS 14.2+';
   if (status === 'helper_missing') return 'Microphone only — system audio helper unavailable';
   if (status === 'permission_denied_or_unavailable') return 'Microphone only — system audio permission denied';
+  if (status === 'selected_app_unavailable') return 'Microphone only — selected application unavailable';
   return 'Microphone only — remote voices need speakers';
+}
+
+function liveCaptureStatus(app: AppState): string {
+  const health = app.captureHealth;
+  if (health.helper_exited && health.helper_exit_reason !== 'requested_stop') {
+    return 'Microphone only — system audio helper exited';
+  }
+  if (health.system_writer_failed) return 'Microphone only — system audio writer failed';
+  if (health.mic_writer_failed) return 'Microphone writer failed';
+  if (app.captureMode !== 'mic_and_system') return captureStatusText(app.systemAudioStatus);
+  const source = app.captureScope === 'selected' ? 'selected application' : 'system audio';
+  if (!health.system_first_buffer) return `Microphone + ${source} — waiting for data`;
+  if (!health.system_nonzero_signal) return `Microphone + ${source} — no signal yet`;
+  if (health.mic_writer_lagged || health.system_writer_lagged) {
+    return `Microphone + ${source} — capture lag detected`;
+  }
+  return `Microphone + ${source}`;
 }
 
 function MeetingsIcon() {
@@ -80,10 +114,14 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     canTrain: true,
     voiceProfiles: [],
     captureMode: 'mic_only',
+    captureScope: 'mic_only',
     systemAudioStatus: 'available',
+    captureHealth: {},
   });
   const [expectedSpeakerCount, setExpectedSpeakerCount] = useState('');
   const [useVoiceProfiles, setUseVoiceProfiles] = useState(false);
+  const [captureApps, setCaptureApps] = useState<CaptureApplication[]>([]);
+  const [captureSelection, setCaptureSelection] = useState('global');
   const [tick, setTick] = useState(0);
   const baselineRef = useRef<number | null>(null);
 
@@ -96,9 +134,17 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     setApp(next);
   }
 
+  function refreshCaptureApps() {
+    if (!bridge.embedded) return;
+    bridge.call<CaptureApplication[]>('app.listCaptureApplications')
+      .then(setCaptureApps)
+      .catch(() => setCaptureApps([]));
+  }
+
   useEffect(() => {
     if (!bridge.embedded) return;
     bridge.call<AppState>('app.getState').then(applyState).catch(() => {});
+    refreshCaptureApps();
     return bridge.on('state', (payload) => applyState(payload as AppState));
   }, []);
 
@@ -135,6 +181,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       void bridge.call(isRecording ? 'app.endMeeting' : 'app.beginMeeting', isRecording ? {} : {
         expectedSpeakerCount: expectedSpeakerCount === '' ? null : Number(expectedSpeakerCount),
         expectedVoiceProfileNames: useVoiceProfiles ? app.voiceProfiles : [],
+        systemAudioPid: captureSelection === 'global' ? null : Number(captureSelection),
       });
     } else {
       setApp((current) => {
@@ -158,10 +205,12 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
 
   const idleInfo = isRecording ? null : STATUS[app.mode as Exclude<EngineMode, 'meeting_recording'>];
   const name = bridge.embedded ? app.profileName : operatorName;
-  const primaryDisabled = !isRecording && app.mode !== 'ready';
+  const selectedAppAvailable = captureSelection === 'global'
+    || captureApps.some((application) => String(application.pid) === captureSelection);
+  const primaryDisabled = !isRecording && (app.mode !== 'ready' || !selectedAppAvailable);
 
   return (
-    <GlassPanel width={360} height={300}>
+    <GlassPanel width={360} height={335}>
       <TitleBar plain />
       <div className={styles.body}>
         <AppIdentity
@@ -195,15 +244,32 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
           <div className={styles.recStatus}>
             <span className={styles.pillBadge}>Dictation paused</span>
             <span className={app.captureMode === 'mic_and_system' ? styles.captureGood : styles.captureWarning}>
-              {app.captureMode === 'mic_and_system'
-                ? 'Microphone + system audio'
-                : captureStatusText(app.systemAudioStatus)}
+              {liveCaptureStatus(app)}
             </span>
           </div>
         )}
 
         {!isRecording && app.mode === 'ready' && (
           <div className={styles.meetingOptions}>
+            <label className={styles.captureOption}>
+              System audio
+              <select
+                value={captureSelection}
+                title="Browser choices capture that browser process, not an individual tab."
+                onFocus={refreshCaptureApps}
+                onChange={(event) => setCaptureSelection(event.target.value)}
+              >
+                <option value="global">All system audio</option>
+                {!selectedAppAvailable && (
+                  <option value={captureSelection}>Selected application unavailable — reselect</option>
+                )}
+                {captureApps.map((application) => (
+                  <option key={application.pid} value={application.pid}>
+                    {application.name} — PID {application.pid}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label>
               Remote speakers
               <input

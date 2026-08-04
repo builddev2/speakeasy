@@ -1,9 +1,15 @@
 # Dictation latency & accuracy pass
 
 **Date:** 2026-07-11
-**Status:** Approved design, pending implementation
+**Status:** Implemented; historical design record
 **Scope:** Reduce dictation latency and improve dictation + meeting accuracy,
 without changing the speech model or adding runtime dependencies.
+
+The design below is preserved as approved. Silence trimming, fuzzy vocabulary
+correction, their tests, and the benchmark harness are present in the current
+code; meeting transcription has since added streaming `transcribe_long_wav()`
+alongside the array path described here. Use `README.md` and `AGENTS.md` for
+the current operational architecture.
 
 ## Goal
 

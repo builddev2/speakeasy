@@ -24,6 +24,16 @@ jq '{capture_mode,capture_scope,system_audio_status,capture_health,track_offsets
   "$latest_meeting_path"
 ```
 
+The current persisted `capture_health` contract is intentionally fixed to:
+`mic_first_buffer`, `system_first_buffer`, `system_nonzero_signal`,
+`mic_dropped_frames`, `system_dropped_frames`, `mic_writer_failed`,
+`system_writer_failed`, `mic_writer_lagged`, `system_writer_lagged`,
+`helper_exited`, `helper_exit_reason`, `capture_outcome`, `fallback_reason`,
+`capture_mode`, and `capture_scope`. Treat any application/device name, PID,
+window title, or transcript/audio content in that object as a privacy defect.
+Successful scopes are `global` or `selected`; fallback scopes are `mic_only`
+or `selected_app_unavailable`.
+
 Confirm the spool directory is empty after success, cancel, and failure:
 
 ```bash

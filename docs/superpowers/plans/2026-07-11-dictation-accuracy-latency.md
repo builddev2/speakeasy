@@ -1,5 +1,12 @@
 # Dictation Latency & Accuracy Pass — Implementation Plan
 
+> **Historical implementation record — completed.** Silence trimming,
+> phonetic/fuzzy vocabulary correction, their tests, and the benchmark harness
+> are implemented. Long-form meeting ASR has since gained the streaming
+> `transcribe_long_wav()` path while retaining the shared array API described
+> below. Preserve this plan's checkboxes/code as its execution snapshot; use
+> `README.md`, `AGENTS.md`, and current source for present behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Cut dictation latency and improve dictation + meeting accuracy by trimming silence before inference and activating the currently-unused per-profile vocabulary via a conservative two-gate fuzzy correction.

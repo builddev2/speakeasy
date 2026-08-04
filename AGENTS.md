@@ -12,7 +12,7 @@ Silicon): hold Right ⌘, speak, release → transcribe on-device (Parakeet on M
 terminal front end (`--cli` / `--train`). Both drive the same `DictationEngine`.
 
 It also transcribes whole **meetings**: "Begin Meeting" in the menu bar
-records (up to a couple of hours) to a spooled temp WAV; "End Meeting" runs
+records (up to three hours) to spooled temporary WAVs; "End Meeting" runs
 chunked transcription + speaker diarization (sherpa-onnx, on-device) and saves
 a speaker-labelled transcript. Only the transcript is persisted — audio is
 deleted the moment processing ends (success, cancel, error, or crash-recovery
@@ -20,10 +20,13 @@ sweep at next launch). See `engine.py` (`begin_meeting`/`end_meeting`/
 `_process_meeting`), `meeting_recorder.py`, `meetings.py`, `diarizer.py`.
 On macOS 14.2+, meetings capture microphone and outgoing system audio as
 separate temporary tracks through a bundled Core Audio process-tap helper.
-The mic is the known local user (`You`); only the system track is diarized,
-then both transcripts are shifted by their first-buffer offsets and merged.
-macOS 14.0–14.1 or denied/unavailable system capture falls back visibly to the
-original mic-only diarization mode. See README's
+Global system audio is the default; the Dock can instead select one eligible
+application process (a browser selection means the browser, not one tab). The
+mic is the known local user (`You`); only the system track is diarized, then
+both transcripts are shifted by their first-buffer offsets and merged. A
+selected process that exits never widens silently to global capture. macOS
+14.0–14.1 or denied, silent, failed, or unavailable system capture falls back
+visibly to the original mic-only diarization mode. See README's
 [Meeting transcription](README.md#meeting-transcription) section.
 
 ## Hard constraints
@@ -39,16 +42,17 @@ original mic-only diarization mode. See README's
 
 ## Threading model (load-bearing — don't violate)
 
-The AppKit run loop owns the **main thread**. Three worker contexts, each
-single-purpose:
+The AppKit run loop owns the **main thread**. The two executors and capture
+contexts are intentionally bounded and single-purpose:
 
 - **`worker`** (1 thread) — loads *and* runs the Parakeet model. MLX pins GPU
   arrays to their creating thread, so the model must only ever be touched here.
-  The whole meeting-processing pipeline (`_process_meeting`: chunked
-  transcription → diarization → alignment → save) also runs as one job here —
-  diarization is CPU/onnxruntime with no pinning rule, but it stays on
-  `worker` to keep the pipeline strictly sequential rather than adding a
-  fourth executor.
+  The whole meeting-processing pipeline (`_process_meeting`: streamed chunked
+  transcription → diarization → alignment → save) also runs as one job here.
+  Tracks are transcribed sequentially from their WAVs; only the one selected
+  for diarization is then loaded fully, and that array is released immediately
+  afterwards. Diarization is CPU/onnxruntime with no pinning rule, but it stays
+  on `worker` to keep the pipeline sequential rather than adding an executor.
 - **`control`** (1 thread) — recorder `start()`/`stop()`, including
   `MeetingRecorder`. CoreAudio's stop deadlocks against the HAL mutex if
   called on the event-tap thread, so it must never run there. This thread is
@@ -57,15 +61,15 @@ single-purpose:
   (`engine._stop_recorder_guarded`, and its meeting counterpart
   `_stop_meeting_recorder_guarded`) for exactly this reason. But the watchdog
   only frees `control`; the abandoned `stop()` keeps running inside the HAL,
-  and **opening a new stream while it runs deadlocks both on the HAL mutex**
-  (a real hang we hit: a long take's stop wedged, the watchdog moved on, and
-  the next `start()` opened a second stream straight into the deadlock). So
-  `Recorder` sets a `_stopping` flag across the CoreAudio teardown; while it's
-  set, `prewarm()`/`start()` refuse to open — `start()` raises `RecorderBusy`,
-  the engine drops that take and stays idle. The mic self-recovers when the
-  wedged stop finally returns (the flag clears), or stays unavailable until
-  relaunch if it never does — either way the pipeline never freezes. Never
-  open/reopen a CoreAudio input stream without checking `_stopping` first.
+  and **opening a new stream while it runs deadlocks both on the HAL mutex**.
+  The mutex is per process/device, so every dictation and meeting teardown is
+  counted by the process-wide `coreaudio.teardown.in_progress()` guard and
+  every open checks `coreaudio.teardown.in_flight`. While one is in flight,
+  `Recorder.prewarm()` refuses silently and `Recorder.start()` /
+  `MeetingRecorder.start()` raise `RecorderBusy`; the engine drops that take
+  or meeting and stays responsive. Never clear the marker from `force_close()`:
+  the abandoned HAL call is still unwinding. Capture self-recovers when it
+  returns, or stays unavailable until relaunch if it never does.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the
@@ -77,12 +81,17 @@ single-purpose:
   drains a bounded queue fed by the mic callback into the spool WAV. The
   audio callback itself must never touch disk or block; it only
   `put_nowait`s into the queue and drops frames if the writer falls behind.
+  The writer thread exclusively owns WAV closure; `force_close()` signals it
+  and uses a bounded join, never closing the file concurrently with a write.
 - **system-audio helper process** — owns the macOS 14.2+ Core Audio process
   tap and private aggregate device. Its realtime callback only copies into a
-  bounded queue; its separate writer queue downmixes and writes the temporary
-  system WAV. Keeping tap teardown out of the main process prevents a wedged
-  system stop from holding Speakeasy's microphone HAL lock. The control
-  executor still serializes helper start/stop, and its stop is bounded/killed.
+  bounded queue; its separate writer queue downmixes/resamples to 16 kHz mono
+  PCM16 and writes the temporary system WAV. Only bounded, non-content health
+  events cross stdout. Global and selected-process capture share this path;
+  selected-process disappearance is explicit and never falls back to global.
+  Keeping tap teardown out of the main process prevents a wedged system stop
+  from holding Speakeasy's microphone HAL lock. The control executor still
+  serializes helper start/stop, and its stop is bounded/killed.
 - Meeting cancellation is a polled `threading.Event`
   (`engine._meeting_cancel`), not a thread — `cancel_meeting_processing()`
   just sets it, and the worker checks it between transcription chunks and
@@ -90,6 +99,11 @@ single-purpose:
 
 UI objects are main-thread only; engine callbacks hop threads via
 `performSelectorOnMainThread` (see `ui/overlay.py`, `ui/menubar.py`).
+The Dock and menu poll a fixed, privacy-safe capture-health schema: buffer and
+nonzero-signal state, dropped-frame counts, writer lag/failure, helper exit,
+outcome/fallback, mode, and scope. Never add transcript text, audio, app or
+device names, PIDs, window titles, or other user content to it. `meetings.py`
+whitelists the persisted keys; keep that boundary fixed when adding status UI.
 
 ## Build / run / test
 
@@ -104,9 +118,10 @@ scripts/build_app.sh --install           # build AND update /Applications in pla
 ```
 
 - Tests must not touch the real mic, model, or sherpa-onnx — mock the stream /
-  recorder / transcriber / diarizer (see `tests/test_recorder.py`,
-  `tests/test_engine_watchdog.py`, `tests/test_meeting_recorder.py`,
-  `tests/test_engine_meeting.py`). `speakeasy/diarizer.py` imports
+  recorder / helper / transcriber / diarizer (see `tests/test_recorder.py`,
+  `tests/test_coreaudio_guard.py`, `tests/test_meeting_recorder.py`,
+  `tests/test_system_audio.py`, `tests/test_engine_meeting.py`, and
+  `tests/test_webbridge.py`). `speakeasy/diarizer.py` imports
   `sherpa_onnx` lazily inside `__init__` specifically so the module (and
   anything importing it, like `engine.py`) stays importable in tests without
   the dependency installed.
@@ -134,9 +149,10 @@ rebuilds.
 - **UI follows Apple glassmorphism** (translucent "glass" styling — see
   `ui/glass.py`, `ui/overlay.py`).
 - **Dictation audio is silence-trimmed before inference** (`preprocess.py`,
-  called at the top of `Transcriber.transcribe`). Meetings (`transcribe_long`)
-  are deliberately *not* trimmed — it would shift transcript timestamps out of
-  sync with the diarization turns `meetings.align_speakers` maps them onto.
+  called at the top of `Transcriber.transcribe`). Long-form meeting methods
+  (`transcribe_long` / `transcribe_long_wav`) are deliberately *not* trimmed —
+  it would shift transcript timestamps out of sync with the diarization turns
+  `meetings.align_speakers` maps them onto.
   `trim_silence` never returns an empty array for non-empty input (all-silence
   clips pass through unchanged, so the model warmup still sees its full second).
 - **Profiles correct two ways** (`profiles.py` `apply()`): exact learned

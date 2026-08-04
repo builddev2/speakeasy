@@ -1,5 +1,11 @@
 # Speakeasy frontend prototype — React/Vite/TypeScript (phase 1 of 2)
 
+> **Status: implemented; historical phase-1 design record.** The standalone
+> mock prototype described below was subsequently embedded into the native app
+> and wired to real data. Current production behavior and dependency versions
+> live in `README.md`, `AGENTS.md`, `frontend/`, and `speakeasy/ui/`; the body
+> below intentionally retains the original phase boundary and decisions.
+
 ## Context
 
 Speakeasy's UI is currently 100% native PyObjC/AppKit (`speakeasy/ui/glass.py`,

@@ -13,7 +13,7 @@ the same core actions, as a fallback for when the status item is hidden by
 menu-bar overflow (common with many menu-bar apps installed) or just hard to
 spot — the status item stays the primary, full-featured interface.
 
-It can also transcribe whole **meetings** (up to a couple of hours): start a
+It can also transcribe whole **meetings** (up to three hours): start a
 recording from the menu bar and, when you end it, Speakeasy produces a
 speaker-labelled transcript on-device — see
 [Meeting transcription](#meeting-transcription). Only the transcript is kept;
@@ -35,7 +35,7 @@ builds the web UI it embeds and never fetches anything at runtime):
 cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL26" && scripts/build_app.sh
 ```
 
-This produces `dist/Speakeasy.app` (~2.5 GB — it embeds the full 2.3 GB speech
+This produces `dist/Speakeasy.app` (~2.6 GB — it embeds the full 2.3 GB speech
 model, so the app is fully offline the first time you open it). To build **and**
 install it into `/Applications` in one step:
 
@@ -191,8 +191,8 @@ target one currently eligible audio process. Application names and PIDs are
 used only in the live selector; they are never logged or saved. Browser choices
 capture the selected browser process, not an individual tab. The status
 explicitly says **microphone + system audio**, **microphone + selected
-application**, or **microphone only**. Meetings can run up to a couple of
-hours; the menu shows the elapsed time. Click **End Meeting** when you're done,
+application**, or **microphone only**. Meetings capture up to three hours;
+the menu shows the elapsed time. Click **End Meeting** when you're done,
 and Speakeasy processes the recording entirely on-device:
 
 1. each available track is transcribed in chunks (progress shows in the menu),
@@ -236,6 +236,13 @@ unrelated notification or music audio played during the meeting. Selected-app
 capture never silently widens to the global tap: if that process exits,
 restarts, or cannot be resolved, the meeting reports the selected application
 as unavailable and continues microphone-only until you reselect it next time.
+
+During recording, the Dock and menu expose privacy-safe capture health: whether
+each track has produced a first buffer, whether system audio has a nonzero
+signal, dropped-frame counts, writer lag/failure, helper exit, and the explicit
+fallback outcome. Saved meetings retain only that fixed metadata schema plus
+the transcript and timing offsets — never application/device names, PIDs,
+window titles, audio samples, or other provenance that could reveal content.
 
 ## Development (run from source)
 
@@ -354,7 +361,8 @@ Edit `speakeasy/config.py` to change:
 - `HOTKEY` — the push-to-talk key (currently Right Command / `cmd_r`)
 - `MODEL_ID` — the speech model
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
-- `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `PASTE_SETTLE_SECONDS` — timing
+- `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `RECORDER_STOP_TIMEOUT_SECONDS`,
+  `CLIPBOARD_SETTLE_SECONDS`, `PASTE_SETTLE_SECONDS` — capture/paste timing
 - `DICTATION_TRIM_ENABLED`, `TRIM_*` — trim leading/trailing silence from a
   dictation before transcription (a touch faster, steadier accuracy)
 - `FUZZY_VOCAB_ENABLED`, `FUZZY_MIN_RATIO`, `FUZZY_MIN_TOKEN_LEN` — vocabulary
@@ -362,8 +370,10 @@ Edit `speakeasy/config.py` to change:
 - `OVERLAY_*` — waveform indicator on/off, bar count/size, position, translucency
 - `MEETING_CHUNK_SECONDS`, `MEETING_OVERLAP_SECONDS`, `MEETING_MAX_SECONDS` —
   chunked transcription and the spool size cap
-- `DIARIZATION_THRESHOLD`, `DIARIZATION_MIN_ON`, `DIARIZATION_MIN_OFF` —
-  speaker-clustering sensitivity
+- `DIARIZATION_THRESHOLD`, `DIARIZATION_MIN_ON`, `DIARIZATION_MIN_OFF`,
+  `DIARIZATION_SPLIT_MIN_SECONDS` — speaker-clustering and boundary sensitivity
+- `SPEAKER_MATCH_THRESHOLD`, `SPEAKER_MATCH_MARGIN` — conservative enrolled
+  voice matching
 
 ## How it works
 
@@ -405,10 +415,12 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
-  temp-WAV file and ffmpeg decode of the library's path-based API. Meetings
-  use `transcribe_long()`, a from-scratch chunked loop (the same overlap +
-  token-merge approach as the library's `transcribe(path, chunk_duration=…)`,
-  but without its ffmpeg dependency) with per-chunk cancellation
+  temp-WAV file and ffmpeg decode of the library's path-based API. Meeting ASR
+  uses `transcribe_long_wav()` to read one overlap chunk at a time directly
+  from each spool; its array counterpart `transcribe_long()` shares the exact
+  same token-merge loop. Tracks are transcribed sequentially, and only the
+  track needed for diarization is loaded fully afterwards, keeping long-meeting
+  peak memory bounded without changing timestamps or cancellation behavior
 - **`preprocess.py`** — trims leading/trailing silence from a dictation before
   it reaches the model: fewer mel frames (a touch faster) and a tighter
   per-feature normalization, so a short phrase buried in silence transcribes
@@ -431,8 +443,14 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   wires the engine to the AppKit run loop. The status glyph is a skull at rest
   (custom template image; macOS has no `skull` SF Symbol) that swaps to
   `mic.fill`/`waveform` while active
-- **`ui/training_window.py`** — the native glass training window opened from the
-  menu bar
+- **`ui/webwindow.py` + `ui/webbridge.py`** — the common transparent WKWebView
+  host and pure-Python bridge for the Dock, meetings, and training pages. Pages
+  load only built local assets; WebKit calls remain main-thread-only, and the
+  bridge queues early state pushes until navigation completes
+- **`ui/main_window.py`, `ui/meetings_window.py`, `ui/training_window.py`** —
+  thin native controllers around those web-rendered pages. They expose live
+  engine/capture state, meeting actions and speaker relabeling, and the guided
+  training lifecycle while preserving the existing executor boundaries
 - **`meeting_recorder.py`** — dual-track coordination plus long-form mic
   capture: an int16 stream whose
   audio callback only enqueues bytes, drained to a spool WAV by a dedicated
@@ -447,7 +465,9 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   realtime callback only copies into a bounded queue; a separate writer queue
   downmixes/resamples to 16 kHz mono PCM16 and writes the temporary system WAV.
   The default global tap can be narrowed to one transient Core Audio process
-  ID; disappearance is explicit and never falls back to global. Process
+  ID; only processes reported by Core Audio appear in the selector, and
+  disappearance/restart is explicit and never falls back to global. Bounded,
+  non-content events feed the live capture-health display. Process
   isolation keeps a wedged system-tap teardown from holding Speakeasy's
   microphone HAL lock. The helper is feature-gated, so the app's macOS 14.0
   minimum remains unchanged and unsupported/denied starts fall back visibly
@@ -458,8 +478,6 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
 - **`diarizer.py`** — sherpa-onnx speaker diarization (CPU/onnxruntime, no
   MLX thread-pinning rule); lazily constructed on the first meeting from the
   two bundled ONNX models
-- **`ui/meetings_window.py`** — the native glass window listing saved
-  meetings, with copy/export/rename/delete
 - **`ui/overlay.py`** — the waveform indicator: a borderless, click-through,
   non-activating AppKit panel animated at 30 fps only while visible
 - **`ui/permissions.py`** — first-run permissions guidance and the

@@ -1,5 +1,12 @@
 # Native Embedding (Phase 2) Implementation Plan
 
+> **Historical implementation record — completed.** The WKWebView host,
+> bridge, three web-rendered windows, packaging, and tests described here are
+> implemented. The live bridge now also includes speaker relabeling and
+> privacy-safe global/selected-app capture state not present in this original
+> plan. Preserve the checkboxes and code below as the planning-time snapshot;
+> use `README.md`, `AGENTS.md`, and the current source for operational truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the three native PyObjC windows (dock/main, meetings, training) with WKWebView-hosted pages from `frontend/`, wired to the real engine over a JS↔Python bridge, packaged fully offline.

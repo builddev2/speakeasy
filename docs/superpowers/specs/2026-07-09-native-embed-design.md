@@ -1,5 +1,11 @@
 # Speakeasy native embedding — phase 2 of the frontend redesign
 
+> **Status: implemented; historical phase-2 design record.** All three windows
+> are now local WKWebView pages hosted by the native shell. The current bridge
+> also exposes speaker relabeling and privacy-safe global/selected-app capture
+> state added after this design. Use `README.md`, `AGENTS.md`, and current source
+> for the operational contract; retain the body below as the approved snapshot.
+
 ## Context
 
 Phase 1 (`docs/superpowers/specs/2026-07-09-frontend-vite-prototype-design.md`,

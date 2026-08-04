@@ -1,5 +1,11 @@
 # Speakeasy Frontend Prototype (React/Vite/TS) Implementation Plan
 
+> **Historical implementation record — completed.** This plan preserves the
+> phase-1 browser-prototype snapshot and its planning-time checkboxes/code.
+> The current frontend is embedded in WKWebViews, uses the real Python bridge,
+> and builds with Vite 6.4.3; use `README.md`, `AGENTS.md`, `frontend/`, and
+> `speakeasy/ui/` as the current sources of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a standalone React + Vite + TypeScript prototype of Speakeasy's 3 windows (dock panel, meetings, training) that pixel-matches the design reference, running in a browser with mock data — no Python/PyObjC changes.

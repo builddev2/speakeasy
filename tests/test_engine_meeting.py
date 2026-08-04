@@ -16,7 +16,7 @@ import pytest
 from speakeasy import config, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
-from speakeasy.meeting_recorder import MeetingRecording
+from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
 from speakeasy.transcriber import MeetingCancelled
 
 
@@ -46,7 +46,8 @@ class FakeMeetingRecorder:
         self.elapsed_seconds = 0.0
         self.level = 0.0
 
-    def start(self):
+    def start(self, *, system_audio_pid=None):
+        assert system_audio_pid is None
         self._path = self._spool_dir / "meeting-test.wav"
         with wave.open(str(self._path), "wb") as w:
             w.setnchannels(1)
@@ -114,7 +115,9 @@ class FakeDualMeetingRecorder:
         self.elapsed_seconds = 0.0
         self.level = 0.0
         self.capture_mode = "mic_only"
+        self.capture_scope = "mic_only"
         self.system_audio_status = "available"
+        self.system_audio_pid = None
 
     @staticmethod
     def _write(path, value, frames=config.SAMPLE_RATE * 2):
@@ -124,10 +127,12 @@ class FakeDualMeetingRecorder:
             output.setframerate(config.SAMPLE_RATE)
             output.writeframes(np.full(frames, value, dtype=np.int16).tobytes())
 
-    def start(self):
+    def start(self, *, system_audio_pid=None):
+        self.system_audio_pid = system_audio_pid
         self._write(self.mic_path, 1000)
         self._write(self.system_path, 0, frames=0 if self.empty_system else config.SAMPLE_RATE * 2)
         self.capture_mode = "mic_and_system"
+        self.capture_scope = "selected" if system_audio_pid is not None else "global"
         self.system_audio_status = "capturing"
 
     def stop(self):
@@ -138,6 +143,15 @@ class FakeDualMeetingRecorder:
             system_start_ns=1_500_000_000,
             capture_mode="mic_and_system",
             system_audio_status="captured",
+            health=MeetingCaptureHealth(
+                mic_first_buffer=True,
+                system_first_buffer=True,
+                system_nonzero_signal=not self.empty_system,
+                capture_outcome="captured",
+                capture_mode="mic_and_system",
+                capture_scope=self.capture_scope,
+            ),
+            capture_scope=self.capture_scope,
         )
 
     def force_close(self):
@@ -243,7 +257,88 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     assert diarizer.audio_lengths == [config.SAMPLE_RATE * 2]
     assert stored.capture_mode == "mic_and_system"
     assert stored.track_offsets_seconds == {"mic": 0.0, "system": 0.5}
+    assert stored.capture_health["system_nonzero_signal"] is True
+    assert stored.capture_health["capture_mode"] == "mic_and_system"
     assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_dual_track_streams_both_transcripts_before_loading_system_for_diarization(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.meeting_recorder = recorder
+    calls = []
+
+    class StreamingTranscriber:
+        def transcribe_long_wav(self, path, *, progress, cancel=None):
+            calls.append(("transcribe", path))
+            progress(1.0)
+            result = type("Result", (), {})()
+            result.sentences = (
+                [Sentence(0.1, 0.6, "local hello")]
+                if path == recorder.mic_path
+                else [Sentence(0.0, 0.8, "remote one")]
+            )
+            return result
+
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            raise AssertionError("16 kHz meeting spools must use chunked WAV reads")
+
+    engine.transcriber = StreamingTranscriber()
+    engine.diarizer = FakeRemoteDiarizer()
+    read_meeting_track = engine._read_meeting_track
+
+    def track_full_load(path):
+        calls.append(("full_load", path))
+        return read_meeting_track(path)
+
+    engine._read_meeting_track = track_full_load
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    assert calls == [
+        ("transcribe", recorder.mic_path),
+        ("transcribe", recorder.system_path),
+        ("full_load", recorder.system_path),
+    ]
+    stored = meetings.Meeting.load(saved[0])
+    assert [(segment.speaker, segment.start) for segment in stored.segments] == [
+        ("You", 0.1),
+        ("Speaker 1", 0.5),
+    ]
+    engine.shutdown()
+
+
+def test_selected_application_scope_persists_without_pid_or_name(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.meeting_recorder = recorder
+    engine.transcriber = FakeDualTranscriber()
+    engine.diarizer = FakeRemoteDiarizer()
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting(MeetingOptions(system_audio_pid=4242))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    assert recorder.system_audio_pid == 4242
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = meetings.Meeting.load(saved[0])
+    raw = stored.path.read_text()
+    assert stored.capture_scope == "selected"
+    assert stored.capture_health["capture_scope"] == "selected"
+    assert "4242" not in raw
+    assert "application_name" not in raw
     engine.shutdown()
 
 
@@ -381,6 +476,11 @@ def test_begin_refused_unless_ready(meetings_dir, spool_dir):
     assert engine.state is State.TRANSCRIBING
     assert engine._listener.running is True
     engine.shutdown()
+
+
+def test_selected_application_pid_must_still_be_live():
+    with pytest.raises(ValueError, match="no longer available"):
+        MeetingOptions(system_audio_pid=0)
 
 
 def test_begin_refused_while_a_coreaudio_teardown_is_in_flight(

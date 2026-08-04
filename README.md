@@ -186,10 +186,14 @@ content ships offline; progress is saved as you go.
 Click **Begin Meeting** in the menu bar to start recording. On macOS 14.2+,
 Speakeasy records your microphone and outgoing system audio as separate
 temporary tracks, so remote participants are captured while you wear
-headphones. The status explicitly says **microphone + system audio** or
-**microphone only**. Meetings can run up to a couple of hours; the menu shows
-the elapsed time. Click **End Meeting** when you're done, and Speakeasy
-processes the recording entirely on-device:
+headphones. The Dock window defaults to **All system audio** and can instead
+target one currently eligible audio process. Application names and PIDs are
+used only in the live selector; they are never logged or saved. Browser choices
+capture the selected browser process, not an individual tab. The status
+explicitly says **microphone + system audio**, **microphone + selected
+application**, or **microphone only**. Meetings can run up to a couple of
+hours; the menu shows the elapsed time. Click **End Meeting** when you're done,
+and Speakeasy processes the recording entirely on-device:
 
 1. each available track is transcribed in chunks (progress shows in the menu),
 2. microphone speech is labelled **You**, while only the clean system track is
@@ -228,7 +232,10 @@ capture active, speaker playback can still bleed into the microphone and
 appear twice. Speakeasy preserves both segments rather than risk deleting a
 real repeated phrase or overlapping speech; headphones provide the cleanest
 **You** versus remote-speaker separation. A global system tap also includes
-unrelated notification or music audio played during the meeting.
+unrelated notification or music audio played during the meeting. Selected-app
+capture never silently widens to the global tap: if that process exits,
+restarts, or cannot be resolved, the meeting reports the selected application
+as unavailable and continues microphone-only until you reselect it next time.
 
 ## Development (run from source)
 
@@ -438,10 +445,13 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
 - **`system_audio.py` + `native/SystemAudioCapture.swift`** — macOS 14.2+
   Core Audio process-tap capture through a small bundled helper process. Its
   realtime callback only copies into a bounded queue; a separate writer queue
-  downmixes to PCM16 and writes the temporary system WAV. Process isolation
-  keeps a wedged system-tap teardown from holding Speakeasy's microphone HAL
-  lock. The helper is feature-gated, so the app's macOS 14.0 minimum remains
-  unchanged and unsupported/denied starts fall back visibly to mic-only
+  downmixes/resamples to 16 kHz mono PCM16 and writes the temporary system WAV.
+  The default global tap can be narrowed to one transient Core Audio process
+  ID; disappearance is explicit and never falls back to global. Process
+  isolation keeps a wedged system-tap teardown from holding Speakeasy's
+  microphone HAL lock. The helper is feature-gated, so the app's macOS 14.0
+  minimum remains unchanged and unsupported/denied starts fall back visibly
+  to mic-only
 - **`meetings.py`** — the meeting store (JSON per meeting, atomic saves like
   `profiles.py`), `.txt`/`.md` rendering, and the pure `align_speakers()`
   algorithm that maps diarization turns onto transcribed sentences

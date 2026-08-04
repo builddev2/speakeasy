@@ -5,6 +5,7 @@ _on_audio directly, so the queue → writer thread → WAV pipeline runs for
 real against a temp spool dir.
 """
 
+import threading
 import wave
 
 import numpy as np
@@ -91,6 +92,7 @@ def test_bounded_queue_overflow_counts_dropped_frames(
 ):
     rec = MeetingRecorder()
     rec.start()
+    writer_queue = rec._queue
 
     class FullQueue:
         def put_nowait(self, block):
@@ -99,6 +101,8 @@ def test_bounded_queue_overflow_counts_dropped_frames(
     rec._queue = FullQueue()
     rec._on_audio(_block(80), 80, None, None)
     assert rec.dropped_frames == 80
+    assert rec.writer_lagged is True
+    rec._queue = writer_queue
     rec.force_close()
     rec.discard()
 
@@ -156,6 +160,40 @@ def test_force_close_keeps_valid_wav_and_path(spool_dir, fake_stream):
     assert path is not None
     with wave.open(str(path)) as w:  # header was fixed up on close
         assert w.getframerate() == config.SAMPLE_RATE
+
+
+def test_force_close_never_closes_wav_while_writer_is_writing(
+    spool_dir, fake_stream
+):
+    rec = MeetingRecorder()
+    rec.start()
+    writer_entered = threading.Event()
+    allow_write = threading.Event()
+    force_close_done = threading.Event()
+    writeframes = rec._wav.writeframes
+
+    def held_writeframes(block):
+        writer_entered.set()
+        assert allow_write.wait(timeout=1.0)
+        writeframes(block)
+
+    rec._wav.writeframes = held_writeframes
+    rec._on_audio(_block(), 1600, None, None)
+    assert writer_entered.wait(timeout=1.0)
+
+    closer = threading.Thread(
+        target=lambda: (rec.force_close(), force_close_done.set())
+    )
+    closer.start()
+    assert not force_close_done.wait(timeout=0.05)
+    allow_write.set()
+    closer.join(timeout=1.0)
+    assert force_close_done.is_set()
+
+    path = rec.take_path()
+    assert path is not None
+    with wave.open(str(path)) as wav:
+        assert wav.getnframes() == 1600
 
 
 def test_sweep_spool_dir_removes_orphans(spool_dir):

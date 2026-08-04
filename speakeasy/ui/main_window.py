@@ -6,11 +6,15 @@ selectors on the main thread, and AppDelegate calls show() on launch and
 Dock reopen.
 """
 
+import os
+
 import objc
+from AppKit import NSWorkspace
 from Foundation import NSObject
 
 from speakeasy.engine import MeetingOptions, State
-from speakeasy.ui.webbridge import BridgeDispatcher
+from speakeasy.system_audio import eligible_process_ids
+from speakeasy.ui.webbridge import BridgeDispatcher, capture_application_options
 from speakeasy.ui.webwindow import WebWindow
 
 
@@ -32,11 +36,12 @@ class MainWindowController(NSObject):
 
         dispatcher = BridgeDispatcher()
         dispatcher.register("app.getState", self._get_state)
+        dispatcher.register("app.listCaptureApplications", self._list_capture_apps)
         dispatcher.register("app.beginMeeting", self._begin_meeting)
         dispatcher.register("app.endMeeting", self._end_meeting)
         dispatcher.register("app.openWindow", self._open_window)
         dispatcher.register("app.quit", self._quit)
-        self._web = WebWindow("Speakeasy", 360, 350, "dock", dispatcher)
+        self._web = WebWindow("Speakeasy", 360, 385, "dock", dispatcher)
         self._web.window.setDelegate_(self)
         return self
 
@@ -80,6 +85,7 @@ class MainWindowController(NSObject):
             elapsed = float(recorder.elapsed_seconds)
         profile = self.engine.profile
         meeting_recorder = getattr(self.engine, "meeting_recorder", None)
+        health = getattr(meeting_recorder, "health", None)
         return {
             "mode": state.value,
             "profileName": profile.name if profile else "Guest",
@@ -90,9 +96,11 @@ class MainWindowController(NSObject):
             "canTrain": self.engine.can_train,
             "voiceProfiles": self._voice_profile_names(),
             "captureMode": getattr(meeting_recorder, "capture_mode", "mic_only"),
+            "captureScope": getattr(meeting_recorder, "capture_scope", "mic_only"),
             "systemAudioStatus": getattr(
                 meeting_recorder, "system_audio_status", "unavailable"
             ),
+            "captureHealth": health.to_dict() if health is not None else {},
         }
 
     @objc.python_method
@@ -106,6 +114,7 @@ class MainWindowController(NSObject):
     @objc.python_method
     def _begin_meeting(self, params, respond):
         count = params.get("expectedSpeakerCount")
+        process_id = params.get("systemAudioPid")
         self.engine.begin_meeting(
             MeetingOptions(
                 expected_speaker_count=(
@@ -115,9 +124,23 @@ class MainWindowController(NSObject):
                     str(name)
                     for name in params.get("expectedVoiceProfileNames", [])
                 ),
+                system_audio_pid=(
+                    None if process_id is None else int(process_id)
+                ),
             )
         )  # submits to control internally
         respond(True)
+
+    @objc.python_method
+    def _list_capture_apps(self, params, respond):
+        eligible = eligible_process_ids()
+        respond(
+            capture_application_options(
+                NSWorkspace.sharedWorkspace().runningApplications(),
+                eligible,
+                os.getpid(),
+            )
+        )
 
     @objc.python_method
     def _voice_profile_names(self):

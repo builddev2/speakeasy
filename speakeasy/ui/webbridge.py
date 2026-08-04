@@ -97,6 +97,23 @@ def format_timestamp(seconds: float) -> str:
     return f"[{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}]"
 
 
+def capture_application_options(applications, eligible_pids, own_pid: int) -> list[dict]:
+    """Transient picker payload: running Core Audio process PID + app name."""
+    options = []
+    for application in applications:
+        process_id = int(application.processIdentifier())
+        name = application.localizedName()
+        if (
+            process_id in eligible_pids
+            and process_id != own_pid
+            and not application.isTerminated()
+            and name
+        ):
+            options.append({"pid": process_id, "name": str(name)})
+    options.sort(key=lambda item: (item["name"].casefold(), item["pid"]))
+    return options
+
+
 def segments_to_lines(segments) -> list[dict]:
     """MeetingSegment(speaker, start, end, text) -> page TranscriptLine dicts.
 

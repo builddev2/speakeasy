@@ -65,6 +65,39 @@ _MEETING_TOOLTIP = (
 _GUEST_TAG = "\x00guest"  # representedObject marker distinct from any name
 
 
+def _meeting_status_text(recorder) -> str:
+    health = getattr(recorder, "health", None)
+    if health is not None:
+        if health.helper_exited and health.helper_exit_reason != "requested_stop":
+            return "Recording meeting — microphone only (system helper exited)"
+        if health.system_writer_failed:
+            return "Recording meeting — microphone only (system writer failed)"
+        if health.mic_writer_failed:
+            return "Recording meeting — microphone writer failed"
+        if health.capture_mode == "mic_and_system":
+            source = (
+                "selected application"
+                if health.capture_scope == "selected"
+                else "system audio"
+            )
+            if not health.system_first_buffer:
+                return f"Recording meeting — microphone + {source} (waiting for data)"
+            if not health.system_nonzero_signal:
+                return f"Recording meeting — microphone + {source} (no signal yet)"
+            if health.mic_writer_lagged or health.system_writer_lagged:
+                return f"Recording meeting — microphone + {source} (capture lag)"
+            return f"Recording meeting — microphone + {source}"
+    status = getattr(recorder, "system_audio_status", "unavailable")
+    reason = {
+        "requires_macos_14_2": "requires macOS 14.2+",
+        "permission_denied_or_unavailable": "permission denied",
+        "helper_missing": "capture helper unavailable",
+        "helper_exited": "capture helper exited",
+        "selected_app_unavailable": "selected application unavailable",
+    }.get(status, "system audio unavailable")
+    return f"Recording meeting — microphone only ({reason})"
+
+
 def _symbol(name: str) -> NSImage:
     image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
         name, "Speakeasy"
@@ -243,11 +276,15 @@ class StatusItemController(NSObject):
         # Doubles as the meeting elapsed-time ticker; otherwise it exists
         # only so Python signal handlers run under the AppKit run loop.
         if self.engine.state is State.MEETING_RECORDING:
-            elapsed = int(self.engine.meeting_recorder.elapsed_seconds)
+            recorder = self.engine.meeting_recorder
+            elapsed = int(recorder.elapsed_seconds)
             m, s = divmod(elapsed, 60)
             h, m = divmod(m, 60)
             clock = f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
             self._meeting_item.setTitle_(f"End Meeting ({clock})")
+            self._status_line.setTitle_(_meeting_status_text(recorder))
+            if self.dock_window is not None:
+                self.dock_window._push_state()
 
     # -- engine state (arrives via performSelectorOnMainThread) ----------
 
@@ -258,17 +295,7 @@ class StatusItemController(NSObject):
         if state is State.READY:
             text = f"Ready — {profile.name if profile else 'Guest'}"
         elif state is State.MEETING_RECORDING:
-            recorder = self.engine.meeting_recorder
-            if getattr(recorder, "capture_mode", "mic_only") == "mic_and_system":
-                text = "Recording meeting — microphone + system audio"
-            else:
-                status = getattr(recorder, "system_audio_status", "unavailable")
-                reason = {
-                    "requires_macos_14_2": "requires macOS 14.2+",
-                    "permission_denied_or_unavailable": "permission denied",
-                    "helper_missing": "capture helper unavailable",
-                }.get(status, "system audio unavailable")
-                text = f"Recording meeting — microphone only ({reason})"
+            text = _meeting_status_text(self.engine.meeting_recorder)
         self._status_line.setTitle_(text)
         symbol = _STATE_SYMBOL.get(state)
         self._item.button().setImage_(

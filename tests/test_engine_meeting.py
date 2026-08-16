@@ -256,6 +256,7 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     ]
     assert diarizer.audio_lengths == [config.SAMPLE_RATE * 2]
     assert stored.capture_mode == "mic_and_system"
+    assert stored.expected_remote_speaker_count == 2
     assert stored.track_offsets_seconds == {"mic": 0.0, "system": 0.5}
     assert stored.capture_health["system_nonzero_signal"] is True
     assert stored.capture_health["capture_mode"] == "mic_and_system"
@@ -577,6 +578,25 @@ def test_meeting_options_validate():
         MeetingOptions(expected_speaker_count=0)
     with pytest.raises(ValueError):
         MeetingOptions(expected_speaker_count=21)
+
+
+def test_one_remote_speaker_means_two_speakers_in_mic_only_fallback(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    engine._diarizer_speaker_count = 2
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting(MeetingOptions(expected_speaker_count=1))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = meetings.Meeting.load(saved[0])
+    assert engine._diarizer_speaker_count == 2
+    assert stored.expected_remote_speaker_count == 1
+    engine.shutdown()
 
 
 def test_correct_last_dictation_learns_active_profile(spool_dir, make_profile):

@@ -46,8 +46,8 @@ from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
 
 @dataclass(frozen=True)
 class MeetingOptions:
-    # Remote speakers in dual-track mode. In mic-only fallback, source
-    # separation is impossible, so this constrains every voice audible on mic.
+    # Remote speakers. In mic-only fallback, source separation is impossible,
+    # so the engine adds the local user before constraining the mixed track.
     expected_speaker_count: int | None = None
     expected_voice_profile_names: tuple[str, ...] = ()
     system_audio_pid: int | None = None
@@ -470,8 +470,7 @@ class DictationEngine:
             cancel=self._meeting_cancel,
         )
 
-    def _diarize_track(self, audio, progress):
-        expected_count = self._meeting_options.expected_speaker_count
+    def _diarize_track(self, audio, progress, expected_count):
         if self.diarizer is None or self._diarizer_speaker_count != expected_count:
             from .diarizer import Diarizer
 
@@ -537,6 +536,7 @@ class DictationEngine:
                     lambda f: self.on_meeting_progress(
                         f"Identifying remote speakers… {70 + int(f * 28)}%"
                     ),
+                    self._meeting_options.expected_speaker_count,
                 )
                 del system_audio
                 if self._meeting_cancel.is_set():
@@ -578,6 +578,11 @@ class DictationEngine:
                     lambda f: self.on_meeting_progress(
                         f"Identifying speakers… {70 + int(f * 28)}%"
                     ),
+                    (
+                        self._meeting_options.expected_speaker_count + 1
+                        if self._meeting_options.expected_speaker_count is not None
+                        else None
+                    ),
                 )
                 del audio
                 if self._meeting_cancel.is_set():
@@ -609,6 +614,9 @@ class DictationEngine:
                     recording.health.to_dict() if recording.health else {}
                 ),
                 capture_scope=recording.capture_scope,
+                expected_remote_speaker_count=(
+                    self._meeting_options.expected_speaker_count
+                ),
             )
             meeting.save()
             print(f"  → meeting saved: {meeting.title} ({len(segments)} segments)")

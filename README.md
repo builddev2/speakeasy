@@ -212,9 +212,11 @@ the menu discards it. When it finishes, the transcript appears under
 
 While a meeting records, hold-to-talk dictation is off (both would fight over
 the mic and the model); it re-arms the moment processing starts. The active
-profile's corrections are applied to both tracks. The optional speaker count
-means **remote speakers** with dual-track capture; in microphone-only fallback
-it necessarily applies to every voice audible on the mixed mic track.
+profile's corrections are applied to both tracks. The speaker count defaults to
+**one remote speaker** for a one-on-one call and excludes you. Clear it for
+automatic group-meeting detection or enter the known number of remote speakers.
+In microphone-only fallback Speakeasy adds you to that count because source
+separation is unavailable and every voice is audible on the mixed mic track.
 
 **Privacy: the audio itself is never kept.** During the meeting both tracks
 spool to temporary files, which are deleted as soon as the transcript is saved — and

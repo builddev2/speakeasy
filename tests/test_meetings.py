@@ -16,12 +16,17 @@ def _segments():
 
 
 def test_save_load_round_trip(meetings_dir):
-    meeting = Meeting.new(_segments(), duration_seconds=1832.5)
+    meeting = Meeting.new(
+        _segments(),
+        duration_seconds=1832.5,
+        expected_remote_speaker_count=1,
+    )
     meeting.save()
 
     loaded = Meeting.load(meeting.meeting_id)
     assert loaded.title == meeting.title
     assert loaded.duration_seconds == 1832.5
+    assert loaded.expected_remote_speaker_count == 1
     assert [s.speaker for s in loaded.segments] == ["Speaker 1", "Speaker 2"]
     assert loaded.segments[0].text == "Good morning everyone."
     assert not list(meetings_dir.glob("*.tmp"))  # atomic write left no crumbs
@@ -110,6 +115,7 @@ def test_saved_json_is_hand_editable(meetings_dir):
         "title",
         "created",
         "duration_seconds",
+        "expected_remote_speaker_count",
         "capture_mode",
         "capture_health",
         "capture_scope",

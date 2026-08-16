@@ -118,7 +118,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     systemAudioStatus: 'available',
     captureHealth: {},
   });
-  const [expectedSpeakerCount, setExpectedSpeakerCount] = useState('');
+  const [expectedSpeakerCount, setExpectedSpeakerCount] = useState('1');
   const [useVoiceProfiles, setUseVoiceProfiles] = useState(false);
   const [captureApps, setCaptureApps] = useState<CaptureApplication[]>([]);
   const [captureSelection, setCaptureSelection] = useState('global');
@@ -271,7 +271,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
               </select>
             </label>
             <label>
-              Remote speakers
+              Remote speakers (excluding you)
               <input
                 type="number"
                 min="1"

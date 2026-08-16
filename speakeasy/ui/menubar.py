@@ -37,7 +37,7 @@ from AppKit import (
 from Foundation import NSMakeRect, NSMakeSize, NSObject, NSTimer
 
 from .. import config, settings
-from ..engine import DictationEngine, State
+from ..engine import DictationEngine, MeetingOptions, State
 from ..profiles import Profile, list_profiles, load_profiles
 from . import permissions
 
@@ -408,7 +408,7 @@ class StatusItemController(NSObject):
         if self.engine.state is State.MEETING_RECORDING:
             self.engine.end_meeting()
         else:
-            self.engine.begin_meeting()
+            self.engine.begin_meeting(MeetingOptions(expected_speaker_count=1))
 
     def cancelProcessing_(self, sender):
         self.engine.cancel_meeting_processing()

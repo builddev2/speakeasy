@@ -93,6 +93,7 @@ class Meeting:
         track_offsets_seconds: dict[str, float] | None = None,
         capture_health: dict | None = None,
         capture_scope: str = "mic_only",
+        expected_remote_speaker_count: int | None = None,
     ) -> None:
         self.meeting_id = meeting_id
         self.title = title
@@ -109,6 +110,7 @@ class Meeting:
             and (value is None or isinstance(value, (bool, int, str)))
         }
         self.capture_scope = capture_scope
+        self.expected_remote_speaker_count = expected_remote_speaker_count
 
     # -- storage --------------------------------------------------------
 
@@ -127,6 +129,7 @@ class Meeting:
         track_offsets_seconds: dict[str, float] | None = None,
         capture_health: dict | None = None,
         capture_scope: str = "mic_only",
+        expected_remote_speaker_count: int | None = None,
     ) -> "Meeting":
         now = datetime.now()
         meeting_id = f"{now.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2)}"
@@ -143,6 +146,7 @@ class Meeting:
             track_offsets_seconds=track_offsets_seconds,
             capture_health=capture_health,
             capture_scope=capture_scope,
+            expected_remote_speaker_count=expected_remote_speaker_count,
         )
 
     @classmethod
@@ -194,6 +198,11 @@ class Meeting:
                 else {}
             ),
             capture_scope=str(data.get("capture_scope", "mic_only")),
+            expected_remote_speaker_count=(
+                int(data["expected_remote_speaker_count"])
+                if data.get("expected_remote_speaker_count") is not None
+                else None
+            ),
         )
 
     def save(self) -> None:
@@ -216,6 +225,9 @@ class Meeting:
                     },
                     "capture_health": self.capture_health,
                     "capture_scope": self.capture_scope,
+                    "expected_remote_speaker_count": (
+                        self.expected_remote_speaker_count
+                    ),
                     "segments": [
                         {
                             "speaker": s.speaker,

@@ -474,6 +474,7 @@ def test_insertion_exception_restores_clipboard_and_emits(monkeypatch, capsys):
         ("normal", False, "recording_too_short"),
         ("normal", True, "recorder_busy"),
         ("timeout", False, "recorder_stop_timeout"),
+        ("error", False, "recorder_stop_error"),
     ],
 )
 def test_control_early_outcomes_emit_without_worker_phases(

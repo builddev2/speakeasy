@@ -6,10 +6,9 @@ flow (cli.py) and the menu bar app (ui/menubar.py) drive the same object.
 Threading rules (unchanged from the original, load-bearing):
 - The model is loaded AND used on the single `worker` thread — MLX pins its
   GPU arrays to the thread that created them.
-- Recorder start/stop runs on the single `control` thread, never on the
-  hotkey event-tap thread: CoreAudio's AudioOutputUnitStop deadlocks against
-  the HAL mutex when called inside a CGEventTap callback, and a blocked tap
-  callback gets the tap disabled by macOS.
+- Recorder start/stop is serialized by `control`, never the hotkey event-tap
+  thread. Immediate dictation's CoreAudio stream lives in a killable helper;
+  meeting capture remains guarded in the main process.
 - Hotkey callbacks return instantly; they only submit to `control`.
 
 Meeting transcription follows the same rules: the meeting recorder starts and
@@ -171,7 +170,7 @@ class DictationEngine:
         self._user_paused = True
         self._listener.stop()
         # Discard any hold that was in flight — its release will never arrive.
-        self.control.submit(self.recorder.stop)
+        self.control.submit(self._stop_recorder_guarded)
         self._set_state(State.PAUSED)
 
     def resume(self) -> None:
@@ -185,6 +184,7 @@ class DictationEngine:
 
     def shutdown(self) -> None:
         self._listener.stop()
+        self.recorder.force_close()
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
         self._meeting_cancel.set()
@@ -271,19 +271,24 @@ class DictationEngine:
             traceback.print_exc()
             self._finish_dictation(timing, "pipeline_exception")
             return
-        if recorder_busy or stopped.outcome == "timeout" or too_short:
+        if recorder_busy or stopped.outcome != "normal" or too_short:
             status = (
                 "recorder_busy"
                 if recorder_busy
                 else (
                     "recorder_stop_timeout"
                     if stopped.outcome == "timeout"
-                    else "recording_too_short"
+                    else (
+                        "recorder_stop_error"
+                        if stopped.outcome == "error"
+                        else "recording_too_short"
+                    )
                 )
             )
             try:
                 play_sound(config.SOUND_STOP)
-                print("  → (too short, ignored)")
+                if status == "recording_too_short":
+                    print("  → (too short, ignored)")
             finally:
                 self._finish_dictation(timing, status)
             return
@@ -313,19 +318,29 @@ class DictationEngine:
         dropped rather than blocking forever.
         """
         result: list[np.ndarray] = []
+        errors: list[Exception] = []
         done = threading.Event()
 
         def run() -> None:
             try:
                 result.append(self.recorder.stop())
+            except Exception as error:
+                errors.append(error)
             finally:
                 if timing is not None:
                     timing.mark("recorder_stop_finished")
                 done.set()
 
         threading.Thread(target=run, name="recorder-stop", daemon=True).start()
-        if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS) and result:
-            return _RecorderStopResult(result[0], "normal")
+        if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS):
+            if result:
+                return _RecorderStopResult(result[0], "normal")
+            if errors:
+                print("  → (recorder stop failed; restarting microphone helper)")
+                self.recorder.force_close()
+                return _RecorderStopResult(
+                    np.empty(0, dtype=np.float32), "error"
+                )
         print("  → (recorder stop timed out; releasing the mic)")
         self.recorder.force_close()
         if timing is not None:
@@ -357,15 +372,13 @@ class DictationEngine:
         # meeting recorder owns the session) and discard any hold in flight —
         # its release will never arrive.
         self._listener.stop()
-        self.recorder.stop()
+        self._stop_recorder_guarded()
         try:
             self.meeting_recorder.start(system_audio_pid=options.system_audio_pid)
         except RecorderBusy:
-            # A CoreAudio teardown (a wedged dictation stop, or a previous
-            # meeting's) is still unwinding in the HAL. Opening the meeting
-            # stream now would deadlock against it — and this runs on control,
-            # with no watchdog, so it would freeze the whole pipeline. Refuse the
-            # meeting instead; the mic recovers when the stop finally returns.
+            # A previous meeting teardown is still unwinding in the HAL.
+            # Opening another stream would deadlock against it and freeze the
+            # control thread. Refuse the meeting until the stop returns.
             print("  → (mic busy — a previous stop is still releasing; try again)")
             self._meeting_active = False
             self._listener.resume()

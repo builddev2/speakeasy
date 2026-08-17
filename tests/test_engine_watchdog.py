@@ -5,7 +5,8 @@ import threading
 from speakeasy import config
 from speakeasy.engine import DictationEngine, State
 from speakeasy.meeting_recorder import MeetingRecording
-from speakeasy.recorder import RecorderBusy
+from speakeasy.microphone_helper import MicrophoneHelperError
+from speakeasy.recorder import Recorder, RecorderBusy
 
 
 class HangingRecorder:
@@ -53,6 +54,76 @@ def test_guarded_stop_returns_audio_on_the_fast_path():
     stopped = engine._stop_recorder_guarded()
     assert stopped.audio.shape == (8,)
     assert stopped.outcome == "normal"
+
+
+def test_guarded_stop_reports_helper_error_and_releases_it():
+    class BrokenRecorder:
+        def __init__(self):
+            self.force_closed = False
+
+        def stop(self):
+            raise MicrophoneHelperError("helper exited")
+
+        def force_close(self):
+            self.force_closed = True
+
+    engine = DictationEngine()
+    recorder = BrokenRecorder()
+    engine.recorder = recorder
+
+    stopped = engine._stop_recorder_guarded()
+
+    assert stopped.outcome == "error"
+    assert recorder.force_closed is True
+
+
+def test_helper_timeout_is_classified_and_next_take_recreates_helper(monkeypatch):
+    import numpy as np
+
+    monkeypatch.setattr(config, "RECORDER_STOP_TIMEOUT_SECONDS", 0.05)
+
+    class Helper:
+        level = 0.0
+        stream_dropped_frames = 0
+        stream_delivery_complete = True
+
+        def __init__(self, *, wedge=False):
+            self.wedge = wedge
+            self.release = threading.Event()
+            self.started = False
+            self.terminated = False
+
+        def launch(self):
+            pass
+
+        def start(self, chunk_queue=None):
+            self.started = True
+
+        def stop(self):
+            if self.wedge:
+                self.release.wait()
+                raise MicrophoneHelperError()
+            return np.ones(8, dtype=np.float32)
+
+        def terminate(self):
+            self.terminated = True
+            self.release.set()
+
+    wedged = Helper(wedge=True)
+    recovered = Helper()
+    helpers = iter((wedged, recovered))
+    recorder = Recorder()
+    recorder._new_helper = lambda: next(helpers)
+    recorder.start()
+    engine = DictationEngine()
+    engine.recorder = recorder
+
+    stopped = engine._stop_recorder_guarded()
+
+    assert stopped.outcome == "timeout"
+    assert wedged.terminated is True
+    recorder.start()
+    assert recovered.started is True
 
 
 def test_start_recording_stays_idle_when_mic_is_busy():

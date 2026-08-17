@@ -63,11 +63,12 @@ _COMPLETION_STATUSES = {
     "pipeline_exception",
     "recorder_busy",
     "recorder_stop_timeout",
+    "recorder_stop_error",
     "recording_too_short",
     "success",
     "transcription_exception",
 }
-_RECORDER_STOP_OUTCOMES = {"normal", "timeout"}
+_RECORDER_STOP_OUTCOMES = {"error", "normal", "timeout"}
 _SUMMARY_PHASES = (
     "recorder_stop_ms",
     "worker_queue_ms",

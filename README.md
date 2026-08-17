@@ -415,22 +415,15 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   `CGEventTap` (no third-party input library). A listen-only tap makes no Text
   Input Source calls, and pausing around the synthesized paste is a
   `CGEventTapEnable` flip rather than a listener teardown
-- **`recorder.py`** — microphone capture (sounddevice) + live RMS level for
-  the waveform bars. The CoreAudio stream is opened once at startup and kept
-  across recordings, so pressing the hotkey starts capture instantly instead
-  of paying a ~100 ms stream open that could clip your first syllable (the
-  mic-in-use indicator still only shows while you're actually recording). A
-  stop that wedges inside CoreAudio is timed out and abandoned by a watchdog;
-  while its teardown is still unwinding, opening a second stream would deadlock
-  both on the HAL mutex, so a stuck mic degrades to "try again" / relaunch
-  instead of freezing the whole hotkey pipeline
-- **`coreaudio.py`** — the process-wide guard that makes the above safe. The
-  HAL mutex is per process/device, and dictation and meetings each own a
-  separate input stream on it, so a wedged teardown on *either* recorder blocks
-  an open on *both*. Both mark their teardown here and both check it before
-  opening; while one is in flight, a dictation take or a Begin Meeting is
-  refused (`RecorderBusy`) rather than deadlocked. Capture self-recovers the
-  moment the wedged call returns
+- **`recorder.py` / `microphone_helper.py`** — immediate dictation capture and
+  live RMS level. A prewarmed helper process owns the persistent CoreAudio
+  stream, so hotkey capture stays instant. Its realtime callback only copies
+  into a bounded queue; batch audio is retained independently from optional
+  bounded parent-side chunks. If teardown wedges, the watchdog kills the
+  helper and the next take creates a fresh one without restarting Speakeasy
+- **`coreaudio.py`** — guards main-process meeting teardown. Dictation checks
+  it before launching its helper so a meeting stop still unwinding in the HAL
+  cannot race a new microphone open
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
@@ -513,7 +506,8 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   its own worker thread, and recorder start/stop runs on a control thread —
   never on the hotkey event-tap thread, where stopping CoreAudio deadlocks
   against the HAL mutex
-- **`launcher.py`** — the frozen-app entry point: redirects stdout/stderr to
+- **`launcher.py`** — the frozen-app entry point: enables multiprocessing for
+  the microphone helper and redirects stdout/stderr to
   `~/Library/Logs/Speakeasy.log` (a windowed app has none) before starting
 
 ## Notes

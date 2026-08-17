@@ -5,6 +5,13 @@ Local, private Wispr Flow clone for macOS. A menu-bar app: hold
 at your cursor. Speech-to-text runs entirely on-device (NVIDIA Parakeet on Apple
 MLX); nothing ever leaves your Mac.
 
+Immediate dictation streams bounded microphone chunks into Parakeet while the
+hotkey is held, then pastes only the final result after release. A dedicated,
+killable helper process owns the microphone stream so a wedged Core Audio stop
+cannot freeze the app. If streaming drops a chunk or fails, Speakeasy discards
+the partial result and batch-transcribes the helper's complete in-memory audio
+on the same MLX worker before performing the single final paste.
+
 Speakeasy lives in the menu bar as a small skull icon — it turns into a mic
 while recording and a waveform while transcribing. Click its status item to
 see the current state, switch profiles, train, record a meeting, or quit.
@@ -99,6 +106,30 @@ its menu-bar item and reopen it for the changes to take effect.
 > Then relaunch Speakeasy and approve both when prompted. Building with
 > `scripts/build_app.sh --install` avoids this going forward.
 
+### Audio static or missing devices after Speakeasy quits
+
+Speakeasy and its microphone helper should both exit when the app quits. If
+audio remains static in Teams or another application after that, keep
+Speakeasy closed and restart macOS Core Audio before rejoining the call:
+
+```bash
+sudo killall coreaudiod
+```
+
+macOS relaunches the service automatically. Fully quit and reopen Teams after
+the restart so it rebuilds its device graph. To verify the same PortAudio layer
+Speakeasy uses can see the devices again:
+
+```bash
+.venv/bin/python -c 'import sounddevice as sd; print(sd.query_devices())'
+```
+
+On 2026-08-17 this recovery was required once after testing the new isolated
+microphone helper: no Speakeasy/helper process remained, and restarting
+`coreaudiod` restored live device enumeration. Causality is not yet established;
+treat any recurrence as a release blocker and record only process/device-health
+facts, never meeting or dictated content.
+
 ### Uninstall
 
 ```bash
@@ -117,8 +148,8 @@ you left off. It can't revoke the macOS permission grants or delete the
 When Speakeasy is running, its menu-bar item shows the current state (`Ready`,
 `Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release: a
 pop sound and dancing rainbow waveform bars (bottom-center of the screen) mark
-recording, a bottle sound marks stop, and the text appears at your cursor within
-about a second.
+recording, a bottle sound marks stop, and only the final text appears at your
+cursor after release.
 
 Click the menu-bar item for:
 
@@ -354,7 +385,7 @@ and is click-through.
 Set `OVERLAY_ENABLED = False` in `speakeasy/config.py` to turn it off
 entirely (sounds and status still work).
 
-### Dictation latency baseline
+### Dictation latency instrumentation and comparison
 
 Speakeasy writes one privacy-safe JSON record per completed dictation take to
 `~/Library/Logs/Speakeasy-dictation-latency.jsonl`. The size-bounded log
@@ -408,6 +439,8 @@ Edit `speakeasy/config.py` to change:
 - `SOUNDS_ENABLED`, `SOUND_START`, `SOUND_STOP` — audio feedback
 - `SAMPLE_RATE`, `MIN_DURATION_SECONDS`, `RECORDER_STOP_TIMEOUT_SECONDS`,
   `CLIPBOARD_SETTLE_SECONDS`, `PASTE_SETTLE_SECONDS` — capture/paste timing
+- `DICTATION_STREAMING_ENABLED` — normal streaming fast path; disable only for
+  a controlled batch comparison
 - `DICTATION_TRIM_ENABLED`, `TRIM_*` — trim leading/trailing silence from a
   dictation before transcription (a touch faster, steadier accuracy)
 - `FUZZY_VOCAB_ENABLED`, `FUZZY_MIN_RATIO`, `FUZZY_MIN_TOKEN_LEN` — vocabulary
@@ -423,9 +456,10 @@ Edit `speakeasy/config.py` to change:
 ## How it works
 
 ```
-hold Right Command ─► record mic (16 kHz mono) + rainbow bars dance with voice
-release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
-                   ─► paste text at cursor (clipboard + simulated ⌘V)
+hold Right Command ─► helper records complete 16 kHz mono audio
+                   └► bounded chunks stream to Parakeet on the one MLX worker
+release            ─► finalize stream; batch-fallback from complete audio if needed
+                   ─► profile final text once; paste once (clipboard + simulated ⌘V)
                    ─► restore your previous clipboard, bars fade out
 ```
 
@@ -452,8 +486,13 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   cannot race a new microphone open
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
-  Audio is fed to the model in-memory (log-mel + generate), skipping the
-  temp-WAV file and ffmpeg decode of the library's path-based API. Meeting ASR
+  `dictation_stream.py` owns a bounded per-take mailbox; the worker creates,
+  enters, feeds, finalizes, and exits Parakeet's streaming context. Queue or
+  stream failure invalidates every partial and batch-transcribes the complete
+  helper-owned audio on that same worker. Only the final text reaches profiles,
+  clipboard insertion, logs, or UI. Batch audio is otherwise fed to the model
+  in-memory (log-mel + generate), skipping the temp-WAV file and ffmpeg decode
+  of the library's path-based API. Meeting ASR
   uses `transcribe_long_wav()` to read one overlap chunk at a time directly
   from each spool; its array counterpart `transcribe_long()` shares the exact
   same token-merge loop. Tracks are transcribed sequentially, and only the

@@ -5,6 +5,8 @@
 > and wired to real data. Current production behavior and dependency versions
 > live in `README.md`, `AGENTS.md`, `frontend/`, and `speakeasy/ui/`; the body
 > below intentionally retains the original phase boundary and decisions.
+> Later backend work added isolated microphone capture and worker-owned live
+> dictation streaming/fallback; it is intentionally outside this UI snapshot.
 
 ## Context
 

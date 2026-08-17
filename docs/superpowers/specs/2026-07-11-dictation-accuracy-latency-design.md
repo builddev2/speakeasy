@@ -11,6 +11,14 @@ code; meeting transcription has since added streaming `transcribe_long_wav()`
 alongside the array path described here. Use `README.md` and `AGENTS.md` for
 the current operational architecture.
 
+Immediate dictation now uses a dedicated microphone helper and a bounded
+Parakeet streaming fast path while the hotkey is held. Only the final result is
+published; queue or stream failure batch-transcribes the complete captured
+audio after the streaming context exits on the same MLX worker. The current
+privacy-safe release-to-paste comparison lives in
+`speakeasy/dictation_benchmark.py`; it supersedes this design's proposed
+trim-only benchmark for release decisions.
+
 ## Goal
 
 Three user-prioritized targets:

@@ -6,6 +6,11 @@
 > `transcribe_long_wav()` path while retaining the shared array API described
 > below. Preserve this plan's checkboxes/code as its execution snapshot; use
 > `README.md`, `AGENTS.md`, and current source for present behavior.
+> Immediate dictation has since gained a dedicated microphone helper and a
+> bounded Parakeet streaming fast path. It pastes only the final result and
+> batch-falls back from complete captured audio on the same MLX worker. The
+> original trim benchmark below is not the current release-to-paste comparison;
+> see `speakeasy/dictation_benchmark.py` and the README commands instead.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

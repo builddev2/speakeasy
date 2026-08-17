@@ -6,6 +6,9 @@
 > privacy-safe global/selected-app capture state not present in this original
 > plan. Preserve the checkboxes and code below as the planning-time snapshot;
 > use `README.md`, `AGENTS.md`, and the current source for operational truth.
+> The current engine also uses a killable microphone helper, worker-owned live
+> dictation streaming, complete-audio batch fallback, and final-only paste;
+> none of those later backend contracts are specified by this historical plan.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -5,6 +5,9 @@
 > The current frontend is embedded in WKWebViews, uses the real Python bridge,
 > and builds with Vite 6.4.3; use `README.md`, `AGENTS.md`, `frontend/`, and
 > `speakeasy/ui/` as the current sources of truth.
+> Since this snapshot, immediate dictation also moved to isolated microphone
+> capture plus worker-owned streaming/fallback; those backend changes do not
+> alter this preserved frontend prototype plan.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

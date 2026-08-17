@@ -47,6 +47,14 @@ contexts are intentionally bounded and single-purpose:
 
 - **`worker`** (1 thread) — loads *and* runs the Parakeet model. MLX pins GPU
   arrays to their creating thread, so the model must only ever be touched here.
+  Eligible dictations submit one long-lived streaming job at key-down. That job
+  creates, enters, feeds, reads, and exits Parakeet's streaming context on this
+  thread. Queue overflow or a stream exception invalidates all partial output
+  and runs batch fallback from the helper's complete audio only after context
+  exit, on this same thread. Only the final result may reach profiles,
+  clipboard, UI, or status. A stream exception disables streaming until
+  relaunch; overflow is take-local. Never add a second ASR executor or
+  per-chunk worker jobs.
   The whole meeting-processing pipeline (`_process_meeting`: streamed chunked
   transcription → diarization → alignment → save) also runs as one job here.
   Tracks are transcribed sequentially from their WAVs; only the one selected
@@ -62,7 +70,11 @@ contexts are intentionally bounded and single-purpose:
   can create a fresh helper. Its realtime callback only copies and
   `put_nowait`s into a bounded queue; optional parent-side chunks may drop but
   complete batch audio is retained separately, and capture-queue overflow must
-  fail the take. Meeting capture remains in-process and uses the process-wide
+  fail the take. The optional delivery is only a bounded streaming feed: any
+  dropped frame or incomplete delivery invalidates the stream and forces batch
+  fallback from the independently retained audio. Timeout, too-short, pause,
+  shutdown, and recorder failure cancel without fallback or paste. Meeting
+  capture remains in-process and uses the process-wide
   `coreaudio.teardown` guard; never clear that marker from force-close.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
@@ -135,6 +147,14 @@ grant: `tccutil reset ListenEvent com.jasonchiu.speakeasy` and
 `tccutil reset Accessibility com.jasonchiu.speakeasy`, then relaunch and
 re-approve. A stable self-signed `Speakeasy Dev` cert keeps grants across
 rebuilds.
+
+If static audio or an empty device graph persists after Speakeasy and its
+helper have exited, keep Speakeasy off and restart Core Audio with
+`sudo killall coreaudiod`, then fully reopen the affected conferencing app.
+This recovery was required once during isolated-helper validation on
+2026-08-17; causality is unresolved, so recurrence is a release blocker. Do
+not teach the product to restart a system daemon automatically, and do not log
+device names or audio content while diagnosing it.
 
 ## Conventions
 

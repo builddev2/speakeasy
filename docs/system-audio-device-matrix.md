@@ -4,6 +4,13 @@ This matrix is intentionally user-operated. Run it only with explicit approval,
 consented test speech, and the required macOS Screen & System Audio Recording
 grant. Do not use private meetings.
 
+> **Current validation note (2026-08-17):** after testing the new isolated
+> dictation microphone helper, static remained in Teams after Speakeasy quit.
+> No Speakeasy/helper process remained; restarting `coreaudiod` restored live
+> PortAudio device enumeration. The cause is not established. Keep Speakeasy
+> off for real calls until the post-quit audio-health checks below pass without
+> recovery; any recurrence fails the tested cell and blocks release.
+
 ## Preparation
 
 ```bash
@@ -11,6 +18,13 @@ cd "/Users/jchiu/Documents/00_Personal_Projects/Coding - General/Speakeasy 06JUL
 scripts/build_system_audio_helper.sh
 npm --prefix frontend run build
 .venv/bin/python -m speakeasy
+```
+
+Before the first cell, capture a content-free device baseline through the same
+PortAudio layer used by Speakeasy:
+
+```bash
+.venv/bin/python -c 'import sounddevice as sd; print(sd.query_devices())'
 ```
 
 For every run, play a short known phrase from the remote side, speak a different
@@ -65,7 +79,21 @@ For each cell, verify:
 - capture health reports truthful dropped-frame, lag, writer, and helper state;
 - selected scope captures no unrelated notification/music audio;
 - audio spools are deleted after success, cancellation, and processing failure;
+- after quitting Speakeasy, no Speakeasy/resource-tracker/microphone-helper
+  process remains and the conferencing app has no static or distorted audio;
+- PortAudio still enumerates the expected input/output routes after quit;
 - only transcript text and privacy-safe capture metadata remain.
+
+If post-quit static or a missing device graph occurs, keep Speakeasy closed,
+fully quit the conferencing app, and restart Core Audio:
+
+```bash
+sudo killall coreaudiod
+```
+
+macOS relaunches the daemon automatically. Re-run the PortAudio enumeration,
+then reopen the conferencing app. Record the cell as failed even if this
+recovery works; recovery is not evidence that helper teardown is safe.
 
 ## Selected-application failure checks
 

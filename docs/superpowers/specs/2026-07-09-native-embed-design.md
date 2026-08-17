@@ -5,6 +5,9 @@
 > also exposes speaker relabeling and privacy-safe global/selected-app capture
 > state added after this design. Use `README.md`, `AGENTS.md`, and current source
 > for the operational contract; retain the body below as the approved snapshot.
+> Current dictation behavior also includes a killable microphone helper,
+> bounded worker-owned streaming, complete-audio batch fallback, and a single
+> final paste; those later engine contracts are not retrofitted into this spec.
 
 ## Context
 

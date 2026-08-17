@@ -115,7 +115,7 @@ def test_ready_take_passes_one_session_to_recorder_and_one_worker_job(engine):
     assert isinstance(engine.recorder.chunk_queue, StreamingSession)
     assert len(engine.worker.submissions) == 1
     function, args = engine.worker.submissions[0]
-    assert function == engine.transcriber.transcribe_stream
+    assert function == engine._transcribe_stream_with_fallback
     assert args == (engine.recorder.chunk_queue,)
     assert engine.transcriber.calls == 0  # submitted, never run on control
     assert engine.state is State.RECORDING

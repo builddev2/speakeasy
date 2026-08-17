@@ -24,6 +24,7 @@ class StreamResult:
     status: StreamStatus
     text: str | None = None
     error: Exception | None = None
+    fallback_reason: str | None = None
 
 
 class StreamingSession:
@@ -148,6 +149,8 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
     if not session.finished and not session.cancelled:
         session.wait()
     if session.cancelled:
+        if outcome is not None and outcome.status is StreamStatus.FAILED:
+            return outcome
         return StreamResult(StreamStatus.CANCELLED)
     if session.overflowed:
         return StreamResult(StreamStatus.OVERFLOW)

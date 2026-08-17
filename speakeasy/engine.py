@@ -36,7 +36,7 @@ import numpy as np
 
 from . import config, injector, meeting_recorder, meetings
 from .dictation_benchmark import DictationTiming
-from .dictation_stream import StreamStatus, StreamingSession
+from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .profiles import Profile
@@ -130,6 +130,7 @@ class DictationEngine:
         self._dictation_stream: StreamingSession | None = None
         self._dictation_stream_timing: DictationTiming | None = None
         self._dictation_stream_lock = threading.Lock()
+        self._dictation_stream_disabled = False
 
     # -- lifecycle ------------------------------------------------------
 
@@ -228,11 +229,14 @@ class DictationEngine:
 
     def _start_recording(self) -> None:
         self._recorder_busy = False
+        with self._dictation_stream_lock:
+            streaming_enabled = not self._dictation_stream_disabled
         session = (
             StreamingSession()
             if self.state is State.READY
             and self.transcriber is not None
             and not self._meeting_active
+            and streaming_enabled
             else None
         )
         try:
@@ -255,7 +259,9 @@ class DictationEngine:
                 self._dictation_stream = session
                 self._dictation_stream_timing = None
             try:
-                future = self.worker.submit(self.transcriber.transcribe_stream, session)
+                future = self.worker.submit(
+                    self._transcribe_stream_with_fallback, session
+                )
             except Exception:
                 self._cancel_dictation_stream(session)
                 self._stop_recorder_guarded()
@@ -270,6 +276,48 @@ class DictationEngine:
         play_sound(config.SOUND_START)
         self._set_state(State.RECORDING)
         print("● recording...")
+
+    def _transcribe_stream_with_fallback(
+        self, session: StreamingSession
+    ) -> StreamResult:
+        """Keep streaming and any batch recovery in one MLX worker job."""
+        transcriber = self.transcriber
+        if transcriber is None:
+            return StreamResult(StreamStatus.CANCELLED)
+        try:
+            result = transcriber.transcribe_stream(session)
+        except Exception as error:
+            result = StreamResult(StreamStatus.FAILED, error=error)
+
+        if result.status in (StreamStatus.COMPLETE, StreamStatus.CANCELLED):
+            return result
+        if result.status is StreamStatus.FAILED:
+            # A model streaming failure may recur on every take. Keep batch
+            # dictation available, but stop creating streams until relaunch.
+            with self._dictation_stream_lock:
+                self._dictation_stream_disabled = True
+            fallback_reason = "stream_error"
+        elif result.status is StreamStatus.OVERFLOW:
+            fallback_reason = "stream_overflow"
+        else:
+            return result
+
+        # transcribe_stream() has returned, so its context manager has exited.
+        # If it failed unusually early, wait for stop() to attach the complete
+        # helper-owned batch before deciding whether recovery is allowed.
+        if not session.finished and not session.cancelled:
+            session.wait()
+        if session.cancelled:
+            return StreamResult(StreamStatus.CANCELLED)
+        audio = session.audio
+        if audio is None:
+            return result
+        text = transcriber.transcribe(audio)
+        return StreamResult(
+            StreamStatus.COMPLETE,
+            text=text,
+            fallback_reason=fallback_reason,
+        )
 
     def _stop_recording(self, release_received: int | None = None) -> None:
         timing = DictationTiming(
@@ -464,6 +512,9 @@ class DictationEngine:
     def _begin_meeting(self, options: MeetingOptions) -> None:
         if self.state is not State.READY or self._meeting_active:
             return
+        with self._dictation_stream_lock:
+            if self._dictation_stream is not None:
+                return
         self._meeting_active = True
         self._meeting_options = options
         # Dictation off for the duration: tear the tap down entirely (the

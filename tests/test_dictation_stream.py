@@ -24,19 +24,36 @@ class _Result:
 
 
 class _Stream:
-    def __init__(self, calls, *, add_error=None, add_started=None, add_release=None):
+    def __init__(
+        self,
+        calls,
+        *,
+        enter_error=None,
+        add_error=None,
+        result_error=None,
+        exit_error=None,
+        add_started=None,
+        add_release=None,
+    ):
         self.calls = calls
+        self.enter_error = enter_error
         self.add_error = add_error
+        self.result_error = result_error
+        self.exit_error = exit_error
         self.add_started = add_started
         self.add_release = add_release
         self.added = []
 
     def __enter__(self):
         self.calls.append(("enter", threading.get_ident()))
+        if self.enter_error is not None:
+            raise self.enter_error
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.calls.append(("exit", threading.get_ident()))
+        if self.exit_error is not None:
+            raise self.exit_error
 
     def add_audio(self, audio):
         self.calls.append(("add", threading.get_ident()))
@@ -51,6 +68,8 @@ class _Stream:
     @property
     def result(self):
         self.calls.append(("result", threading.get_ident()))
+        if self.result_error is not None:
+            raise self.result_error
         return _Result()
 
 
@@ -58,12 +77,15 @@ class _Model:
     preprocessor_config = _Config()
     encoder_config = _EncoderConfig()
 
-    def __init__(self, stream):
+    def __init__(self, stream, *, create_error=None):
         self.stream = stream
         self.calls = stream.calls
+        self.create_error = create_error
 
     def transcribe_stream(self):
         self.calls.append(("create", threading.get_ident()))
+        if self.create_error is not None:
+            raise self.create_error
         return self.stream
 
 
@@ -176,7 +198,25 @@ def test_model_error_is_a_failed_outcome_and_exits_context():
     assert [name for name, _ in calls][-1] == "exit"
 
 
-def test_model_error_waits_for_take_terminal_before_worker_returns():
+@pytest.mark.parametrize("phase", ["create", "enter", "result", "exit"])
+def test_stream_lifecycle_failure_is_a_failed_outcome(phase):
+    calls = []
+    error = RuntimeError(f"{phase} failed")
+    kwargs = {f"{phase}_error": error} if phase != "create" else {}
+    stream = _Stream(calls, **kwargs)
+    model = _Model(stream, create_error=error if phase == "create" else None)
+    session = StreamingSession()
+    session.finish(np.ones(16_000, dtype=np.float32))
+
+    result = run_stream(model, session, to_device=np.asarray)
+
+    assert result.status is StreamStatus.FAILED
+    assert result.error is error
+    if phase in ("result", "exit"):
+        assert any(name == "exit" for name, _ in calls)
+
+
+def test_model_error_waits_for_terminal_and_preserves_failure_for_circuit_breaker():
     calls = []
     stream = _Stream(calls, add_error=RuntimeError("stream failed"))
     session = StreamingSession()
@@ -193,7 +233,7 @@ def test_model_error_waits_for_take_terminal_before_worker_returns():
         session.cancel()
         result = future.result()
 
-    assert result.status is StreamStatus.CANCELLED
+    assert result.status is StreamStatus.FAILED
 
 
 def test_finish_attaches_audio_before_waking_waiter_and_is_terminal():

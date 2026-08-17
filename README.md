@@ -354,6 +354,51 @@ and is click-through.
 Set `OVERLAY_ENABLED = False` in `speakeasy/config.py` to turn it off
 entirely (sounds and status still work).
 
+### Dictation latency baseline
+
+Speakeasy writes one privacy-safe JSON record per completed dictation take to
+`~/Library/Logs/Speakeasy-dictation-latency.jsonl`. The size-bounded log
+contains only take/status identifiers, recorder outcome, a profile-active
+boolean, sample counts, and phase durations; it contains no audio, transcript,
+clipboard, profile, application, device, or window content.
+
+After collecting dictations, summarize the local records fully offline:
+
+```bash
+.venv/bin/python -m speakeasy --dictation-latency-summary
+```
+
+For a controlled batch-versus-streaming comparison, use two new log paths
+(each run should contain 30 attempts: at least 10 short, 10 medium, and 10
+long), quit the app after each run, then compare them:
+
+```bash
+.venv/bin/python -m speakeasy --dictation-batch-mode --dictation-latency-log /tmp/speakeasy-batch.jsonl
+.venv/bin/python -m speakeasy --dictation-latency-log /tmp/speakeasy-streaming.jsonl
+.venv/bin/python -m speakeasy --dictation-latency-compare /tmp/speakeasy-batch.jsonl /tmp/speakeasy-streaming.jsonl
+```
+
+Use fresh paths (or archive existing files) because logs append. Batch mode is
+for this controlled run only; normal launches keep the streaming fast path.
+The comparison counts successful streaming and batch fallbacks separately via
+the existing status field, while treating all pasted outcomes as successful.
+It does not add mode, timestamp, transcript, audio, app, device, window, or PID
+fields; every JSON record retains the fixed 21-field allowlist above.
+
+Accuracy comparison is deliberately separate from product telemetry. With
+explicit consent, keep a local test-only corpus of at least 30 WAV files and
+their reference text outside the product log, run the same files through batch
+and streaming offline, and compare WER plus truncation manually or with a
+test-only evaluator. Accept streaming only if overall WER is within 1 percentage
+point of batch, every duration group is within 2 points, normalized transcripts
+match in at least 90% of takes, and no take is truncated. Do not attach audio,
+references, or recognized text to the latency JSONL files.
+
+The summary reports release-to-paste and phase percentiles by recording length.
+It withholds bottleneck conclusions until there are at least 20 successful
+takes, and each duration group needs at least five successful takes before a
+dominant measured phase is named.
+
 ## Configuration
 
 Edit `speakeasy/config.py` to change:
@@ -396,22 +441,15 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   `CGEventTap` (no third-party input library). A listen-only tap makes no Text
   Input Source calls, and pausing around the synthesized paste is a
   `CGEventTapEnable` flip rather than a listener teardown
-- **`recorder.py`** — microphone capture (sounddevice) + live RMS level for
-  the waveform bars. The CoreAudio stream is opened once at startup and kept
-  across recordings, so pressing the hotkey starts capture instantly instead
-  of paying a ~100 ms stream open that could clip your first syllable (the
-  mic-in-use indicator still only shows while you're actually recording). A
-  stop that wedges inside CoreAudio is timed out and abandoned by a watchdog;
-  while its teardown is still unwinding, opening a second stream would deadlock
-  both on the HAL mutex, so a stuck mic degrades to "try again" / relaunch
-  instead of freezing the whole hotkey pipeline
-- **`coreaudio.py`** — the process-wide guard that makes the above safe. The
-  HAL mutex is per process/device, and dictation and meetings each own a
-  separate input stream on it, so a wedged teardown on *either* recorder blocks
-  an open on *both*. Both mark their teardown here and both check it before
-  opening; while one is in flight, a dictation take or a Begin Meeting is
-  refused (`RecorderBusy`) rather than deadlocked. Capture self-recovers the
-  moment the wedged call returns
+- **`recorder.py` / `microphone_helper.py`** — immediate dictation capture and
+  live RMS level. A prewarmed helper process owns the persistent CoreAudio
+  stream, so hotkey capture stays instant. Its realtime callback only copies
+  into a bounded queue; batch audio is retained independently from optional
+  bounded parent-side chunks. If teardown wedges, the watchdog kills the
+  helper and the next take creates a fresh one without restarting Speakeasy
+- **`coreaudio.py`** — guards main-process meeting teardown. Dictation checks
+  it before launching its helper so a meeting stop still unwinding in the HAL
+  cannot race a new microphone open
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
@@ -494,7 +532,8 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
   its own worker thread, and recorder start/stop runs on a control thread —
   never on the hotkey event-tap thread, where stopping CoreAudio deadlocks
   against the HAL mutex
-- **`launcher.py`** — the frozen-app entry point: redirects stdout/stderr to
+- **`launcher.py`** — the frozen-app entry point: enables multiprocessing for
+  the microphone helper and redirects stdout/stderr to
   `~/Library/Logs/Speakeasy.log` (a windowed app has none) before starting
 
 ## Notes

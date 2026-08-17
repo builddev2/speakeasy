@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import config, preprocess, settings
 from .dictation_benchmark import DictationTiming
+from .dictation_stream import StreamResult, StreamingSession, run_stream
 
 
 class MeetingCancelled(Exception):
@@ -147,6 +148,15 @@ class Transcriber:
             if timing is not None:
                 timing.mark("inference_finished")
         return result.text.strip()
+
+    def transcribe_stream(self, session: StreamingSession) -> StreamResult:
+        """Consume a live dictation on the model's existing worker thread.
+
+        The Parakeet context changes model attention state, and add_audio(),
+        result, and context cleanup all touch MLX. Keeping the whole lifecycle
+        inside this blocking method makes worker ownership explicit.
+        """
+        return run_stream(self._model, session, to_device=mx.array)
 
     def transcribe_long(
         self,

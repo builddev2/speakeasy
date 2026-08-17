@@ -1,9 +1,8 @@
-"""The CoreAudio teardown guard is process-wide, not per-recorder.
+"""The main-process CoreAudio teardown guard remains meeting-safe.
 
-The HAL mutex is per-process/per-device: a stream teardown still unwinding
-inside CoreAudio blocks an open on *any* stream, not just its own. So a wedged
-MeetingRecorder.stop() must refuse a dictation Recorder.start() (and vice
-versa) — a per-instance guard would let the two deadlock against each other.
+The HAL mutex is per-process/per-device. A wedged MeetingRecorder.stop() must
+still refuse a dictation helper launch until the meeting call unwinds.
+Dictation's own teardown is isolated in its killable helper process.
 
 No real CoreAudio here: fake streams stand in for sounddevice so the wedge is
 driven deterministically.
@@ -12,7 +11,6 @@ driven deterministically.
 import threading
 import time
 
-import numpy as np
 import pytest
 
 from speakeasy import coreaudio, meeting_recorder
@@ -85,15 +83,22 @@ def test_wedged_meeting_stop_blocks_dictation_open(spool_dir, monkeypatch):
 
     dictation = Recorder()
     opened = []
-    monkeypatch.setattr(
-        "speakeasy.recorder.sd.InputStream",
-        lambda **kw: opened.append(kw) or FakeStream(**kw),
-    )
+
+    class FakeHelper:
+        level = 0.0
+
+        def launch(self):
+            opened.append(True)
+
+        def start(self, chunk_queue=None):
+            pass
+
+    dictation._new_helper = FakeHelper
 
     with pytest.raises(RecorderBusy):
         dictation.start()
     assert not opened, "opened a stream while a meeting teardown was in the HAL"
-    assert dictation._stream is None
+    assert dictation._helper is None
     assert dictation._recording is False
 
     # prewarm() is the other way in — it must refuse silently, not open.
@@ -120,36 +125,6 @@ def test_wedged_meeting_stop_blocks_another_meeting_open(spool_dir, monkeypatch)
 
     release.set()
     stopper.join(2.0)
-
-
-def test_wedged_dictation_stop_blocks_meeting_open(spool_dir, monkeypatch):
-    # The mirror image: Begin Meeting while a dictation stop is still unwinding.
-    # _begin_meeting runs on the control thread with no watchdog, so opening
-    # here froze control outright.
-    release = threading.Event()
-    dictation = Recorder()
-    dictation._stream = FakeStream(release)
-    dictation._recording = True
-    dictation._chunks = [np.ones((4, 1), dtype=np.float32)]
-    stopper = threading.Thread(target=dictation.stop, daemon=True)
-    stopper.start()
-    assert _wait_for_teardown(), "Recorder.stop() never marked the teardown"
-
-    opened = []
-    monkeypatch.setattr(
-        meeting_recorder.sd,
-        "InputStream",
-        lambda **kw: opened.append(kw) or FakeStream(**kw),
-    )
-    rec = MeetingRecorder()
-    with pytest.raises(RecorderBusy):
-        rec.start()
-    assert not opened, "opened a meeting stream while a dictation teardown was live"
-
-    release.set()
-    stopper.join(2.0)
-    rec.start()  # recovered
-    assert opened
 
 
 def test_meeting_stop_clears_guard_on_clean_teardown(spool_dir, monkeypatch):

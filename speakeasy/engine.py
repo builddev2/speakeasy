@@ -6,10 +6,9 @@ flow (cli.py) and the menu bar app (ui/menubar.py) drive the same object.
 Threading rules (unchanged from the original, load-bearing):
 - The model is loaded AND used on the single `worker` thread — MLX pins its
   GPU arrays to the thread that created them.
-- Recorder start/stop runs on the single `control` thread, never on the
-  hotkey event-tap thread: CoreAudio's AudioOutputUnitStop deadlocks against
-  the HAL mutex when called inside a CGEventTap callback, and a blocked tap
-  callback gets the tap disabled by macOS.
+- Recorder start/stop is serialized by `control`, never the hotkey event-tap
+  thread. Immediate dictation's CoreAudio stream lives in a killable helper;
+  meeting capture remains guarded in the main process.
 - Hotkey callbacks return instantly; they only submit to `control`.
 
 Meeting transcription follows the same rules: the meeting recorder starts and
@@ -37,6 +36,7 @@ import numpy as np
 
 from . import config, injector, meeting_recorder, meetings
 from .dictation_benchmark import DictationTiming
+from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .profiles import Profile
@@ -127,6 +127,10 @@ class DictationEngine:
         self._dictation_take_ids = count(1)
         self._dictation_clock_ns = time.perf_counter_ns
         self._recorder_busy = False
+        self._dictation_stream: StreamingSession | None = None
+        self._dictation_stream_timing: DictationTiming | None = None
+        self._dictation_stream_lock = threading.Lock()
+        self._dictation_stream_disabled = not config.DICTATION_STREAMING_ENABLED
 
     # -- lifecycle ------------------------------------------------------
 
@@ -170,8 +174,9 @@ class DictationEngine:
         """Suspend dictation, e.g. while the training window owns the hotkey."""
         self._user_paused = True
         self._listener.stop()
+        self._cancel_dictation_stream()
         # Discard any hold that was in flight — its release will never arrive.
-        self.control.submit(self.recorder.stop)
+        self.control.submit(self._stop_recorder_guarded)
         self._set_state(State.PAUSED)
 
     def resume(self) -> None:
@@ -185,6 +190,8 @@ class DictationEngine:
 
     def shutdown(self) -> None:
         self._listener.stop()
+        self._cancel_dictation_stream()
+        self.recorder.force_close()
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
         self._meeting_cancel.set()
@@ -222,9 +229,21 @@ class DictationEngine:
 
     def _start_recording(self) -> None:
         self._recorder_busy = False
+        with self._dictation_stream_lock:
+            streaming_enabled = not self._dictation_stream_disabled
+        session = (
+            StreamingSession()
+            if self.state is State.READY
+            and self.transcriber is not None
+            and not self._meeting_active
+            and streaming_enabled
+            else None
+        )
         try:
-            self.recorder.start()
+            self.recorder.start(chunk_queue=session)
         except RecorderBusy:
+            if session is not None:
+                session.cancel()
             # A prior stop is still unwinding in CoreAudio; opening now would
             # deadlock. Drop this take and stay idle — the hotkey stays live,
             # and the next press works once the stop clears (or after relaunch
@@ -235,11 +254,70 @@ class DictationEngine:
             self._set_state(self._idle_state())
             self._recorder_busy = True
             return
+        if session is not None:
+            with self._dictation_stream_lock:
+                self._dictation_stream = session
+                self._dictation_stream_timing = None
+            try:
+                future = self.worker.submit(
+                    self._transcribe_stream_with_fallback, session
+                )
+            except Exception:
+                self._cancel_dictation_stream(session)
+                self._stop_recorder_guarded()
+                raise
+            future.add_done_callback(
+                lambda completed, active=session: self._streaming_finished(
+                    active, completed
+                )
+            )
         if self.overlay:
             self.overlay.show_recording(lambda: self.recorder.level)
         play_sound(config.SOUND_START)
         self._set_state(State.RECORDING)
         print("● recording...")
+
+    def _transcribe_stream_with_fallback(
+        self, session: StreamingSession
+    ) -> StreamResult:
+        """Keep streaming and any batch recovery in one MLX worker job."""
+        transcriber = self.transcriber
+        if transcriber is None:
+            return StreamResult(StreamStatus.CANCELLED)
+        try:
+            result = transcriber.transcribe_stream(session)
+        except Exception as error:
+            result = StreamResult(StreamStatus.FAILED, error=error)
+
+        if result.status in (StreamStatus.COMPLETE, StreamStatus.CANCELLED):
+            return result
+        if result.status is StreamStatus.FAILED:
+            # A model streaming failure may recur on every take. Keep batch
+            # dictation available, but stop creating streams until relaunch.
+            with self._dictation_stream_lock:
+                self._dictation_stream_disabled = True
+            fallback_reason = "stream_error"
+        elif result.status is StreamStatus.OVERFLOW:
+            fallback_reason = "stream_overflow"
+        else:
+            return result
+
+        # transcribe_stream() has returned, so its context manager has exited.
+        # If it failed unusually early, wait for stop() to attach the complete
+        # helper-owned batch before deciding whether recovery is allowed.
+        if not session.finished and not session.cancelled:
+            session.wait()
+        if session.cancelled:
+            return StreamResult(StreamStatus.CANCELLED)
+        audio = session.audio
+        if audio is None:
+            return result
+        text = transcriber.transcribe(audio, timing=session.timing)
+        return StreamResult(
+            StreamStatus.COMPLETE,
+            text=text,
+            fallback_reason=fallback_reason,
+        )
 
     def _stop_recording(self, release_received: int | None = None) -> None:
         timing = DictationTiming(
@@ -271,21 +349,54 @@ class DictationEngine:
             traceback.print_exc()
             self._finish_dictation(timing, "pipeline_exception")
             return
-        if recorder_busy or stopped.outcome == "timeout" or too_short:
+        if recorder_busy or stopped.outcome != "normal" or too_short:
+            self._cancel_dictation_stream()
             status = (
                 "recorder_busy"
                 if recorder_busy
                 else (
                     "recorder_stop_timeout"
                     if stopped.outcome == "timeout"
-                    else "recording_too_short"
+                    else (
+                        "recorder_stop_error"
+                        if stopped.outcome == "error"
+                        else "recording_too_short"
+                    )
                 )
             )
             try:
                 play_sound(config.SOUND_STOP)
-                print("  → (too short, ignored)")
+                if status == "recording_too_short":
+                    print("  → (too short, ignored)")
             finally:
                 self._finish_dictation(timing, status)
+            return
+        with self._dictation_stream_lock:
+            session = self._dictation_stream
+        if session is not None:
+            if self.overlay:
+                self.overlay.show_transcribing()
+            self._set_state(State.TRANSCRIBING)
+            worker_already_started = timing.clock_ns()
+            timing.mark("worker_submitted", worker_already_started)
+            # The stream worker has already been running since key-down. Its
+            # pre-release compute is intentionally excluded from post-release
+            # queue and inference phases.
+            timing.mark("worker_started", worker_already_started)
+            timing.samples_before = len(stopped.audio)
+            timing.samples_after = len(stopped.audio)
+            with self._dictation_stream_lock:
+                if self._dictation_stream is session:
+                    self._dictation_stream_timing = timing
+            session.finish(
+                stopped.audio,
+                timing=timing,
+                valid=(
+                    self.recorder.stream_dropped_frames == 0
+                    and self.recorder.stream_delivery_complete
+                ),
+            )
+            play_sound(config.SOUND_STOP)
             return
         # Kick off transcription before the sound: Popen costs ~10-30 ms.
         timing.mark("worker_submitted")
@@ -300,6 +411,64 @@ class DictationEngine:
         play_sound(config.SOUND_STOP)
         self._set_state(State.TRANSCRIBING)
 
+    def _cancel_dictation_stream(
+        self, session: StreamingSession | None = None
+    ) -> None:
+        with self._dictation_stream_lock:
+            active = self._dictation_stream
+            if session is not None and active is not session:
+                return
+            self._dictation_stream = None
+            self._dictation_stream_timing = None
+        if active is not None:
+            active.cancel()
+
+    def _streaming_finished(
+        self, session: StreamingSession, future: Future
+    ) -> None:
+        with self._dictation_stream_lock:
+            if self._dictation_stream is not session:
+                return
+            timing = self._dictation_stream_timing
+            self._dictation_stream = None
+            self._dictation_stream_timing = None
+        if timing is None:
+            return
+        timing.mark("worker_started")
+
+        # Snapshot at the release/finalization boundary, before accessing the
+        # completed result. Taking it at key-down would overwrite clipboard
+        # changes the user made during a long dictation.
+        previous = None
+        try:
+            previous = self._read_dictation_clipboard(timing)
+        except Exception:
+            traceback.print_exc()
+            self._restore_after_dictation(previous, timing, "pipeline_exception")
+            return
+        try:
+            result = future.result()
+        except Exception:
+            traceback.print_exc()
+            self._restore_after_dictation(
+                previous, timing, "transcription_exception"
+            )
+            return
+        if result.status is StreamStatus.COMPLETE:
+            success_status = {
+                None: "success_streaming",
+                "stream_overflow": "success_fallback_queue_overflow",
+                "stream_error": "success_fallback_stream_error",
+            }.get(result.fallback_reason, "pipeline_exception")
+            self._finalize_dictation(
+                result.text or "",
+                previous,
+                timing,
+                success_status=success_status,
+            )
+            return
+        self._restore_after_dictation(previous, timing, "pipeline_exception")
+
     def _stop_recorder_guarded(
         self, timing: DictationTiming | None = None
     ) -> _RecorderStopResult:
@@ -313,19 +482,29 @@ class DictationEngine:
         dropped rather than blocking forever.
         """
         result: list[np.ndarray] = []
+        errors: list[Exception] = []
         done = threading.Event()
 
         def run() -> None:
             try:
                 result.append(self.recorder.stop())
+            except Exception as error:
+                errors.append(error)
             finally:
                 if timing is not None:
                     timing.mark("recorder_stop_finished")
                 done.set()
 
         threading.Thread(target=run, name="recorder-stop", daemon=True).start()
-        if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS) and result:
-            return _RecorderStopResult(result[0], "normal")
+        if done.wait(config.RECORDER_STOP_TIMEOUT_SECONDS):
+            if result:
+                return _RecorderStopResult(result[0], "normal")
+            if errors:
+                print("  → (recorder stop failed; restarting microphone helper)")
+                self.recorder.force_close()
+                return _RecorderStopResult(
+                    np.empty(0, dtype=np.float32), "error"
+                )
         print("  → (recorder stop timed out; releasing the mic)")
         self.recorder.force_close()
         if timing is not None:
@@ -351,21 +530,22 @@ class DictationEngine:
     def _begin_meeting(self, options: MeetingOptions) -> None:
         if self.state is not State.READY or self._meeting_active:
             return
+        with self._dictation_stream_lock:
+            if self._dictation_stream is not None:
+                return
         self._meeting_active = True
         self._meeting_options = options
         # Dictation off for the duration: tear the tap down entirely (the
         # meeting recorder owns the session) and discard any hold in flight —
         # its release will never arrive.
         self._listener.stop()
-        self.recorder.stop()
+        self._stop_recorder_guarded()
         try:
             self.meeting_recorder.start(system_audio_pid=options.system_audio_pid)
         except RecorderBusy:
-            # A CoreAudio teardown (a wedged dictation stop, or a previous
-            # meeting's) is still unwinding in the HAL. Opening the meeting
-            # stream now would deadlock against it — and this runs on control,
-            # with no watchdog, so it would freeze the whole pipeline. Refuse the
-            # meeting instead; the mic recovers when the stop finally returns.
+            # A previous meeting teardown is still unwinding in the HAL.
+            # Opening another stream would deadlock against it and freeze the
+            # control thread. Refuse the meeting until the stop returns.
             print("  → (mic busy — a previous stop is still releasing; try again)")
             self._meeting_active = False
             self._listener.resume()
@@ -634,7 +814,7 @@ class DictationEngine:
             self._set_state(self._idle_state())
         except Exception:
             traceback.print_exc()
-            if status == "success":
+            if status.startswith("success"):
                 status = "pipeline_exception"
         finally:
             timing.mark("pipeline_finished")
@@ -644,29 +824,57 @@ class DictationEngine:
         self, audio, timing: DictationTiming | None = None
     ) -> None:
         previous = None
-        status = "pipeline_exception"
         if timing is not None:
             timing.mark("worker_started")
         try:
             # Save the clipboard before transcription, preserving the existing
             # worker-thread ordering.
+            previous = self._read_dictation_clipboard(timing)
+        except Exception:
+            traceback.print_exc()
+            self._restore_after_dictation(previous, timing, "pipeline_exception")
+            return
+        started = time.perf_counter()
+        try:
+            if timing is None:
+                text = self.transcriber.transcribe(audio)
+            else:
+                text = self.transcriber.transcribe(audio, timing=timing)
+        except Exception:
+            traceback.print_exc()
+            self._restore_after_dictation(previous, timing, "transcription_exception")
+            return
+        self._finalize_dictation(
+            text,
+            previous,
+            timing,
+            elapsed=time.perf_counter() - started,
+        )
+
+    @staticmethod
+    def _read_dictation_clipboard(timing: DictationTiming | None):
+        if timing is not None:
+            timing.mark("clipboard_read_started")
+        try:
+            return injector.read_clipboard()
+        finally:
             if timing is not None:
-                timing.mark("clipboard_read_started")
-            try:
-                previous = injector.read_clipboard()
-            finally:
-                if timing is not None:
-                    timing.mark("clipboard_read_finished")
-            started = time.perf_counter()
-            try:
-                if timing is None:
-                    text = self.transcriber.transcribe(audio)
-                else:
-                    text = self.transcriber.transcribe(audio, timing=timing)
-            except Exception:
-                status = "transcription_exception"
-                raise
-            self.last_dictation_heard = text
+                timing.mark("clipboard_read_finished")
+
+    def _finalize_dictation(
+        self,
+        raw_text: str,
+        previous,
+        timing: DictationTiming | None = None,
+        *,
+        elapsed: float | None = None,
+        success_status: str = "success",
+    ) -> None:
+        """Apply the final profile result and perform at most one paste."""
+        status = "pipeline_exception"
+        try:
+            self.last_dictation_heard = raw_text
+            text = raw_text
             if self.profile is not None:
                 if timing is not None:
                     timing.profile_active = True
@@ -679,59 +887,70 @@ class DictationEngine:
             elif timing is not None:
                 timing.profile_active = False
             self.last_dictation_text = text
-            elapsed = time.perf_counter() - started
-            if text:
-                print(f"  → transcription complete ({elapsed:.2f}s)")
-                # Deaf-en the hotkey tap while we synthesize Cmd+V so the
-                # injected keystroke can never re-trigger recording.
-                self._listener.pause()
-                try:
-                    if timing is not None:
-                        timing.mark("insertion_started")
-                    try:
-                        if timing is None:
-                            injector.insert_text(text)
-                        else:
-                            injector.insert_text(text, timing=timing)
-                    except Exception:
-                        status = "insertion_exception"
-                        raise
-                finally:
-                    # Don't re-arm the hotkey if the user paused dictation
-                    # (training window open) while we were transcribing.
-                    if not self._user_paused:
-                        self._listener.resume()
-                # Let the target app consume the paste before restoring the
-                # clipboard — after resume(), so it's off the hotkey-dead window.
-                time.sleep(config.PASTE_SETTLE_SECONDS)
-                if timing is not None:
-                    timing.mark("paste_settle_finished")
-                status = "success"
-            else:
+
+            if not text:
                 print("  → (no speech detected)")
                 status = "empty_transcription"
+                return
+            if elapsed is None:
+                print("  → transcription complete")
+            else:
+                print(f"  → transcription complete ({elapsed:.2f}s)")
+
+            # Deaf-en the hotkey tap only while synthesizing Cmd+V. The target
+            # consumes the paste after the listener is re-armed, while the
+            # dictated clipboard value remains in place through the settle.
+            self._listener.pause()
+            try:
+                if timing is not None:
+                    timing.mark("insertion_started")
+                try:
+                    if timing is None:
+                        injector.insert_text(text)
+                    else:
+                        injector.insert_text(text, timing=timing)
+                except Exception:
+                    status = "insertion_exception"
+                    raise
+            finally:
+                if not self._user_paused:
+                    self._listener.resume()
+            time.sleep(config.PASTE_SETTLE_SECONDS)
+            if timing is not None:
+                timing.mark("paste_settle_finished")
+            status = success_status
         except Exception:
             traceback.print_exc()
         finally:
-            # Always restore, even if transcription or the paste itself
-            # raised — otherwise the dictated text is stranded on the
-            # clipboard and the user's prior clipboard is lost.
-            if timing is None:
-                injector.restore_clipboard(previous)
-                if self.overlay:
-                    self.overlay.hide()
-                self._set_state(self._idle_state())
-                return
-            timing.mark("clipboard_restore_started")
+            self._restore_after_dictation(previous, timing, status)
+
+    def _restore_after_dictation(
+        self,
+        previous,
+        timing: DictationTiming | None,
+        status: str,
+    ) -> None:
+        # Always restore, even if recognition, profiling, or insertion raised.
+        if timing is None:
             try:
                 injector.restore_clipboard(previous)
             except Exception:
                 traceback.print_exc()
-                if status == "success":
-                    status = "pipeline_exception"
             finally:
-                timing.mark("clipboard_restore_finished")
-                self._finish_dictation(timing, status)
+                if self.overlay:
+                    self.overlay.hide()
+                self._set_state(self._idle_state())
+            return
+        timing.mark("clipboard_restore_started")
+        try:
+            injector.restore_clipboard(previous)
+        except Exception:
+            traceback.print_exc()
+            if status.startswith("success"):
+                status = "pipeline_exception"
+        finally:
+            timing.mark("clipboard_restore_finished")
+            self._finish_dictation(timing, status)
 
     def correct_last_dictation(self, intended: str) -> bool:
         """Teach the active profile from the most recent raw ASR result."""

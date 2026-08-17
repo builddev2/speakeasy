@@ -1,5 +1,7 @@
 """Phase-level dictation timing without real audio, MLX, or macOS APIs."""
 
+import json
+import threading
 from itertools import count
 
 import numpy as np
@@ -7,6 +9,7 @@ import pytest
 
 from speakeasy import engine as engine_module
 from speakeasy import injector, transcriber as transcriber_module
+from speakeasy import dictation_benchmark as benchmark_module
 from speakeasy.dictation_benchmark import DictationTiming
 from speakeasy.engine import DictationEngine, State, _RecorderStopResult
 
@@ -40,6 +43,13 @@ class Overlay:
         self.clock.advance(1)
 
 
+@pytest.fixture(autouse=True)
+def isolate_latency_log(monkeypatch, tmp_path):
+    path = tmp_path / "dictation-latency.jsonl"
+    monkeypatch.setattr(benchmark_module, "latency_log_path", lambda: path)
+    return path
+
+
 def make_engine(clock, transcriber):
     engine = DictationEngine.__new__(DictationEngine)
     engine.transcriber = transcriber
@@ -51,6 +61,8 @@ def make_engine(clock, transcriber):
     engine.state = State.TRANSCRIBING
     engine.last_dictation_heard = None
     engine.last_dictation_text = None
+    engine._dictation_stream = None
+    engine._dictation_stream_lock = threading.Lock()
     return engine
 
 
@@ -212,6 +224,298 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
     assert field(line, "trim_ms") == "na"
 
 
+def test_persistent_record_is_exact_allowlist_and_contains_no_content(
+    isolate_latency_log,
+):
+    timing = DictationTiming(8, clock_ns=lambda: 0)
+    timing.recorder_stop_outcome = "normal"
+    timing.profile_active = True
+    timing.samples_before = 32_000
+    timing.samples_after = 24_000
+    timing.mark("release_received")
+    timing.mark("paste_dispatched")
+
+    timing.emit("success")
+
+    record = json.loads(isolate_latency_log.read_text(encoding="utf-8"))
+    assert list(record) == [
+        "take",
+        "status",
+        "recorder_stop_outcome",
+        "release_to_control_ms",
+        "control_to_recorder_stop_ms",
+        "recorder_stop_ms",
+        "worker_queue_ms",
+        "clipboard_read_ms",
+        "trim_ms",
+        "mel_ms",
+        "inference_ms",
+        "profile_active",
+        "profile_ms",
+        "insertion_to_dispatch_ms",
+        "release_to_paste_ms",
+        "paste_settle_ms",
+        "restore_ms",
+        "cleanup_ms",
+        "release_to_idle_ms",
+        "samples_before",
+        "samples_after",
+    ]
+    serialized = json.dumps(record)
+    assert "private transcript" not in serialized
+    assert "private clipboard" not in serialized
+    assert "private profile" not in serialized
+    assert record["release_to_paste_ms"] == 0.0
+
+
+def test_successful_and_unsuccessful_takes_persist_and_emission_is_idempotent(
+    isolate_latency_log,
+):
+    success = DictationTiming(1, clock_ns=lambda: 0)
+    failure = DictationTiming(2, clock_ns=lambda: 0)
+
+    assert success.emit("success") is True
+    assert success.emit("pipeline_exception") is False
+    assert failure.emit("transcription_exception") is True
+
+    records = benchmark_module.read_records(isolate_latency_log)
+    assert [(record["take"], record["status"]) for record in records] == [
+        (1, "success"),
+        (2, "transcription_exception"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "success",
+        "success_streaming",
+        "success_fallback_queue_overflow",
+        "success_fallback_stream_error",
+    ],
+)
+def test_all_success_outcomes_are_valid_and_counted(status):
+    timing = DictationTiming(1, clock_ns=lambda: 0)
+    timing.samples_before = 16_000
+    timing.mark("release_received")
+    timing.mark("paste_dispatched")
+
+    record = timing.record(status)
+    summary = benchmark_module.format_latency_summary([record])
+
+    assert record["status"] == status
+    assert "release_to_paste_ms: n=1" in summary
+
+
+def _comparison_records(*, streaming, latency=500.0, failures=0):
+    records = []
+    statuses = (
+        ["success_streaming"] * 30 if streaming else ["success"] * 30
+    )
+    for index, status in enumerate(statuses):
+        bucket_samples = (4, 10, 20)[index // 10] * 16_000
+        record = DictationTiming(index + 1, clock_ns=lambda: 0).record(status)
+        record.update(
+            samples_before=bucket_samples,
+            samples_after=bucket_samples,
+            release_to_paste_ms=latency,
+        )
+        records.append(record)
+    for index in range(failures):
+        records[index]["status"] = "recorder_stop_timeout"
+        records[index]["release_to_paste_ms"] = None
+    return records
+
+
+def test_comparative_summary_passes_complete_improved_dataset():
+    batch = _comparison_records(streaming=False, latency=1000.0)
+    streaming = _comparison_records(streaming=True, latency=600.0)
+
+    summary = benchmark_module.format_comparative_summary(batch, streaming)
+
+    assert "Streaming outcomes: pure=30/30 (100.0%)" in summary
+    assert "PASS: overall p50 improvement >= 30%" in summary
+    assert summary.endswith("Result: PASS")
+
+
+def test_comparative_summary_reports_failures_and_fallback_reasons():
+    batch = _comparison_records(streaming=False, latency=1000.0)
+    streaming = _comparison_records(streaming=True, latency=900.0)
+    streaming[0]["status"] = "success_fallback_queue_overflow"
+    streaming[1]["status"] = "success_fallback_stream_error"
+    streaming[2]["status"] = "success_fallback_stream_error"
+
+    summary = benchmark_module.format_comparative_summary(batch, streaming)
+
+    assert "queue_overflow_fallback=1, stream_error_fallback=2" in summary
+    assert "FAIL: overall p50 improvement >= 30%" in summary
+    assert "FAIL: queue overflow fallbacks = 0 [1]" in summary
+    assert "FAIL: stream error fallbacks <= 1 [2]" in summary
+    assert summary.endswith("Result: FAIL")
+
+
+def test_comparative_summary_withholds_result_for_incomplete_dataset():
+    batch = _comparison_records(streaming=False)[:20]
+    streaming = _comparison_records(streaming=True)[:20]
+
+    summary = benchmark_module.format_comparative_summary(batch, streaming)
+
+    assert "Result: INSUFFICIENT DATA" in summary
+    assert "batch attempts 20/30" in summary
+    assert "streaming long 0/10" in summary
+
+
+def test_comparison_reader_keeps_exact_privacy_allowlist(tmp_path):
+    path = tmp_path / "streaming.jsonl"
+    record = _comparison_records(streaming=True)[0]
+    record.update(
+        transcript="private transcript",
+        mode="streaming",
+        timestamp="private timestamp",
+        device="private device",
+        pid=123,
+    )
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    loaded = benchmark_module.read_records(path)
+
+    assert len(loaded) == 1
+    assert tuple(loaded[0]) == benchmark_module._FIELDS
+    assert not {"transcript", "mode", "timestamp", "device", "pid"} & set(loaded[0])
+
+
+def test_logging_failure_does_not_affect_restore_or_cleanup(monkeypatch, capsys):
+    clock = Clock()
+    restored = []
+
+    class Result:
+        def transcribe(self, audio, *, timing):
+            return "private transcript"
+
+    monkeypatch.setattr(engine_module.injector, "read_clipboard", lambda: "old")
+    monkeypatch.setattr(
+        engine_module.injector, "insert_text", lambda text, timing: timing.mark(
+            "paste_dispatched"
+        )
+    )
+    monkeypatch.setattr(
+        engine_module.injector, "restore_clipboard", lambda value: restored.append(value)
+    )
+    monkeypatch.setattr(engine_module.time, "sleep", lambda seconds: None)
+    def fail_write(record, path=None):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(benchmark_module, "_append_record", fail_write)
+    engine = make_engine(clock, Result())
+    timing = DictationTiming(1, clock_ns=clock)
+    timing.mark("release_received")
+
+    engine._transcribe_and_paste(None, timing)
+
+    assert restored == ["old"]
+    assert engine.overlay.hidden == 1
+    assert engine.state is State.READY
+    assert "dictation timing log unavailable: OSError" in capsys.readouterr().out
+
+
+def test_reader_skips_malformed_partial_and_ignores_unknown_fields(tmp_path):
+    path = tmp_path / "records.jsonl"
+    timing = DictationTiming(1, clock_ns=lambda: 0)
+    valid = timing.record("success")
+    valid["dictated_text"] = "must be ignored"
+    path.write_text(
+        "not json\n"
+        + json.dumps({"take": 2, "status": "success"})
+        + "\n"
+        + json.dumps(valid)
+        + "\n{\"take\":3",
+        encoding="utf-8",
+    )
+
+    records = benchmark_module.read_records(path)
+
+    assert len(records) == 1
+    assert records[0]["take"] == 1
+    assert "dictated_text" not in records[0]
+
+
+def test_log_rotation_keeps_one_bounded_backup(monkeypatch, isolate_latency_log):
+    first = DictationTiming(1, clock_ns=lambda: 0)
+    first.emit("success")
+    monkeypatch.setattr(
+        benchmark_module,
+        "_LOG_MAX_BYTES",
+        isolate_latency_log.stat().st_size + 1,
+    )
+
+    DictationTiming(2, clock_ns=lambda: 0).emit("success")
+
+    assert [record["take"] for record in benchmark_module.read_records(
+        isolate_latency_log
+    )] == [1, 2]
+    assert benchmark_module._rotated_path(isolate_latency_log).is_file()
+
+
+def test_explicit_log_path_keeps_comparison_runs_separate(monkeypatch, tmp_path):
+    path = tmp_path / "batch.jsonl"
+    monkeypatch.setattr(benchmark_module, "_LOG_PATH_OVERRIDE", None)
+
+    benchmark_module.set_latency_log_path(path)
+
+    assert benchmark_module._LOG_PATH_OVERRIDE == path
+
+
+def test_percentiles_are_deterministic():
+    values = [40.0, 10.0, 30.0, 20.0]
+
+    assert benchmark_module._percentile(values, 0.50) == 25.0
+    assert benchmark_module._percentile(values, 0.95) == pytest.approx(38.5)
+
+
+@pytest.mark.parametrize(
+    ("samples", "expected"),
+    [
+        (5 * 16_000, "short"),
+        (5 * 16_000 + 1, "medium"),
+        (15 * 16_000, "medium"),
+        (15 * 16_000 + 1, "long"),
+    ],
+)
+def test_duration_bucket_boundaries(samples, expected):
+    assert benchmark_module._duration_bucket(samples) == expected
+
+
+def test_summary_states_when_samples_are_insufficient():
+    timing = DictationTiming(1, clock_ns=lambda: 0)
+    timing.samples_before = 16_000
+    timing.mark("release_received")
+    timing.mark("paste_dispatched")
+
+    summary = benchmark_module.format_latency_summary([timing.record("success")])
+
+    assert "collect at least 20 before drawing a bottleneck conclusion" in summary
+    assert "dominant phase: insufficient data (1/5 successful takes)" in summary
+    assert "dominant measured pre-paste phase" not in summary
+
+
+def test_summary_names_dominant_phase_with_enough_group_records():
+    records = []
+    for take in range(1, 6):
+        record = DictationTiming(take, clock_ns=lambda: 0).record("success")
+        record.update(
+            samples_before=5 * 16_000,
+            release_to_paste_ms=500.0,
+            inference_ms=400.0,
+            mel_ms=20.0,
+            insertion_to_dispatch_ms=10.0,
+        )
+        records.append(record)
+
+    summary = benchmark_module.format_latency_summary(records)
+
+    assert "dominant measured pre-paste phase: inference_ms (p50 400.0 ms)" in summary
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [("", "empty_transcription"), (RuntimeError("inference"), "transcription_exception")],
@@ -281,6 +585,7 @@ def test_insertion_exception_restores_clipboard_and_emits(monkeypatch, capsys):
         ("normal", False, "recording_too_short"),
         ("normal", True, "recorder_busy"),
         ("timeout", False, "recorder_stop_timeout"),
+        ("error", False, "recorder_stop_error"),
     ],
 )
 def test_control_early_outcomes_emit_without_worker_phases(

@@ -7,6 +7,7 @@ that — a traceback, argparse --help/error — raises and kills the process
 streams at a log file so failures are recoverable instead of silent.
 """
 
+import multiprocessing
 import sys
 
 
@@ -31,7 +32,9 @@ def _redirect_streams_to_log():
 
 _redirect_streams_to_log()
 
-from speakeasy.__main__ import main
-
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
+    from speakeasy.__main__ import main
+
     main()

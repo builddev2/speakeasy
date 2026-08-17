@@ -29,8 +29,48 @@ def main() -> None:
         "--import-vocabulary", nargs=2, metavar=("PROFILE", "FILE"),
         help="add one vocabulary term per line to a profile",
     )
+    parser.add_argument(
+        "--dictation-latency-summary",
+        action="store_true",
+        help="summarize the local privacy-safe dictation timing log",
+    )
+    parser.add_argument(
+        "--dictation-latency-compare",
+        nargs=2,
+        metavar=("BATCH_JSONL", "STREAMING_JSONL"),
+        help="compare separate privacy-safe batch and streaming timing logs",
+    )
+    parser.add_argument(
+        "--dictation-latency-log",
+        metavar="JSONL",
+        help="write this run's privacy-safe dictation timing to a separate log",
+    )
+    parser.add_argument(
+        "--dictation-batch-mode",
+        action="store_true",
+        help="disable streaming for a controlled batch latency run",
+    )
     args = parser.parse_args()
 
+    if args.dictation_latency_log:
+        from .dictation_benchmark import set_latency_log_path
+
+        set_latency_log_path(Path(args.dictation_latency_log).expanduser())
+    if args.dictation_latency_compare:
+        from .dictation_benchmark import print_comparative_summary
+
+        batch, streaming = args.dictation_latency_compare
+        print_comparative_summary(Path(batch), Path(streaming))
+        return
+    if args.dictation_latency_summary:
+        from .dictation_benchmark import print_latency_summary
+
+        print_latency_summary()
+        return
+    if args.dictation_batch_mode:
+        from . import config
+
+        config.DICTATION_STREAMING_ENABLED = False
     if args.enroll_voice or args.delete_voice or args.list_voices:
         from .voice_profiles import VoiceProfileStore
 

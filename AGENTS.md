@@ -54,22 +54,16 @@ contexts are intentionally bounded and single-purpose:
   afterwards. Diarization is CPU/onnxruntime with no pinning rule, but it stays
   on `worker` to keep the pipeline sequential rather than adding an executor.
 - **`control`** (1 thread) — recorder `start()`/`stop()`, including
-  `MeetingRecorder`. CoreAudio's stop deadlocks against the HAL mutex if
-  called on the event-tap thread, so it must never run there. This thread is
-  a single serialization point: if a recorder call blocks, the whole hotkey
-  pipeline freezes — recorder stop runs under a timeout watchdog
+  `MeetingRecorder`. They must never run on the event-tap thread. Recorder
+  stop runs under a timeout watchdog
   (`engine._stop_recorder_guarded`, and its meeting counterpart
-  `_stop_meeting_recorder_guarded`) for exactly this reason. But the watchdog
-  only frees `control`; the abandoned `stop()` keeps running inside the HAL,
-  and **opening a new stream while it runs deadlocks both on the HAL mutex**.
-  The mutex is per process/device, so every dictation and meeting teardown is
-  counted by the process-wide `coreaudio.teardown.in_progress()` guard and
-  every open checks `coreaudio.teardown.in_flight`. While one is in flight,
-  `Recorder.prewarm()` refuses silently and `Recorder.start()` /
-  `MeetingRecorder.start()` raise `RecorderBusy`; the engine drops that take
-  or meeting and stays responsive. Never clear the marker from `force_close()`:
-  the abandoned HAL call is still unwinding. Capture self-recovers when it
-  returns, or stays unavailable until relaunch if it never does.
+  `_stop_meeting_recorder_guarded`). Immediate dictation owns CoreAudio in a
+  prewarmed helper process; on timeout `force_close()` kills it so the next take
+  can create a fresh helper. Its realtime callback only copies and
+  `put_nowait`s into a bounded queue; optional parent-side chunks may drop but
+  complete batch audio is retained separately, and capture-queue overflow must
+  fail the take. Meeting capture remains in-process and uses the process-wide
+  `coreaudio.teardown` guard; never clear that marker from force-close.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the

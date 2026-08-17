@@ -68,9 +68,31 @@ class Control:
         self.shutdown_called = True
 
 
+class Listener:
+    def __init__(self):
+        self.calls = []
+
+    def pause(self):
+        self.calls.append("pause")
+
+    def resume(self):
+        self.calls.append("resume")
+
+    def stop(self):
+        self.calls.append("stop")
+
+
 @pytest.fixture
 def engine(monkeypatch):
     monkeypatch.setattr("speakeasy.engine.play_sound", lambda sound: None)
+    monkeypatch.setattr("speakeasy.engine.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("speakeasy.engine.injector.read_clipboard", lambda: "old")
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.insert_text", lambda text, **kwargs: None
+    )
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.restore_clipboard", lambda value: None
+    )
     monkeypatch.setattr(DictationTiming, "emit", lambda self, status: None)
     instance = DictationEngine()
     instance.worker.shutdown(wait=False)
@@ -78,6 +100,7 @@ def engine(monkeypatch):
     instance.worker = Worker()
     instance.control = Control()
     instance.recorder = Recorder()
+    instance._listener = Listener()
     instance.transcriber = Transcriber()
     instance.state = State.READY
     yield instance
@@ -130,6 +153,86 @@ def test_success_attaches_batch_then_finishes_and_invalidates_dropped_delivery(
     status = StreamStatus.OVERFLOW if invalid else StreamStatus.COMPLETE
     engine.worker.future.set_result(StreamResult(status))
     assert engine.state is State.READY
+
+
+def test_streaming_publishes_only_final_result_once(engine, monkeypatch):
+    order = []
+
+    class Profile:
+        def apply(self, text):
+            order.append(("profile", text))
+            return text.upper()
+
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.read_clipboard",
+        lambda: order.append(("clipboard", "old")) or "old",
+    )
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.insert_text",
+        lambda text, **kwargs: order.append(("insert", text)),
+    )
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.restore_clipboard",
+        lambda value: order.append(("restore", value)),
+    )
+    engine.profile = Profile()
+    engine._start_recording()
+    monkeypatch.setattr(
+        engine,
+        "_stop_recorder_guarded",
+        lambda timing=None: _RecorderStopResult(
+            np.ones(20_000, dtype=np.float32), "normal"
+        ),
+    )
+
+    engine._stop_recording()
+    engine.worker.future.set_result(
+        StreamResult(StreamStatus.COMPLETE, text="only the final")
+    )
+
+    assert order == [
+        ("clipboard", "old"),
+        ("profile", "only the final"),
+        ("insert", "ONLY THE FINAL"),
+        ("restore", "old"),
+    ]
+    assert engine._listener.calls == ["pause", "resume"]
+    assert engine.last_dictation_heard == "only the final"
+    assert engine.last_dictation_text == "ONLY THE FINAL"
+
+
+def test_empty_streaming_final_profiles_once_and_does_not_insert(
+    engine, monkeypatch
+):
+    applied = []
+    inserted = []
+
+    class Profile:
+        def apply(self, text):
+            applied.append(text)
+            return text
+
+    engine.profile = Profile()
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.insert_text",
+        lambda text, **kwargs: inserted.append(text),
+    )
+    engine._start_recording()
+    monkeypatch.setattr(
+        engine,
+        "_stop_recorder_guarded",
+        lambda timing=None: _RecorderStopResult(
+            np.ones(20_000, dtype=np.float32), "normal"
+        ),
+    )
+
+    engine._stop_recording()
+    engine.worker.future.set_result(StreamResult(StreamStatus.COMPLETE, text=""))
+
+    assert applied == [""]
+    assert inserted == []
+    assert engine.last_dictation_heard == ""
+    assert engine.last_dictation_text == ""
 
 
 @pytest.mark.parametrize(

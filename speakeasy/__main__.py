@@ -29,8 +29,18 @@ def main() -> None:
         "--import-vocabulary", nargs=2, metavar=("PROFILE", "FILE"),
         help="add one vocabulary term per line to a profile",
     )
+    parser.add_argument(
+        "--dictation-latency-summary",
+        action="store_true",
+        help="summarize the local privacy-safe dictation timing log",
+    )
     args = parser.parse_args()
 
+    if args.dictation_latency_summary:
+        from .dictation_benchmark import print_latency_summary
+
+        print_latency_summary()
+        return
     if args.enroll_voice or args.delete_voice or args.list_voices:
         from .voice_profiles import VoiceProfileStore
 

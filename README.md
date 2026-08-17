@@ -354,6 +354,25 @@ and is click-through.
 Set `OVERLAY_ENABLED = False` in `speakeasy/config.py` to turn it off
 entirely (sounds and status still work).
 
+### Dictation latency baseline
+
+Speakeasy writes one privacy-safe JSON record per completed dictation take to
+`~/Library/Logs/Speakeasy-dictation-latency.jsonl`. The size-bounded log
+contains only take/status identifiers, recorder outcome, a profile-active
+boolean, sample counts, and phase durations; it contains no audio, transcript,
+clipboard, profile, application, device, or window content.
+
+After collecting dictations, summarize the local records fully offline:
+
+```bash
+.venv/bin/python -m speakeasy --dictation-latency-summary
+```
+
+The summary reports release-to-paste and phase percentiles by recording length.
+It withholds bottleneck conclusions until there are at least 20 successful
+takes, and each duration group needs at least five successful takes before a
+dominant measured phase is named.
+
 ## Configuration
 
 Edit `speakeasy/config.py` to change:

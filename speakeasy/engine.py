@@ -130,7 +130,7 @@ class DictationEngine:
         self._dictation_stream: StreamingSession | None = None
         self._dictation_stream_timing: DictationTiming | None = None
         self._dictation_stream_lock = threading.Lock()
-        self._dictation_stream_disabled = False
+        self._dictation_stream_disabled = not config.DICTATION_STREAMING_ENABLED
 
     # -- lifecycle ------------------------------------------------------
 
@@ -312,7 +312,7 @@ class DictationEngine:
         audio = session.audio
         if audio is None:
             return result
-        text = transcriber.transcribe(audio)
+        text = transcriber.transcribe(audio, timing=session.timing)
         return StreamResult(
             StreamStatus.COMPLETE,
             text=text,
@@ -377,12 +377,20 @@ class DictationEngine:
             if self.overlay:
                 self.overlay.show_transcribing()
             self._set_state(State.TRANSCRIBING)
-            timing.mark("worker_submitted")
+            worker_already_started = timing.clock_ns()
+            timing.mark("worker_submitted", worker_already_started)
+            # The stream worker has already been running since key-down. Its
+            # pre-release compute is intentionally excluded from post-release
+            # queue and inference phases.
+            timing.mark("worker_started", worker_already_started)
+            timing.samples_before = len(stopped.audio)
+            timing.samples_after = len(stopped.audio)
             with self._dictation_stream_lock:
                 if self._dictation_stream is session:
                     self._dictation_stream_timing = timing
             session.finish(
                 stopped.audio,
+                timing=timing,
                 valid=(
                     self.recorder.stream_dropped_frames == 0
                     and self.recorder.stream_delivery_complete
@@ -447,7 +455,17 @@ class DictationEngine:
             )
             return
         if result.status is StreamStatus.COMPLETE:
-            self._finalize_dictation(result.text or "", previous, timing)
+            success_status = {
+                None: "success_streaming",
+                "stream_overflow": "success_fallback_queue_overflow",
+                "stream_error": "success_fallback_stream_error",
+            }.get(result.fallback_reason, "pipeline_exception")
+            self._finalize_dictation(
+                result.text or "",
+                previous,
+                timing,
+                success_status=success_status,
+            )
             return
         self._restore_after_dictation(previous, timing, "pipeline_exception")
 
@@ -796,7 +814,7 @@ class DictationEngine:
             self._set_state(self._idle_state())
         except Exception:
             traceback.print_exc()
-            if status == "success":
+            if status.startswith("success"):
                 status = "pipeline_exception"
         finally:
             timing.mark("pipeline_finished")
@@ -850,6 +868,7 @@ class DictationEngine:
         timing: DictationTiming | None = None,
         *,
         elapsed: float | None = None,
+        success_status: str = "success",
     ) -> None:
         """Apply the final profile result and perform at most one paste."""
         status = "pipeline_exception"
@@ -899,7 +918,7 @@ class DictationEngine:
             time.sleep(config.PASTE_SETTLE_SECONDS)
             if timing is not None:
                 timing.mark("paste_settle_finished")
-            status = "success"
+            status = success_status
         except Exception:
             traceback.print_exc()
         finally:
@@ -927,7 +946,7 @@ class DictationEngine:
             injector.restore_clipboard(previous)
         except Exception:
             traceback.print_exc()
-            if status == "success":
+            if status.startswith("success"):
                 status = "pipeline_exception"
         finally:
             timing.mark("clipboard_restore_finished")

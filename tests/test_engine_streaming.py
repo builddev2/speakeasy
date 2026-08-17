@@ -201,6 +201,54 @@ def test_streaming_publishes_only_final_result_once(engine, monkeypatch):
     assert engine.last_dictation_text == "ONLY THE FINAL"
 
 
+@pytest.mark.parametrize(
+    ("fallback_reason", "expected_status"),
+    [
+        (None, "success_streaming"),
+        ("stream_overflow", "success_fallback_queue_overflow"),
+        ("stream_error", "success_fallback_stream_error"),
+    ],
+)
+def test_streaming_result_maps_privacy_safe_success_status_and_timing(
+    engine, monkeypatch, fallback_reason, expected_status
+):
+    emitted = []
+    monkeypatch.setattr(
+        DictationTiming,
+        "emit",
+        lambda self, status: emitted.append((status, self.record(status))),
+    )
+    monkeypatch.setattr(
+        "speakeasy.engine.injector.insert_text",
+        lambda text, timing: timing.mark("paste_dispatched"),
+    )
+    engine._start_recording()
+    audio = np.ones(20_000, dtype=np.float32)
+    monkeypatch.setattr(
+        engine,
+        "_stop_recorder_guarded",
+        lambda timing=None: _RecorderStopResult(audio, "normal"),
+    )
+
+    engine._stop_recording()
+    engine.worker.future.set_result(
+        StreamResult(
+            StreamStatus.COMPLETE,
+            text="private final",
+            fallback_reason=fallback_reason,
+        )
+    )
+
+    assert emitted[0][0] == expected_status
+    record = emitted[0][1]
+    assert record["worker_queue_ms"] == 0.0
+    assert record["samples_before"] == 20_000
+    assert record["samples_after"] == 20_000
+    assert record["release_to_paste_ms"] is not None
+    if fallback_reason is None:
+        assert record["inference_ms"] is None
+
+
 def test_empty_streaming_final_profiles_once_and_does_not_insert(
     engine, monkeypatch
 ):

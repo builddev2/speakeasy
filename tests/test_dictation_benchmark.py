@@ -285,6 +285,105 @@ def test_successful_and_unsuccessful_takes_persist_and_emission_is_idempotent(
     ]
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        "success",
+        "success_streaming",
+        "success_fallback_queue_overflow",
+        "success_fallback_stream_error",
+    ],
+)
+def test_all_success_outcomes_are_valid_and_counted(status):
+    timing = DictationTiming(1, clock_ns=lambda: 0)
+    timing.samples_before = 16_000
+    timing.mark("release_received")
+    timing.mark("paste_dispatched")
+
+    record = timing.record(status)
+    summary = benchmark_module.format_latency_summary([record])
+
+    assert record["status"] == status
+    assert "release_to_paste_ms: n=1" in summary
+
+
+def _comparison_records(*, streaming, latency=500.0, failures=0):
+    records = []
+    statuses = (
+        ["success_streaming"] * 30 if streaming else ["success"] * 30
+    )
+    for index, status in enumerate(statuses):
+        bucket_samples = (4, 10, 20)[index // 10] * 16_000
+        record = DictationTiming(index + 1, clock_ns=lambda: 0).record(status)
+        record.update(
+            samples_before=bucket_samples,
+            samples_after=bucket_samples,
+            release_to_paste_ms=latency,
+        )
+        records.append(record)
+    for index in range(failures):
+        records[index]["status"] = "recorder_stop_timeout"
+        records[index]["release_to_paste_ms"] = None
+    return records
+
+
+def test_comparative_summary_passes_complete_improved_dataset():
+    batch = _comparison_records(streaming=False, latency=1000.0)
+    streaming = _comparison_records(streaming=True, latency=600.0)
+
+    summary = benchmark_module.format_comparative_summary(batch, streaming)
+
+    assert "Streaming outcomes: pure=30/30 (100.0%)" in summary
+    assert "PASS: overall p50 improvement >= 30%" in summary
+    assert summary.endswith("Result: PASS")
+
+
+def test_comparative_summary_reports_failures_and_fallback_reasons():
+    batch = _comparison_records(streaming=False, latency=1000.0)
+    streaming = _comparison_records(streaming=True, latency=900.0)
+    streaming[0]["status"] = "success_fallback_queue_overflow"
+    streaming[1]["status"] = "success_fallback_stream_error"
+    streaming[2]["status"] = "success_fallback_stream_error"
+
+    summary = benchmark_module.format_comparative_summary(batch, streaming)
+
+    assert "queue_overflow_fallback=1, stream_error_fallback=2" in summary
+    assert "FAIL: overall p50 improvement >= 30%" in summary
+    assert "FAIL: queue overflow fallbacks = 0 [1]" in summary
+    assert "FAIL: stream error fallbacks <= 1 [2]" in summary
+    assert summary.endswith("Result: FAIL")
+
+
+def test_comparative_summary_withholds_result_for_incomplete_dataset():
+    batch = _comparison_records(streaming=False)[:20]
+    streaming = _comparison_records(streaming=True)[:20]
+
+    summary = benchmark_module.format_comparative_summary(batch, streaming)
+
+    assert "Result: INSUFFICIENT DATA" in summary
+    assert "batch attempts 20/30" in summary
+    assert "streaming long 0/10" in summary
+
+
+def test_comparison_reader_keeps_exact_privacy_allowlist(tmp_path):
+    path = tmp_path / "streaming.jsonl"
+    record = _comparison_records(streaming=True)[0]
+    record.update(
+        transcript="private transcript",
+        mode="streaming",
+        timestamp="private timestamp",
+        device="private device",
+        pid=123,
+    )
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    loaded = benchmark_module.read_records(path)
+
+    assert len(loaded) == 1
+    assert tuple(loaded[0]) == benchmark_module._FIELDS
+    assert not {"transcript", "mode", "timestamp", "device", "pid"} & set(loaded[0])
+
+
 def test_logging_failure_does_not_affect_restore_or_cleanup(monkeypatch, capsys):
     clock = Clock()
     restored = []
@@ -355,6 +454,15 @@ def test_log_rotation_keeps_one_bounded_backup(monkeypatch, isolate_latency_log)
         isolate_latency_log
     )] == [1, 2]
     assert benchmark_module._rotated_path(isolate_latency_log).is_file()
+
+
+def test_explicit_log_path_keeps_comparison_runs_separate(monkeypatch, tmp_path):
+    path = tmp_path / "batch.jsonl"
+    monkeypatch.setattr(benchmark_module, "_LOG_PATH_OVERRIDE", None)
+
+    benchmark_module.set_latency_log_path(path)
+
+    assert benchmark_module._LOG_PATH_OVERRIDE == path
 
 
 def test_percentiles_are_deterministic():

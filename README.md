@@ -368,6 +368,32 @@ After collecting dictations, summarize the local records fully offline:
 .venv/bin/python -m speakeasy --dictation-latency-summary
 ```
 
+For a controlled batch-versus-streaming comparison, use two new log paths
+(each run should contain 30 attempts: at least 10 short, 10 medium, and 10
+long), quit the app after each run, then compare them:
+
+```bash
+.venv/bin/python -m speakeasy --dictation-batch-mode --dictation-latency-log /tmp/speakeasy-batch.jsonl
+.venv/bin/python -m speakeasy --dictation-latency-log /tmp/speakeasy-streaming.jsonl
+.venv/bin/python -m speakeasy --dictation-latency-compare /tmp/speakeasy-batch.jsonl /tmp/speakeasy-streaming.jsonl
+```
+
+Use fresh paths (or archive existing files) because logs append. Batch mode is
+for this controlled run only; normal launches keep the streaming fast path.
+The comparison counts successful streaming and batch fallbacks separately via
+the existing status field, while treating all pasted outcomes as successful.
+It does not add mode, timestamp, transcript, audio, app, device, window, or PID
+fields; every JSON record retains the fixed 21-field allowlist above.
+
+Accuracy comparison is deliberately separate from product telemetry. With
+explicit consent, keep a local test-only corpus of at least 30 WAV files and
+their reference text outside the product log, run the same files through batch
+and streaming offline, and compare WER plus truncation manually or with a
+test-only evaluator. Accept streaming only if overall WER is within 1 percentage
+point of batch, every duration group is within 2 points, normalized transcripts
+match in at least 90% of takes, and no take is truncated. Do not attach audio,
+references, or recognized text to the latency JSONL files.
+
 The summary reports release-to-paste and phase percentiles by recording length.
 It withholds bottleneck conclusions until there are at least 20 successful
 takes, and each duration group needs at least five successful takes before a

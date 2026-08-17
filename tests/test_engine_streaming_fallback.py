@@ -17,6 +17,7 @@ class _FallbackTranscriber:
         self.batch_error = batch_error
         self.events = []
         self.batch_audio = []
+        self.batch_timings = []
         self.thread_ids = []
 
     def transcribe_stream(self, session):
@@ -28,6 +29,7 @@ class _FallbackTranscriber:
         self.events.append("batch")
         self.thread_ids.append(threading.get_ident())
         self.batch_audio.append(audio)
+        self.batch_timings.append(timing)
         if self.batch_error is not None:
             raise self.batch_error
         return "batch final"
@@ -96,6 +98,22 @@ def test_unexpected_stream_exception_uses_batch_and_trips_circuit_breaker():
     assert result.fallback_reason == "stream_error"
     assert transcriber.events == ["stream_exit", "batch"]
     assert engine._dictation_stream_disabled is True
+
+
+def test_fallback_batch_receives_release_scoped_timing():
+    engine = DictationEngine()
+    engine.worker.shutdown(wait=False)
+    engine.control.shutdown(wait=False)
+    transcriber = _FallbackTranscriber(StreamResult(StreamStatus.OVERFLOW))
+    engine.transcriber = transcriber
+    session = StreamingSession()
+    timing = DictationTiming(1)
+    timing.mark("release_received")
+    session.finish(np.ones(20_000, dtype=np.float32), valid=False, timing=timing)
+
+    engine._transcribe_stream_with_fallback(session)
+
+    assert transcriber.batch_timings == [timing]
 
 
 def test_cancelled_failed_stream_never_batch_transcribes():

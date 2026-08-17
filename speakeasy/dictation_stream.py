@@ -6,8 +6,12 @@ import queue
 import threading
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from .dictation_benchmark import DictationTiming
 
 _DEFAULT_MAX_CHUNKS = 128
 
@@ -40,6 +44,7 @@ class StreamingSession:
         self._terminal = threading.Event()
         self._terminal_lock = threading.Lock()
         self._audio: np.ndarray | None = None
+        self._timing: DictationTiming | None = None
 
     def put_nowait(self, chunk: np.ndarray) -> None:
         try:
@@ -48,12 +53,19 @@ class StreamingSession:
             self._overflowed.set()
             raise
 
-    def finish(self, audio: np.ndarray, *, valid: bool = True) -> bool:
+    def finish(
+        self,
+        audio: np.ndarray,
+        *,
+        valid: bool = True,
+        timing: DictationTiming | None = None,
+    ) -> bool:
         """Attach the authoritative batch before waking the worker."""
         with self._terminal_lock:
             if self._terminal.is_set():
                 return False
             self._audio = audio
+            self._timing = timing
             if not valid:
                 self._overflowed.set()
             self._finished.set()
@@ -83,6 +95,10 @@ class StreamingSession:
     @property
     def audio(self) -> np.ndarray | None:
         return self._audio
+
+    @property
+    def timing(self) -> DictationTiming | None:
+        return self._timing
 
     def wait(self) -> None:
         self._terminal.wait()

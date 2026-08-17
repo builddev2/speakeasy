@@ -66,7 +66,16 @@ _COMPLETION_STATUSES = {
     "recorder_stop_error",
     "recording_too_short",
     "success",
+    "success_fallback_queue_overflow",
+    "success_fallback_stream_error",
+    "success_streaming",
     "transcription_exception",
+}
+_SUCCESS_STATUSES = {
+    "success",
+    "success_fallback_queue_overflow",
+    "success_fallback_stream_error",
+    "success_streaming",
 }
 _RECORDER_STOP_OUTCOMES = {"error", "normal", "timeout"}
 _SUMMARY_PHASES = (
@@ -83,10 +92,18 @@ _LOG_MAX_BYTES = 5 * 1024 * 1024
 _MIN_CONCLUSION_RECORDS = 20
 _MIN_GROUP_RECORDS = 5
 _WRITE_LOCK = threading.Lock()
+_LOG_PATH_OVERRIDE: Path | None = None
 
 
 def latency_log_path() -> Path:
-    return Path.home() / "Library" / "Logs" / "Speakeasy-dictation-latency.jsonl"
+    return _LOG_PATH_OVERRIDE or (
+        Path.home() / "Library" / "Logs" / "Speakeasy-dictation-latency.jsonl"
+    )
+
+
+def set_latency_log_path(path: Path) -> None:
+    global _LOG_PATH_OVERRIDE
+    _LOG_PATH_OVERRIDE = path
 
 
 def _rotated_path(path: Path) -> Path:
@@ -170,7 +187,7 @@ def _valid_record(value: object) -> dict | None:
         ):
             return None
         record[name] = float(duration) if duration is not None else None
-    return record
+    return {name: record[name] for name in _FIELDS}
 
 
 def read_records(path: Path | None = None) -> list[dict]:
@@ -221,7 +238,7 @@ def format_latency_summary(records: list[dict]) -> str:
     successful = [
         record
         for record in records
-        if record["status"] == "success"
+        if record["status"] in _SUCCESS_STATUSES
         and record.get("release_to_paste_ms") is not None
     ]
     lines.append("Release to paste (successful takes):")
@@ -232,6 +249,15 @@ def format_latency_summary(records: list[dict]) -> str:
             include_max=True,
         )
     )
+    if successful:
+        pure_streaming = sum(
+            record["status"] == "success_streaming" for record in successful
+        )
+        lines.append(
+            "Streaming coverage (successful takes): "
+            f"{pure_streaming}/{len(successful)} "
+            f"({pure_streaming / len(successful) * 100:.1f}%)"
+        )
     lines.append("Measured phases (successful takes):")
     for name in _SUMMARY_PHASES:
         lines.append(
@@ -283,6 +309,215 @@ def format_latency_summary(records: list[dict]) -> str:
             "are available; review duration-group coverage before drawing a conclusion."
         )
     return "\n".join(lines)
+
+
+def _comparison_mode(records: list[dict]) -> dict:
+    successful = [
+        record for record in records if record["status"] in _SUCCESS_STATUSES
+    ]
+    measured = [
+        record
+        for record in successful
+        if record.get("release_to_paste_ms") is not None
+    ]
+    grouped = {
+        bucket: [
+            record
+            for record in measured
+            if record.get("samples_before") is not None
+            and _duration_bucket(record["samples_before"]) == bucket
+        ]
+        for bucket in ("short", "medium", "long")
+    }
+    attempt_groups = {
+        bucket: [
+            record
+            for record in records
+            if record.get("samples_before") is not None
+            and _duration_bucket(record["samples_before"]) == bucket
+        ]
+        for bucket in ("short", "medium", "long")
+    }
+    return {
+        "attempts": len(records),
+        "successful": len(successful),
+        "measured": measured,
+        "groups": grouped,
+        "attempt_groups": attempt_groups,
+        "timeouts_busy": sum(
+            record["status"] in {"recorder_busy", "recorder_stop_timeout"}
+            for record in records
+        ),
+        "pure_streaming": sum(
+            record["status"] == "success_streaming" for record in successful
+        ),
+        "overflow_fallbacks": sum(
+            record["status"] == "success_fallback_queue_overflow"
+            for record in successful
+        ),
+        "stream_error_fallbacks": sum(
+            record["status"] == "success_fallback_stream_error"
+            for record in successful
+        ),
+    }
+
+
+def _improvement(batch_value: float, streaming_value: float) -> float:
+    if batch_value == 0:
+        return 0.0 if streaming_value == 0 else -math.inf
+    return (batch_value - streaming_value) / batch_value * 100
+
+
+def format_comparative_summary(
+    batch_records: list[dict], streaming_records: list[dict]
+) -> str:
+    """Compare separate batch and streaming logs without joining take content."""
+    batch = _comparison_mode(batch_records)
+    streaming = _comparison_mode(streaming_records)
+    lines = ["Dictation latency comparison (batch vs streaming)"]
+    for label, mode in (("Batch", batch), ("Streaming", streaming)):
+        reliability = (
+            mode["successful"] / mode["attempts"] * 100 if mode["attempts"] else 0.0
+        )
+        groups = ", ".join(
+            f"{name}={len(mode['attempt_groups'][name])}"
+            for name in ("short", "medium", "long")
+        )
+        lines.append(
+            f"{label}: attempts={mode['attempts']}, successful={mode['successful']}, "
+            f"reliability={reliability:.1f}%, {groups}"
+        )
+    streaming_successes = streaming["successful"]
+    coverage = (
+        streaming["pure_streaming"] / streaming_successes * 100
+        if streaming_successes
+        else 0.0
+    )
+    lines.append(
+        "Streaming outcomes: "
+        f"pure={streaming['pure_streaming']}/{streaming_successes} ({coverage:.1f}%), "
+        f"queue_overflow_fallback={streaming['overflow_fallbacks']}, "
+        f"stream_error_fallback={streaming['stream_error_fallbacks']}"
+    )
+
+    prerequisites = []
+    for label, mode in (("batch", batch), ("streaming", streaming)):
+        if mode["attempts"] < 30:
+            prerequisites.append(f"{label} attempts {mode['attempts']}/30")
+        if mode["successful"] < 29:
+            prerequisites.append(f"{label} successful {mode['successful']}/29")
+        if len(mode["measured"]) < 29:
+            prerequisites.append(
+                f"{label} measured successful {len(mode['measured'])}/29"
+            )
+        for bucket in ("short", "medium", "long"):
+            count = len(mode["attempt_groups"][bucket])
+            if count < 10:
+                prerequisites.append(f"{label} {bucket} {count}/10")
+    if prerequisites:
+        lines.append("Result: INSUFFICIENT DATA")
+        lines.append("Missing: " + "; ".join(prerequisites))
+        return "\n".join(lines)
+
+    checks: list[tuple[str, bool, str]] = []
+    batch_latency = [record["release_to_paste_ms"] for record in batch["measured"]]
+    stream_latency = [
+        record["release_to_paste_ms"] for record in streaming["measured"]
+    ]
+    for percentile, threshold in ((0.50, 30.0), (0.95, 25.0)):
+        batch_value = _percentile(batch_latency, percentile)
+        stream_value = _percentile(stream_latency, percentile)
+        improvement = _improvement(batch_value, stream_value)
+        checks.append(
+            (
+                f"overall p{int(percentile * 100)} improvement >= {threshold:.0f}%",
+                improvement >= threshold,
+                f"{improvement:.1f}% ({batch_value:.1f} -> {stream_value:.1f} ms)",
+            )
+        )
+    for bucket in ("medium", "long"):
+        batch_value = _percentile(
+            [record["release_to_paste_ms"] for record in batch["groups"][bucket]],
+            0.50,
+        )
+        stream_value = _percentile(
+            [record["release_to_paste_ms"] for record in streaming["groups"][bucket]],
+            0.50,
+        )
+        improvement = _improvement(batch_value, stream_value)
+        checks.append(
+            (
+                f"{bucket} p50 improvement >= 25%",
+                improvement >= 25.0,
+                f"{improvement:.1f}% ({batch_value:.1f} -> {stream_value:.1f} ms)",
+            )
+        )
+    for bucket in ("short", "medium", "long"):
+        batch_value = _percentile(
+            [record["release_to_paste_ms"] for record in batch["groups"][bucket]],
+            0.95,
+        )
+        stream_value = _percentile(
+            [record["release_to_paste_ms"] for record in streaming["groups"][bucket]],
+            0.95,
+        )
+        regression = -_improvement(batch_value, stream_value)
+        checks.append(
+            (
+                f"{bucket} p95 regression <= 5%",
+                regression <= 5.0,
+                f"{regression:.1f}% ({batch_value:.1f} -> {stream_value:.1f} ms)",
+            )
+        )
+    for label, mode in (("batch", batch), ("streaming", streaming)):
+        reliability = mode["successful"] / mode["attempts"] * 100
+        checks.extend(
+            [
+                (
+                    f"{label} reliability >= 95%",
+                    reliability >= 95.0,
+                    f"{reliability:.1f}%",
+                ),
+                (
+                    f"{label} timeout/busy outcomes = 0",
+                    mode["timeouts_busy"] == 0,
+                    str(mode["timeouts_busy"]),
+                ),
+            ]
+        )
+    checks.extend(
+        [
+            (
+                "pure streaming coverage >= 95%",
+                coverage >= 95.0,
+                f"{coverage:.1f}%",
+            ),
+            (
+                "queue overflow fallbacks = 0",
+                streaming["overflow_fallbacks"] == 0,
+                str(streaming["overflow_fallbacks"]),
+            ),
+            (
+                "stream error fallbacks <= 1",
+                streaming["stream_error_fallbacks"] <= 1,
+                str(streaming["stream_error_fallbacks"]),
+            ),
+        ]
+    )
+    for name, passed, value in checks:
+        lines.append(f"  {'PASS' if passed else 'FAIL'}: {name} [{value}]")
+    lines.append("Result: " + ("PASS" if all(item[1] for item in checks) else "FAIL"))
+    return "\n".join(lines)
+
+
+def print_comparative_summary(batch_path: Path, streaming_path: Path) -> None:
+    print(f"Batch dictation latency log: {batch_path}")
+    print(f"Streaming dictation latency log: {streaming_path}")
+    print(
+        format_comparative_summary(
+            read_records(batch_path), read_records(streaming_path)
+        )
+    )
 
 
 def print_latency_summary(path: Path | None = None) -> None:

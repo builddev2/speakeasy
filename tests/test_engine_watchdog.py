@@ -133,7 +133,7 @@ def test_start_recording_stays_idle_when_mic_is_busy():
     engine.transcriber = object()  # non-None so idle resolves to READY
 
     class BusyRecorder:
-        def start(self):
+        def start(self, *, chunk_queue=None):
             raise RecorderBusy()
 
     engine.recorder = BusyRecorder()

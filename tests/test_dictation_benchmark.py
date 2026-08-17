@@ -1,6 +1,7 @@
 """Phase-level dictation timing without real audio, MLX, or macOS APIs."""
 
 import json
+import threading
 from itertools import count
 
 import numpy as np
@@ -60,6 +61,8 @@ def make_engine(clock, transcriber):
     engine.state = State.TRANSCRIBING
     engine.last_dictation_heard = None
     engine.last_dictation_text = None
+    engine._dictation_stream = None
+    engine._dictation_stream_lock = threading.Lock()
     return engine
 
 

@@ -36,6 +36,9 @@ class StreamingSession:
         self._finished = threading.Event()
         self._cancelled = threading.Event()
         self._overflowed = threading.Event()
+        self._terminal = threading.Event()
+        self._terminal_lock = threading.Lock()
+        self._audio: np.ndarray | None = None
 
     def put_nowait(self, chunk: np.ndarray) -> None:
         try:
@@ -44,11 +47,25 @@ class StreamingSession:
             self._overflowed.set()
             raise
 
-    def finish(self) -> None:
-        self._finished.set()
+    def finish(self, audio: np.ndarray, *, valid: bool = True) -> bool:
+        """Attach the authoritative batch before waking the worker."""
+        with self._terminal_lock:
+            if self._terminal.is_set():
+                return False
+            self._audio = audio
+            if not valid:
+                self._overflowed.set()
+            self._finished.set()
+            self._terminal.set()
+            return True
 
-    def cancel(self) -> None:
-        self._cancelled.set()
+    def cancel(self) -> bool:
+        with self._terminal_lock:
+            if self._terminal.is_set():
+                return False
+            self._cancelled.set()
+            self._terminal.set()
+            return True
 
     @property
     def finished(self) -> bool:
@@ -61,6 +78,13 @@ class StreamingSession:
     @property
     def overflowed(self) -> bool:
         return self._overflowed.is_set()
+
+    @property
+    def audio(self) -> np.ndarray | None:
+        return self._audio
+
+    def wait(self) -> None:
+        self._terminal.wait()
 
     def get(self, timeout: float) -> np.ndarray:
         return self._chunks.get(timeout=timeout)
@@ -78,7 +102,10 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
     if session.cancelled:
         return StreamResult(StreamStatus.CANCELLED)
     if session.overflowed:
-        return StreamResult(StreamStatus.OVERFLOW)
+        session.wait()
+        return StreamResult(
+            StreamStatus.CANCELLED if session.cancelled else StreamStatus.OVERFLOW
+        )
 
     sample_rate = model.preprocessor_config.sample_rate
     safe_tail = (
@@ -86,13 +113,15 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
         * model.encoder_config.subsampling_factor
     )
     pending = np.empty(0, dtype=np.float32)
+    outcome = None
     try:
         with model.transcribe_stream() as stream:
             while True:
                 if session.cancelled:
                     return StreamResult(StreamStatus.CANCELLED)
                 if session.overflowed:
-                    return StreamResult(StreamStatus.OVERFLOW)
+                    outcome = StreamResult(StreamStatus.OVERFLOW)
+                    break
                 try:
                     chunk = session.get(timeout=0.05)
                 except queue.Empty:
@@ -105,11 +134,21 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
                     stream.add_audio(to_device(pending[:sample_rate]))
                     pending = pending[sample_rate:]
 
-            if len(pending):
+            if outcome is None and len(pending):
                 if len(pending) < safe_tail:
                     pending = np.pad(pending, (0, safe_tail - len(pending)))
                 stream.add_audio(to_device(pending))
-            text = stream.result.text.strip()
-        return StreamResult(StreamStatus.COMPLETE, text=text)
+            if outcome is None:
+                outcome = StreamResult(
+                    StreamStatus.COMPLETE, text=stream.result.text.strip()
+                )
     except Exception as error:
-        return StreamResult(StreamStatus.FAILED, error=error)
+        outcome = StreamResult(StreamStatus.FAILED, error=error)
+
+    if not session.finished and not session.cancelled:
+        session.wait()
+    if session.cancelled:
+        return StreamResult(StreamStatus.CANCELLED)
+    if session.overflowed:
+        return StreamResult(StreamStatus.OVERFLOW)
+    return outcome

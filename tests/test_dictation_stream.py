@@ -90,12 +90,14 @@ def test_stream_coalesces_one_second_and_pads_model_safe_tail():
     session = StreamingSession()
     session.put_nowait(np.ones(8_000, dtype=np.float32))
     session.put_nowait(np.full(9_000, 2.0, dtype=np.float32))
-    session.finish()
+    audio = np.ones(17_000, dtype=np.float32)
+    session.finish(audio)
 
     result = run_stream(model, session, to_device=np.asarray)
 
     assert result.status is StreamStatus.COMPLETE
     assert result.text == "streamed text"
+    assert session.audio is audio
     assert [len(chunk) for chunk in stream.added] == [16_000, 1_280]
     assert stream.added[1][:1_000].tolist() == [2.0] * 1_000
     assert stream.added[1][1_000:].tolist() == [0.0] * 280
@@ -107,7 +109,7 @@ def test_all_model_context_operations_stay_on_calling_worker():
     model = _Model(stream)
     session = StreamingSession()
     session.put_nowait(np.ones(16_000, dtype=np.float32))
-    session.finish()
+    session.finish(np.ones(16_000, dtype=np.float32))
 
     with ThreadPoolExecutor(max_workers=1) as worker:
         worker_thread, result = worker.submit(
@@ -151,6 +153,7 @@ def test_overflow_during_inference_exits_context():
         with pytest.raises(queue.Full):
             session.put_nowait(np.ones(4, dtype=np.float32))
         add_release.set()
+        session.finish(np.ones(16_008, dtype=np.float32), valid=False)
         result = future.result()
 
     assert result.status is StreamStatus.OVERFLOW
@@ -164,10 +167,58 @@ def test_model_error_is_a_failed_outcome_and_exits_context():
     model = _Model(stream)
     session = StreamingSession()
     session.put_nowait(np.ones(16_000, dtype=np.float32))
-    session.finish()
+    session.finish(np.ones(16_000, dtype=np.float32))
 
     result = run_stream(model, session, to_device=np.asarray)
 
     assert result.status is StreamStatus.FAILED
     assert result.error is error
     assert [name for name, _ in calls][-1] == "exit"
+
+
+def test_model_error_waits_for_take_terminal_before_worker_returns():
+    calls = []
+    stream = _Stream(calls, add_error=RuntimeError("stream failed"))
+    session = StreamingSession()
+    session.put_nowait(np.ones(16_000, dtype=np.float32))
+
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        future = worker.submit(run_stream, _Model(stream), session, to_device=np.asarray)
+        for _ in range(100):
+            if calls and calls[-1][0] == "exit":
+                break
+            threading.Event().wait(0.005)
+        assert calls and calls[-1][0] == "exit"
+        assert future.done() is False
+        session.cancel()
+        result = future.result()
+
+    assert result.status is StreamStatus.CANCELLED
+
+
+def test_finish_attaches_audio_before_waking_waiter_and_is_terminal():
+    session = StreamingSession()
+    audio = np.ones(12, dtype=np.float32)
+    observed = []
+    waiter = threading.Thread(
+        target=lambda: (session.wait(), observed.append(session.audio))
+    )
+    waiter.start()
+
+    assert session.finish(audio) is True
+    waiter.join(0.5)
+
+    assert len(observed) == 1 and observed[0] is audio
+    assert session.cancel() is False
+    assert session.cancelled is False
+
+
+def test_invalid_finish_marks_stream_overflow_after_attaching_audio():
+    session = StreamingSession()
+    audio = np.ones(12, dtype=np.float32)
+
+    assert session.finish(audio, valid=False) is True
+
+    assert session.audio is audio
+    assert session.finished is True
+    assert session.overflowed is True

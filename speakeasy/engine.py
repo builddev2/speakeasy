@@ -36,6 +36,7 @@ import numpy as np
 
 from . import config, injector, meeting_recorder, meetings
 from .dictation_benchmark import DictationTiming
+from .dictation_stream import StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .profiles import Profile
@@ -126,6 +127,8 @@ class DictationEngine:
         self._dictation_take_ids = count(1)
         self._dictation_clock_ns = time.perf_counter_ns
         self._recorder_busy = False
+        self._dictation_stream: StreamingSession | None = None
+        self._dictation_stream_lock = threading.Lock()
 
     # -- lifecycle ------------------------------------------------------
 
@@ -169,6 +172,7 @@ class DictationEngine:
         """Suspend dictation, e.g. while the training window owns the hotkey."""
         self._user_paused = True
         self._listener.stop()
+        self._cancel_dictation_stream()
         # Discard any hold that was in flight — its release will never arrive.
         self.control.submit(self._stop_recorder_guarded)
         self._set_state(State.PAUSED)
@@ -184,6 +188,7 @@ class DictationEngine:
 
     def shutdown(self) -> None:
         self._listener.stop()
+        self._cancel_dictation_stream()
         self.recorder.force_close()
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
@@ -222,9 +227,18 @@ class DictationEngine:
 
     def _start_recording(self) -> None:
         self._recorder_busy = False
+        session = (
+            StreamingSession()
+            if self.state is State.READY
+            and self.transcriber is not None
+            and not self._meeting_active
+            else None
+        )
         try:
-            self.recorder.start()
+            self.recorder.start(chunk_queue=session)
         except RecorderBusy:
+            if session is not None:
+                session.cancel()
             # A prior stop is still unwinding in CoreAudio; opening now would
             # deadlock. Drop this take and stay idle — the hotkey stays live,
             # and the next press works once the stop clears (or after relaunch
@@ -235,6 +249,20 @@ class DictationEngine:
             self._set_state(self._idle_state())
             self._recorder_busy = True
             return
+        if session is not None:
+            with self._dictation_stream_lock:
+                self._dictation_stream = session
+            try:
+                future = self.worker.submit(self.transcriber.transcribe_stream, session)
+            except Exception:
+                self._cancel_dictation_stream(session)
+                self._stop_recorder_guarded()
+                raise
+            future.add_done_callback(
+                lambda completed, active=session: self._streaming_finished(
+                    active, completed
+                )
+            )
         if self.overlay:
             self.overlay.show_recording(lambda: self.recorder.level)
         play_sound(config.SOUND_START)
@@ -272,6 +300,7 @@ class DictationEngine:
             self._finish_dictation(timing, "pipeline_exception")
             return
         if recorder_busy or stopped.outcome != "normal" or too_short:
+            self._cancel_dictation_stream()
             status = (
                 "recorder_busy"
                 if recorder_busy
@@ -292,6 +321,21 @@ class DictationEngine:
             finally:
                 self._finish_dictation(timing, status)
             return
+        with self._dictation_stream_lock:
+            session = self._dictation_stream
+        if session is not None:
+            if self.overlay:
+                self.overlay.show_transcribing()
+            self._set_state(State.TRANSCRIBING)
+            session.finish(
+                stopped.audio,
+                valid=(
+                    self.recorder.stream_dropped_frames == 0
+                    and self.recorder.stream_delivery_complete
+                ),
+            )
+            play_sound(config.SOUND_STOP)
+            return
         # Kick off transcription before the sound: Popen costs ~10-30 ms.
         timing.mark("worker_submitted")
         try:
@@ -304,6 +348,33 @@ class DictationEngine:
             self.overlay.show_transcribing()
         play_sound(config.SOUND_STOP)
         self._set_state(State.TRANSCRIBING)
+
+    def _cancel_dictation_stream(
+        self, session: StreamingSession | None = None
+    ) -> None:
+        with self._dictation_stream_lock:
+            active = self._dictation_stream
+            if session is not None and active is not session:
+                return
+            self._dictation_stream = None
+        if active is not None:
+            active.cancel()
+
+    def _streaming_finished(
+        self, session: StreamingSession, future: Future
+    ) -> None:
+        # The result remains private until the final-paste/fallback phase.
+        try:
+            future.result()
+        except Exception:
+            pass
+        with self._dictation_stream_lock:
+            if self._dictation_stream is not session:
+                return
+            self._dictation_stream = None
+        if self.overlay:
+            self.overlay.hide()
+        self._set_state(self._idle_state())
 
     def _stop_recorder_guarded(
         self, timing: DictationTiming | None = None

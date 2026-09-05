@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -34,7 +35,12 @@ class StreamResult:
 class StreamingSession:
     """Thread-safe mailbox; producers only perform bounded, nonblocking puts."""
 
-    def __init__(self, *, max_chunks: int = _DEFAULT_MAX_CHUNKS) -> None:
+    def __init__(
+        self,
+        *,
+        max_chunks: int = _DEFAULT_MAX_CHUNKS,
+        clock_ns=time.perf_counter_ns,
+    ) -> None:
         if max_chunks < 1:
             raise ValueError("max_chunks must be positive")
         self._chunks: queue.Queue[np.ndarray] = queue.Queue(max_chunks)
@@ -45,10 +51,22 @@ class StreamingSession:
         self._terminal_lock = threading.Lock()
         self._audio: np.ndarray | None = None
         self._timing: DictationTiming | None = None
+        self._clock_ns = clock_ns
+        self._created_ns = clock_ns()
+        self._first_chunk_ns: int | None = None
+        self._context_started_ns: int | None = None
+        self._context_ready_ns: int | None = None
+        self._add_audio_ns = 0
+        self._provisional_ns = 0
+        self._final_flush_ns = 0
+        self._queue_high_water = 0
 
     def put_nowait(self, chunk: np.ndarray) -> None:
         try:
             self._chunks.put_nowait(chunk)
+            if self._first_chunk_ns is None:
+                self._first_chunk_ns = self._clock_ns()
+            self._queue_high_water = max(self._queue_high_water, self._chunks.qsize())
         except queue.Full:
             self._overflowed.set()
             raise
@@ -109,6 +127,57 @@ class StreamingSession:
     def get_nowait(self) -> np.ndarray:
         return self._chunks.get_nowait()
 
+    def context_started(self) -> None:
+        self._context_started_ns = self._clock_ns()
+
+    def context_ready(self) -> None:
+        self._context_ready_ns = self._clock_ns()
+
+    def add_audio_started(self) -> int:
+        return self._clock_ns()
+
+    def add_audio_finished(self, started_ns: int) -> None:
+        self._add_audio_ns += self._clock_ns() - started_ns
+
+    def provisional_started(self) -> int:
+        return self._clock_ns()
+
+    def provisional_finished(self, started_ns: int) -> None:
+        self._provisional_ns += self._clock_ns() - started_ns
+
+    def final_flush_started(self) -> int:
+        return self._clock_ns()
+
+    def final_flush_finished(self, started_ns: int) -> None:
+        self._final_flush_ns += self._clock_ns() - started_ns
+
+    def metrics(self) -> dict:
+        def elapsed(start, finish):
+            return (
+                None
+                if start is None or finish is None
+                else round((finish - start) / 1_000_000, 1)
+            )
+
+        return {
+            "stream_context_ms": elapsed(
+                self._context_started_ns, self._context_ready_ns
+            ),
+            "stream_first_chunk_ms": elapsed(
+                self._created_ns, self._first_chunk_ns
+            ),
+            "stream_add_audio_ms": round(self._add_audio_ns / 1_000_000, 1),
+            "stream_provisional_ms": (
+                round(self._provisional_ns / 1_000_000, 1)
+                if self._provisional_ns
+                else None
+            ),
+            "stream_final_flush_ms": round(self._final_flush_ns / 1_000_000, 1),
+            "stream_queue_high_water": self._queue_high_water,
+            "stream_queue_capacity": self._chunks.maxsize,
+            "stream_overflowed": self.overflowed,
+        }
+
     @property
     def empty(self) -> bool:
         return self._chunks.empty()
@@ -132,7 +201,9 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
     pending = np.empty(0, dtype=np.float32)
     outcome = None
     try:
+        session.context_started()
         with model.transcribe_stream() as stream:
+            session.context_ready()
             while True:
                 if session.cancelled:
                     return StreamResult(StreamStatus.CANCELLED)
@@ -148,17 +219,29 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
                 chunk = np.asarray(chunk, dtype=np.float32).reshape(-1)
                 pending = np.concatenate((pending, chunk))
                 while len(pending) >= sample_rate:
-                    stream.add_audio(to_device(pending[:sample_rate]))
+                    started = session.add_audio_started()
+                    try:
+                        stream.add_audio(to_device(pending[:sample_rate]))
+                    finally:
+                        session.add_audio_finished(started)
                     pending = pending[sample_rate:]
 
             if outcome is None and len(pending):
                 if len(pending) < safe_tail:
                     pending = np.pad(pending, (0, safe_tail - len(pending)))
-                stream.add_audio(to_device(pending))
+                started = session.add_audio_started()
+                try:
+                    stream.add_audio(to_device(pending))
+                finally:
+                    session.add_audio_finished(started)
             if outcome is None:
-                outcome = StreamResult(
-                    StreamStatus.COMPLETE, text=stream.result.text.strip()
-                )
+                started = session.final_flush_started()
+                try:
+                    outcome = StreamResult(
+                        StreamStatus.COMPLETE, text=stream.result.text.strip()
+                    )
+                finally:
+                    session.final_flush_finished(started)
     except Exception as error:
         outcome = StreamResult(StreamStatus.FAILED, error=error)
 

@@ -13,11 +13,18 @@ import wave
 import numpy as np
 import pytest
 
-from speakeasy import config, meetings
+from speakeasy import config, meeting_benchmark, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
 from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
 from speakeasy.transcriber import MeetingCancelled
+
+
+@pytest.fixture(autouse=True)
+def isolate_meeting_latency_log(monkeypatch, tmp_path):
+    path = tmp_path / "meeting-latency.jsonl"
+    monkeypatch.setattr(meeting_benchmark, "log_path", lambda: path)
+    return path
 
 
 class SpyListener:
@@ -227,6 +234,30 @@ def test_meeting_happy_path(meetings_dir, spool_dir, make_profile):
     assert stored.segments[0].text == "Claude says hello"  # profile applied
     assert not list(spool_dir.iterdir())  # spool deleted after processing
     assert engine._listener.running is True  # hotkey re-armed
+    engine.shutdown()
+
+
+def test_meeting_happy_path_records_content_free_phase_timing(
+    meetings_dir, spool_dir, isolate_meeting_latency_log
+):
+    engine = _engine(spool_dir)
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    records = meeting_benchmark.read_records(isolate_meeting_latency_log)
+    assert len(records) == 1
+    record = records[0]
+    assert record["status"] == "success"
+    assert record["capture_mode"] == "mic_only"
+    assert record["mic_frames"] == config.SAMPLE_RATE
+    assert record["mic_asr_ms"] is not None
+    assert record["diarization_ms"] is not None
+    assert record["alignment_ms"] is not None
+    assert record["save_ms"] is not None
+    assert set(record) == set(meeting_benchmark.FIELDS)
     engine.shutdown()
 
 

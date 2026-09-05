@@ -9,10 +9,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config
+from . import config, settings
 
 
 _FIELDS = (
+    "build_commit",
     "take",
     "status",
     "recorder_stop_outcome",
@@ -24,6 +25,15 @@ _FIELDS = (
     "trim_ms",
     "mel_ms",
     "inference_ms",
+    "stream_context_ms",
+    "stream_first_chunk_ms",
+    "stream_add_audio_ms",
+    "stream_provisional_ms",
+    "stream_final_flush_ms",
+    "stream_queue_high_water",
+    "stream_queue_capacity",
+    "stream_overflowed",
+    "fallback_reason",
     "profile_active",
     "profile_ms",
     "insertion_to_dispatch_ms",
@@ -35,6 +45,15 @@ _FIELDS = (
     "samples_before",
     "samples_after",
 )
+
+_STREAM_DURATION_FIELDS = {
+    "stream_context_ms",
+    "stream_first_chunk_ms",
+    "stream_add_audio_ms",
+    "stream_provisional_ms",
+    "stream_final_flush_ms",
+}
+_FALLBACK_REASONS = {"stream_error", "stream_overflow"}
 
 _DURATIONS = {
     "release_to_control_ms": ("release_received", "control_stop_started"),
@@ -148,7 +167,15 @@ def _duration_bucket(samples_before: int) -> str:
 
 
 def _valid_record(value: object) -> dict | None:
-    if not isinstance(value, dict) or not set(_FIELDS).issubset(value):
+    legacy_fields = set(_FIELDS) - {
+        "build_commit",
+        *_STREAM_DURATION_FIELDS,
+        "stream_queue_high_water",
+        "stream_queue_capacity",
+        "stream_overflowed",
+        "fallback_reason",
+    }
+    if not isinstance(value, dict) or not legacy_fields.issubset(value):
         return None
     take = value.get("take")
     status = value.get("status")
@@ -159,7 +186,10 @@ def _valid_record(value: object) -> dict | None:
         or status not in _COMPLETION_STATUSES
     ):
         return None
-    record = {"take": take, "status": status}
+    build_commit = value.get("build_commit", "unknown")
+    if not isinstance(build_commit, str) or not build_commit:
+        return None
+    record = {"build_commit": build_commit, "take": take, "status": status}
     outcome = value.get("recorder_stop_outcome")
     if outcome is not None and outcome not in _RECORDER_STOP_OUTCOMES:
         return None
@@ -168,6 +198,21 @@ def _valid_record(value: object) -> dict | None:
     if profile_active is not None and not isinstance(profile_active, bool):
         return None
     record["profile_active"] = profile_active
+    stream_overflowed = value.get("stream_overflowed")
+    if stream_overflowed is not None and not isinstance(stream_overflowed, bool):
+        return None
+    record["stream_overflowed"] = stream_overflowed
+    fallback_reason = value.get("fallback_reason")
+    if fallback_reason is not None and fallback_reason not in _FALLBACK_REASONS:
+        return None
+    record["fallback_reason"] = fallback_reason
+    for name in ("stream_queue_high_water", "stream_queue_capacity"):
+        count = value.get(name)
+        if count is not None and (
+            not isinstance(count, int) or isinstance(count, bool) or count < 0
+        ):
+            return None
+        record[name] = count
     for name in ("samples_before", "samples_after"):
         sample_count = value.get(name)
         if sample_count is not None and (
@@ -178,6 +223,16 @@ def _valid_record(value: object) -> dict | None:
             return None
         record[name] = sample_count
     for name in _DURATIONS:
+        duration = value.get(name)
+        if duration is not None and (
+            not isinstance(duration, (int, float))
+            or isinstance(duration, bool)
+            or not math.isfinite(duration)
+            or duration < 0
+        ):
+            return None
+        record[name] = float(duration) if duration is not None else None
+    for name in _STREAM_DURATION_FIELDS:
         duration = value.get(name)
         if duration is not None and (
             not isinstance(duration, (int, float))
@@ -531,12 +586,22 @@ class DictationTiming:
     """Absolute monotonic timestamps and safe summary fields for one take."""
 
     take: int
+    build_commit: str = field(default_factory=settings.build_commit)
     clock_ns: Callable[[], int] = time.perf_counter_ns
     events: dict[str, int] = field(default_factory=dict)
     recorder_stop_outcome: str | None = None
     profile_active: bool | None = None
     samples_before: int | None = None
     samples_after: int | None = None
+    stream_context_ms: float | None = None
+    stream_first_chunk_ms: float | None = None
+    stream_add_audio_ms: float | None = None
+    stream_provisional_ms: float | None = None
+    stream_final_flush_ms: float | None = None
+    stream_queue_high_water: int | None = None
+    stream_queue_capacity: int | None = None
+    stream_overflowed: bool | None = None
+    fallback_reason: str | None = None
     _emitted: bool = False
 
     def mark(self, event: str, timestamp_ns: int | None = None) -> None:
@@ -564,18 +629,29 @@ class DictationTiming:
             else None
         )
         values = {
+            "build_commit": self.build_commit,
             "take": self.take,
             "status": safe_status,
             "recorder_stop_outcome": outcome,
             "profile_active": self.profile_active,
             "samples_before": self.samples_before,
             "samples_after": self.samples_after,
+            "stream_context_ms": self.stream_context_ms,
+            "stream_first_chunk_ms": self.stream_first_chunk_ms,
+            "stream_add_audio_ms": self.stream_add_audio_ms,
+            "stream_provisional_ms": self.stream_provisional_ms,
+            "stream_final_flush_ms": self.stream_final_flush_ms,
+            "stream_queue_high_water": self.stream_queue_high_water,
+            "stream_queue_capacity": self.stream_queue_capacity,
+            "stream_overflowed": self.stream_overflowed,
+            "fallback_reason": self.fallback_reason,
         }
         values.update({name: self._duration_value(name) for name in _DURATIONS})
         return {name: values[name] for name in _FIELDS}
 
     def format_summary(self, status: str) -> str:
         values = {
+            "build_commit": self.build_commit,
             "take": str(self.take),
             "status": status,
             "recorder_stop_outcome": self.recorder_stop_outcome or "na",
@@ -590,11 +666,30 @@ class DictationTiming:
             "samples_after": (
                 "na" if self.samples_after is None else str(self.samples_after)
             ),
+            "stream_context_ms": self._safe_metric(self.stream_context_ms),
+            "stream_first_chunk_ms": self._safe_metric(self.stream_first_chunk_ms),
+            "stream_add_audio_ms": self._safe_metric(self.stream_add_audio_ms),
+            "stream_provisional_ms": self._safe_metric(self.stream_provisional_ms),
+            "stream_final_flush_ms": self._safe_metric(self.stream_final_flush_ms),
+            "stream_queue_high_water": self._safe_metric(self.stream_queue_high_water),
+            "stream_queue_capacity": self._safe_metric(self.stream_queue_capacity),
+            "stream_overflowed": (
+                "na"
+                if self.stream_overflowed is None
+                else str(self.stream_overflowed).lower()
+            ),
+            "fallback_reason": self.fallback_reason or "na",
         }
         values.update({name: self._duration(name) for name in _DURATIONS})
         return "DICTATION_BENCH " + " ".join(
             f"{name}={values[name]}" for name in _FIELDS
         )
+
+    @staticmethod
+    def _safe_metric(value) -> str:
+        if value is None:
+            return "na"
+        return f"{value:.1f}" if isinstance(value, float) else str(value)
 
     def emit(self, status: str, *, path: Path | None = None) -> bool:
         """Print and persist once without letting file errors escape."""

@@ -38,6 +38,7 @@ from . import config, injector, meeting_recorder, meetings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
+from .meeting_benchmark import MeetingTiming
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
@@ -232,7 +233,7 @@ class DictationEngine:
         with self._dictation_stream_lock:
             streaming_enabled = not self._dictation_stream_disabled
         session = (
-            StreamingSession()
+            StreamingSession(clock_ns=self._dictation_clock_ns)
             if self.state is State.READY
             and self.transcriber is not None
             and not self._meeting_active
@@ -454,6 +455,9 @@ class DictationEngine:
                 previous, timing, "transcription_exception"
             )
             return
+        for name, value in session.metrics().items():
+            setattr(timing, name, value)
+        timing.fallback_reason = result.fallback_reason
         if result.status is StreamStatus.COMPLETE:
             success_status = {
                 None: "success_streaming",
@@ -567,7 +571,10 @@ class DictationEngine:
     def _end_meeting(self) -> None:
         if not self._meeting_active or self.state is not State.MEETING_RECORDING:
             return
+        timing = MeetingTiming()
+        timing.start("stop")
         recording = self._stop_meeting_recorder_guarded()
+        timing.finish("stop")
         play_sound(config.SOUND_MEETING_END)
         if recording is None:
             # Nothing made it to disk; back to dictation.
@@ -575,10 +582,14 @@ class DictationEngine:
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
+            timing.capture_mode = "mic_only"
+            timing.mark("pipeline_finished")
+            timing.emit("no_audio")
             return
         self._meeting_cancel.clear()
         self._set_state(State.MEETING_PROCESSING)
-        self.worker.submit(self._process_meeting, recording)
+        timing.capture_mode = recording.capture_mode
+        self.worker.submit(self._process_meeting, recording, timing)
 
     def _stop_meeting_recorder_guarded(self) -> MeetingRecording | None:
         """meeting_recorder.stop() under the same watchdog as the dictation
@@ -650,14 +661,22 @@ class DictationEngine:
             cancel=self._meeting_cancel,
         )
 
-    def _diarize_track(self, audio, progress):
+    def _diarize_track(self, audio, progress, timing: MeetingTiming | None = None):
         expected_count = self._meeting_options.expected_speaker_count
         if self.diarizer is None or self._diarizer_speaker_count != expected_count:
             from .diarizer import Diarizer
 
             self.diarizer = Diarizer(expected_count)
             self._diarizer_speaker_count = expected_count
-        turns = self.diarizer.diarize(audio, progress=progress)
+        if timing is not None:
+            timing.start("diarization")
+        try:
+            turns = self.diarizer.diarize(audio, progress=progress)
+        finally:
+            if timing is not None:
+                timing.finish("diarization")
+        if timing is not None:
+            timing.start("voice_identification")
         if self._meeting_options.expected_voice_profile_names:
             from .voice_profiles import VoiceProfileStore
 
@@ -667,12 +686,17 @@ class DictationEngine:
                 list(self._meeting_options.expected_voice_profile_names),
                 cancelled=self._meeting_cancel.is_set,
             )
+        if timing is not None:
+            timing.finish("voice_identification")
         return turns
 
-    def _process_meeting(self, recording: MeetingRecording) -> None:
+    def _process_meeting(
+        self, recording: MeetingRecording, timing: MeetingTiming | None = None
+    ) -> None:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
         no matter how this exits — audio is never persisted."""
+        status = "error"
         try:
             offsets = recording.track_offsets_seconds
             mic_frames, mic_duration, _ = self._meeting_track_info(
@@ -681,6 +705,10 @@ class DictationEngine:
             system_frames, system_duration, _ = self._meeting_track_info(
                 recording.system_path
             )
+            if timing is not None:
+                timing.capture_mode = recording.capture_mode
+                timing.mic_frames = mic_frames
+                timing.system_frames = system_frames
             dual_track = recording.capture_mode == "mic_and_system" and system_frames
             if not mic_frames and not system_frames:
                 raise ValueError("Meeting contained no readable audio")
@@ -689,22 +717,34 @@ class DictationEngine:
                 mic_sentences = []
                 if mic_frames:
                     self.on_meeting_progress("Transcribing your track… 0%")
-                    mic_result = self._transcribe_meeting_track(
-                        recording.mic_path,
-                        progress=lambda f: self.on_meeting_progress(
-                            f"Transcribing your track… {int(f * 35)}%"
-                        ),
-                    )
+                    if timing is not None:
+                        timing.start("mic_asr")
+                    try:
+                        mic_result = self._transcribe_meeting_track(
+                            recording.mic_path,
+                            progress=lambda f: self.on_meeting_progress(
+                                f"Transcribing your track… {int(f * 35)}%"
+                            ),
+                        )
+                    finally:
+                        if timing is not None:
+                            timing.finish("mic_asr")
                     mic_sentences = mic_result.sentences
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 self.on_meeting_progress("Transcribing system audio… 35%")
-                system_result = self._transcribe_meeting_track(
-                    recording.system_path,
-                    progress=lambda f: self.on_meeting_progress(
-                        f"Transcribing system audio… {35 + int(f * 35)}%"
-                    ),
-                )
+                if timing is not None:
+                    timing.start("system_asr")
+                try:
+                    system_result = self._transcribe_meeting_track(
+                        recording.system_path,
+                        progress=lambda f: self.on_meeting_progress(
+                            f"Transcribing system audio… {35 + int(f * 35)}%"
+                        ),
+                    )
+                finally:
+                    if timing is not None:
+                        timing.finish("system_asr")
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 system_audio = self._read_meeting_track(recording.system_path)
@@ -717,19 +757,26 @@ class DictationEngine:
                     lambda f: self.on_meeting_progress(
                         f"Identifying remote speakers… {70 + int(f * 28)}%"
                     ),
+                    timing,
                 )
                 del system_audio
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                local_segments = meetings.shift_segments(
-                    meetings.known_speaker_segments(mic_sentences),
-                    offsets.get("mic", 0.0),
-                )
-                remote_segments = meetings.shift_segments(
-                    meetings.align_speakers(system_result.sentences, turns),
-                    offsets.get("system", 0.0),
-                )
-                segments = meetings.merge_tracks(local_segments, remote_segments)
+                if timing is not None:
+                    timing.start("alignment")
+                try:
+                    local_segments = meetings.shift_segments(
+                        meetings.known_speaker_segments(mic_sentences),
+                        offsets.get("mic", 0.0),
+                    )
+                    remote_segments = meetings.shift_segments(
+                        meetings.align_speakers(system_result.sentences, turns),
+                        offsets.get("system", 0.0),
+                    )
+                    segments = meetings.merge_tracks(local_segments, remote_segments)
+                finally:
+                    if timing is not None:
+                        timing.finish("alignment")
                 capture_mode = "mic_and_system"
                 system_status = recording.system_audio_status
             else:
@@ -740,12 +787,18 @@ class DictationEngine:
                     recording.mic_path if mic_frames else recording.system_path
                 )
                 self.on_meeting_progress("Transcribing meeting… 0%")
-                result = self._transcribe_meeting_track(
-                    audio_path,
-                    progress=lambda f: self.on_meeting_progress(
-                        f"Transcribing meeting… {int(f * 70)}%"
-                    ),
-                )
+                if timing is not None:
+                    timing.start("mic_asr")
+                try:
+                    result = self._transcribe_meeting_track(
+                        audio_path,
+                        progress=lambda f: self.on_meeting_progress(
+                            f"Transcribing meeting… {int(f * 70)}%"
+                        ),
+                    )
+                finally:
+                    if timing is not None:
+                        timing.finish("mic_asr")
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 audio = self._read_meeting_track(audio_path)
@@ -758,14 +811,21 @@ class DictationEngine:
                     lambda f: self.on_meeting_progress(
                         f"Identifying speakers… {70 + int(f * 28)}%"
                     ),
+                    timing,
                 )
                 del audio
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                segments = meetings.shift_segments(
-                    meetings.align_speakers(result.sentences, turns),
-                    offsets.get("mic", 0.0),
-                )
+                if timing is not None:
+                    timing.start("alignment")
+                try:
+                    segments = meetings.shift_segments(
+                        meetings.align_speakers(result.sentences, turns),
+                        offsets.get("mic", 0.0),
+                    )
+                finally:
+                    if timing is not None:
+                        timing.finish("alignment")
                 capture_mode = "mic_only"
                 system_status = (
                     "empty_track"
@@ -790,11 +850,19 @@ class DictationEngine:
                 ),
                 capture_scope=recording.capture_scope,
             )
-            meeting.save()
+            if timing is not None:
+                timing.start("save")
+            try:
+                meeting.save()
+            finally:
+                if timing is not None:
+                    timing.finish("save")
             print(f"  → meeting saved: {meeting.title} ({len(segments)} segments)")
             self.on_meeting_saved(meeting.meeting_id)
+            status = "success"
         except MeetingCancelled:
             print("  → meeting processing cancelled; nothing saved")
+            status = "cancelled"
         except Exception:
             traceback.print_exc()
         finally:
@@ -805,6 +873,9 @@ class DictationEngine:
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
+            if timing is not None:
+                timing.mark("pipeline_finished")
+                timing.emit(status)
 
     def _finish_dictation(self, timing: DictationTiming, status: str) -> None:
         timing.mark("cleanup_started")

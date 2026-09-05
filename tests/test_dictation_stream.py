@@ -125,6 +125,36 @@ def test_stream_coalesces_one_second_and_pads_model_safe_tail():
     assert stream.added[1][1_000:].tolist() == [0.0] * 280
 
 
+def test_stream_metrics_are_content_free_and_cover_lifecycle():
+    clock = iter(range(0, 100_000_000, 1_000_000))
+    session = StreamingSession(max_chunks=2, clock_ns=lambda: next(clock))
+    session.put_nowait(np.ones(8_000, dtype=np.float32))
+    session.put_nowait(np.ones(8_000, dtype=np.float32))
+    session.finish(np.ones(16_000, dtype=np.float32))
+
+    result = run_stream(_Model(_Stream([])), session, to_device=np.asarray)
+    metrics = session.metrics()
+
+    assert result.status is StreamStatus.COMPLETE
+    assert metrics["stream_context_ms"] is not None
+    assert metrics["stream_first_chunk_ms"] is not None
+    assert metrics["stream_add_audio_ms"] is not None
+    assert metrics["stream_final_flush_ms"] is not None
+    assert metrics["stream_queue_high_water"] == 2
+    assert metrics["stream_queue_capacity"] == 2
+    assert metrics["stream_overflowed"] is False
+    assert set(metrics) == {
+        "stream_context_ms",
+        "stream_first_chunk_ms",
+        "stream_add_audio_ms",
+        "stream_provisional_ms",
+        "stream_final_flush_ms",
+        "stream_queue_high_water",
+        "stream_queue_capacity",
+        "stream_overflowed",
+    }
+
+
 def test_all_model_context_operations_stay_on_calling_worker():
     calls = []
     stream = _Stream(calls)

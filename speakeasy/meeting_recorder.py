@@ -31,6 +31,7 @@ import sounddevice as sd
 
 from . import config, settings
 from .coreaudio import RecorderBusy, teardown
+from .meeting_stream import MeetingASRSession
 from .system_audio import SystemAudioRecorder, SystemAudioUnavailable
 
 # ~30 s of audio at 16 kHz int16 in ~1 KiB blocks. The exact block size varies
@@ -177,6 +178,14 @@ class MeetingRecorder:
         self._first_buffer_ns: int | None = None
         self._writer_failed = False
         self._writer_lagged = False
+        self._pretranscription: MeetingASRSession | None = None
+
+    def configure_pretranscription(
+        self, session: MeetingASRSession | None
+    ) -> None:
+        if self._recording:
+            raise RecorderBusy()
+        self._pretranscription = session
 
     @property
     def level(self) -> float:
@@ -294,6 +303,11 @@ class MeetingRecorder:
                     # Disk full/unwritable: keep draining so stop() doesn't
                     # hang; the shortfall shows up as a shorter WAV.
                     self._writer_failed = True
+                    if self._pretranscription is not None:
+                        self._pretranscription.cancel()
+                else:
+                    if self._pretranscription is not None:
+                        self._pretranscription.add_pcm(block)
         finally:
             wav, self._wav = self._wav, None
             if wav is not None:
@@ -301,6 +315,14 @@ class MeetingRecorder:
                     wav.close()
                 except OSError:
                     self._writer_failed = True
+                    if self._pretranscription is not None:
+                        self._pretranscription.cancel()
+            pretranscription, self._pretranscription = (
+                self._pretranscription,
+                None,
+            )
+            if pretranscription is not None:
+                pretranscription.finish()
 
     def _signal_writer_stop(self) -> None:
         try:
@@ -367,6 +389,8 @@ class MeetingRecorder:
             writer.join(timeout=_FORCE_CLOSE_WRITER_TIMEOUT_SECONDS)
             if not writer.is_alive():
                 self._writer = None
+            elif self._pretranscription is not None:
+                self._pretranscription.cancel()
 
     def take_path(self) -> Path | None:
         """The current spool path (after force_close), surrendering ownership."""
@@ -413,6 +437,11 @@ class MeetingCaptureRecorder:
     @property
     def elapsed_seconds(self) -> float:
         return self.mic.elapsed_seconds
+
+    def configure_pretranscription(
+        self, session: MeetingASRSession | None
+    ) -> None:
+        self.mic.configure_pretranscription(session)
 
     @property
     def health(self) -> MeetingCaptureHealth:

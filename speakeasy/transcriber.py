@@ -1,6 +1,7 @@
 """Local speech-to-text via Parakeet on Apple MLX."""
 
 import os
+import queue
 import sys
 import threading
 import wave
@@ -10,6 +11,7 @@ from pathlib import Path
 from . import config, preprocess, settings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession, run_stream
+from .meeting_stream import MeetingASRResult, MeetingASRSession, MeetingASRStatus
 
 
 class MeetingCancelled(Exception):
@@ -219,6 +221,65 @@ class Transcriber:
                 cancel=cancel,
             )
 
+    def transcribe_meeting_stream(
+        self, session: MeetingASRSession
+    ) -> MeetingASRResult:
+        """Transcribe complete overlap chunks while meeting capture continues."""
+        all_tokens = []
+        try:
+            while True:
+                if session.cancelled:
+                    return MeetingASRResult(MeetingASRStatus.CANCELLED)
+                if session.overflowed:
+                    return MeetingASRResult(MeetingASRStatus.OVERFLOW)
+                try:
+                    start, pcm = session.get(timeout=0.05)
+                except queue.Empty:
+                    if session.finished and session.empty:
+                        break
+                    continue
+                audio = (
+                    np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+                    / 32768.0
+                )
+                all_tokens = self._transcribe_long_chunk(
+                    audio, start, all_tokens
+                )
+        except Exception as error:
+            return MeetingASRResult(MeetingASRStatus.FAILED, error=error)
+        if session.overflowed:
+            return MeetingASRResult(MeetingASRStatus.OVERFLOW)
+        return MeetingASRResult(
+            MeetingASRStatus.COMPLETE,
+            transcript=sentences_to_result(tokens_to_sentences(all_tokens)),
+        )
+
+    def _transcribe_long_chunk(self, audio, start, all_tokens):
+        hop = self._model.preprocessor_config.hop_length
+        if len(audio) < hop:
+            return all_tokens
+        mel = get_logmel(mx.array(audio), self._model.preprocessor_config)
+        chunk_result = self._model.generate(mel)[0]
+        offset = start / config.SAMPLE_RATE
+        for sentence in chunk_result.sentences:
+            for token in sentence.tokens:
+                token.start += offset
+                token.end = token.start + token.duration
+        if not all_tokens:
+            return chunk_result.tokens
+        try:
+            return merge_longest_contiguous(
+                all_tokens,
+                chunk_result.tokens,
+                overlap_duration=config.MEETING_OVERLAP_SECONDS,
+            )
+        except RuntimeError:
+            return merge_longest_common_subsequence(
+                all_tokens,
+                chunk_result.tokens,
+                overlap_duration=config.MEETING_OVERLAP_SECONDS,
+            )
+
     def _transcribe_long_source(
         self,
         total: int,
@@ -230,38 +291,13 @@ class Transcriber:
         sample_rate = config.SAMPLE_RATE
         chunk_samples = int(config.MEETING_CHUNK_SECONDS * sample_rate)
         overlap_samples = int(config.MEETING_OVERLAP_SECONDS * sample_rate)
-        hop = self._model.preprocessor_config.hop_length
-
         all_tokens = []
         for start in range(0, total, chunk_samples - overlap_samples):
             if cancel is not None and cancel.is_set():
                 raise MeetingCancelled
             end = min(start + chunk_samples, total)
-            if end - start < hop:
-                break  # prevent zero-length log mel (same guard as upstream)
-            mel = get_logmel(
-                mx.array(read_chunk(start, end)), self._model.preprocessor_config
+            all_tokens = self._transcribe_long_chunk(
+                read_chunk(start, end), start, all_tokens
             )
-            chunk_result = self._model.generate(mel)[0]
-            offset = start / sample_rate
-            for sentence in chunk_result.sentences:
-                for token in sentence.tokens:
-                    token.start += offset
-                    token.end = token.start + token.duration
-            if not all_tokens:
-                all_tokens = chunk_result.tokens
-            else:
-                try:
-                    all_tokens = merge_longest_contiguous(
-                        all_tokens,
-                        chunk_result.tokens,
-                        overlap_duration=config.MEETING_OVERLAP_SECONDS,
-                    )
-                except RuntimeError:
-                    all_tokens = merge_longest_common_subsequence(
-                        all_tokens,
-                        chunk_result.tokens,
-                        overlap_duration=config.MEETING_OVERLAP_SECONDS,
-                    )
             progress(end / total)
         return sentences_to_result(tokens_to_sentences(all_tokens))

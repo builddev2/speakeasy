@@ -12,12 +12,11 @@ Threading rules (unchanged from the original, load-bearing):
 - Hotkey callbacks return instantly; they only submit to `control`.
 
 Meeting transcription follows the same rules: the meeting recorder starts and
-stops on `control`, and the whole processing pipeline (chunked transcription →
-diarization → alignment → save) runs as one job on `worker` — transcription
-because of the MLX rule, diarization (CPU/onnxruntime, no pinning) to keep the
-pipeline strictly sequential. Audio spools to disk and is deleted in the job's
-`finally`, whatever happens; cancellation is a polled Event, so it needs no
-extra thread.
+stops on `control`; completed mic chunks are transcribed during capture on
+`worker`, and the post-stop job queues behind them for remaining transcription,
+diarization, alignment, and save. Audio spools to disk and is deleted in that
+job's `finally`, whatever happens; cancellation is a polled Event, so it needs
+no extra thread.
 """
 
 import subprocess
@@ -40,6 +39,7 @@ from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_benchmark import MeetingTiming
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
+from .meeting_stream import MeetingASRSession, MeetingASRStatus
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
@@ -122,6 +122,8 @@ class DictationEngine:
         self._meeting_active = False
         self._meeting_cancel = threading.Event()
         self._meeting_options = MeetingOptions()
+        self._meeting_asr_session: MeetingASRSession | None = None
+        self._meeting_asr_future: Future | None = None
         self._diarizer_speaker_count: int | None = None
         self.last_dictation_heard: str | None = None
         self.last_dictation_text: str | None = None
@@ -199,6 +201,8 @@ class DictationEngine:
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
         self._meeting_cancel.set()
+        if self._meeting_asr_session is not None:
+            self._meeting_asr_session.cancel()
         if self._meeting_active:
             self.meeting_recorder.force_close()
             self.meeting_recorder.discard()
@@ -590,6 +594,19 @@ class DictationEngine:
         # its release will never arrive.
         self._listener.stop()
         self._stop_recorder_guarded()
+        configure = getattr(
+            self.meeting_recorder, "configure_pretranscription", None
+        )
+        transcribe_live = getattr(
+            self.transcriber, "transcribe_meeting_stream", None
+        )
+        if callable(configure) and callable(transcribe_live):
+            session = MeetingASRSession()
+            configure(session)
+            self._meeting_asr_session = session
+            self._meeting_asr_future = self.worker.submit(
+                transcribe_live, session
+            )
         try:
             self.meeting_recorder.start(system_audio_pid=options.system_audio_pid)
         except RecorderBusy:
@@ -597,12 +614,14 @@ class DictationEngine:
             # Opening another stream would deadlock against it and freeze the
             # control thread. Refuse the meeting until the stop returns.
             print("  → (mic busy — a previous stop is still releasing; try again)")
+            self._cancel_meeting_pretranscription()
             self._meeting_active = False
             self._listener.resume()
             self._set_state(self._idle_state())
             return
         except Exception:
             traceback.print_exc()
+            self._cancel_meeting_pretranscription()
             self._meeting_active = False
             self._listener.resume()
             self._set_state(self._idle_state())
@@ -621,8 +640,14 @@ class DictationEngine:
         timing.start("stop")
         recording = self._stop_meeting_recorder_guarded()
         timing.finish("stop")
+        pretranscription_session = self._meeting_asr_session
+        pretranscription = self._meeting_asr_future
+        self._meeting_asr_session = None
+        self._meeting_asr_future = None
         play_sound(config.SOUND_MEETING_END)
         if recording is None:
+            if pretranscription_session is not None:
+                pretranscription_session.cancel()
             # Nothing made it to disk; back to dictation.
             self._meeting_active = False
             if not self._user_paused:
@@ -635,7 +660,15 @@ class DictationEngine:
         self._meeting_cancel.clear()
         self._set_state(State.MEETING_PROCESSING)
         timing.capture_mode = recording.capture_mode
-        self.worker.submit(self._process_meeting, recording, timing)
+        self.worker.submit(
+            self._process_meeting, recording, timing, pretranscription
+        )
+
+    def _cancel_meeting_pretranscription(self) -> None:
+        if self._meeting_asr_session is not None:
+            self._meeting_asr_session.cancel()
+        self._meeting_asr_session = None
+        self._meeting_asr_future = None
 
     def _stop_meeting_recorder_guarded(self) -> MeetingRecording | None:
         """meeting_recorder.stop() under the same watchdog as the dictation
@@ -689,7 +722,10 @@ class DictationEngine:
             return 0, 0.0, False
         return frames, frames / sample_rate if sample_rate else 0.0, streamable
 
-    def _transcribe_meeting_track(self, path, *, progress):
+    def _transcribe_meeting_track(self, path, *, progress, precomputed=None):
+        if precomputed is not None:
+            progress(1.0)
+            return precomputed
         _, _, streamable = self._meeting_track_info(path)
         transcribe_wav = getattr(self.transcriber, "transcribe_long_wav", None)
         if streamable and transcribe_wav is not None:
@@ -737,13 +773,25 @@ class DictationEngine:
         return turns
 
     def _process_meeting(
-        self, recording: MeetingRecording, timing: MeetingTiming | None = None
+        self,
+        recording: MeetingRecording,
+        timing: MeetingTiming | None = None,
+        pretranscription: Future | None = None,
     ) -> None:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
         no matter how this exits — audio is never persisted."""
         status = "error"
         try:
+            precomputed_mic = None
+            if pretranscription is not None:
+                try:
+                    live_result = pretranscription.result()
+                except Exception:
+                    traceback.print_exc()
+                else:
+                    if live_result.status is MeetingASRStatus.COMPLETE:
+                        precomputed_mic = live_result.transcript
             offsets = recording.track_offsets_seconds
             mic_frames, mic_duration, _ = self._meeting_track_info(
                 recording.mic_path
@@ -768,6 +816,7 @@ class DictationEngine:
                     try:
                         mic_result = self._transcribe_meeting_track(
                             recording.mic_path,
+                            precomputed=precomputed_mic,
                             progress=lambda f: self.on_meeting_progress(
                                 f"Transcribing your track… {int(f * 35)}%"
                             ),
@@ -838,6 +887,11 @@ class DictationEngine:
                 try:
                     result = self._transcribe_meeting_track(
                         audio_path,
+                        precomputed=(
+                            precomputed_mic
+                            if audio_path == recording.mic_path
+                            else None
+                        ),
                         progress=lambda f: self.on_meeting_progress(
                             f"Transcribing meeting… {int(f * 70)}%"
                         ),

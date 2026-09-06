@@ -6,6 +6,7 @@ the transcript saved on success and never on cancel, and the spool WAV
 deleted on every exit path.
 """
 
+import queue
 import threading
 import time
 import wave
@@ -17,6 +18,7 @@ from speakeasy import config, meeting_benchmark, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
 from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
+from speakeasy.meeting_stream import MeetingASRResult, MeetingASRStatus
 from speakeasy.transcriber import MeetingCancelled
 
 
@@ -79,6 +81,21 @@ class FakeMeetingRecorder:
             self._path = None
 
 
+class PretranscribingMeetingRecorder(FakeMeetingRecorder):
+    def __init__(self, spool_dir):
+        super().__init__(spool_dir)
+        self.session = None
+
+    def configure_pretranscription(self, session):
+        self.session = session
+
+    def stop(self):
+        with wave.open(str(self._path)) as source:
+            self.session.add_pcm(source.readframes(source.getnframes()))
+        self.session.finish()
+        return super().stop()
+
+
 class Sentence:
     def __init__(self, start, end, text):
         self.start, self.end, self.text = start, end, text
@@ -106,6 +123,29 @@ class FakeTranscriber:
         result = type("Result", (), {})()
         result.sentences = [Sentence(0.0, 1.0, "clod says hello")]
         return result
+
+
+class PretranscribingFakeTranscriber(FakeTranscriber):
+    def __init__(self):
+        super().__init__()
+        self.live_calls = 0
+        self.batch_calls = 0
+
+    def transcribe_meeting_stream(self, session):
+        self.live_calls += 1
+        while True:
+            try:
+                session.get(timeout=0.05)
+            except queue.Empty:
+                if session.finished and session.empty:
+                    break
+        result = type("Result", (), {})()
+        result.sentences = [Sentence(0.0, 1.0, "during capture")]
+        return MeetingASRResult(MeetingASRStatus.COMPLETE, result)
+
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        self.batch_calls += 1
+        return super().transcribe_long(audio, progress=progress, cancel=cancel)
 
 
 class FakeDiarizer:
@@ -234,6 +274,56 @@ def test_meeting_happy_path(meetings_dir, spool_dir, make_profile):
     assert stored.segments[0].text == "Claude says hello"  # profile applied
     assert not list(spool_dir.iterdir())  # spool deleted after processing
     assert engine._listener.running is True  # hotkey re-armed
+    engine.shutdown()
+
+
+def test_meeting_reuses_during_capture_mic_transcript(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = PretranscribingMeetingRecorder(spool_dir)
+    transcriber = PretranscribingFakeTranscriber()
+    engine.transcriber = transcriber
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = meetings.Meeting.load(saved[0])
+    assert stored.segments[0].text == "during capture"
+    assert transcriber.live_calls == 1
+    assert transcriber.batch_calls == 0
+    assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_meeting_pretranscription_failure_falls_back_to_spool(
+    meetings_dir, spool_dir
+):
+    class OverflowingTranscriber(PretranscribingFakeTranscriber):
+        def transcribe_meeting_stream(self, session):
+            self.live_calls += 1
+            return MeetingASRResult(MeetingASRStatus.OVERFLOW)
+
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = PretranscribingMeetingRecorder(spool_dir)
+    transcriber = OverflowingTranscriber()
+    engine.transcriber = transcriber
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    assert meetings.Meeting.load(saved[0]).segments[0].text == "clod says hello"
+    assert transcriber.live_calls == 1
+    assert transcriber.batch_calls == 1
+    assert not list(spool_dir.iterdir())
     engine.shutdown()
 
 

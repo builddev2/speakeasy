@@ -195,7 +195,9 @@ application**, or **microphone only**. Meetings capture up to three hours;
 the menu shows the elapsed time. Click **End Meeting** when you're done,
 and Speakeasy processes the recording entirely on-device:
 
-1. each available track is transcribed in chunks (progress shows in the menu),
+1. completed microphone chunks are transcribed during capture, then the final
+   microphone tail and each available system-audio chunk are finished after
+   you stop (progress shows in the menu),
 2. microphone speech is labelled **You**, while only the clean system track is
    separated by the local speaker-diarization model, and
 3. both tracks are shifted by their real first-buffer offsets, merged on one
@@ -222,6 +224,14 @@ also on cancel, on failure, on quit, and (if the app ever crashes mid-meeting)
 swept at the next launch. Transcripts are plain JSON in
 `~/Library/Application Support/Speakeasy/meetings/`. Everything — recording,
 transcription, speaker identification — runs offline; nothing leaves your Mac.
+
+During-capture microphone ASR uses the same 120-second chunks and 15-second
+overlap as the post-stop path. The meeting writer hands off only after a block
+has been written to the temporary WAV, through a two-chunk bounded queue. If
+that queue falls behind or the writer fails, Speakeasy discards the partial
+ASR result and retranscribes the authoritative spool after stop. System audio
+continues to be transcribed after stop because its helper exposes only
+content-free health events to the app.
 
 **Fallback and speaker-mode limitation.** macOS 14.0–14.1, a denied/revoked
 system-audio grant, or an unavailable capture helper falls back safely to the
@@ -443,7 +453,7 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 
 ```
 Begin Meeting ─► mic + system audio spool separately (dictation disabled)
-End Meeting   ─► transcribe both tracks; mic = You; diarize system track
+End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system track
                   ─► apply first-buffer offsets ─► chronological merge
                   ─► save transcript ─► delete both temporary WAVs
                   ─► dictation hotkey re-armed

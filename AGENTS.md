@@ -47,12 +47,14 @@ contexts are intentionally bounded and single-purpose:
 
 - **`worker`** (1 thread) — loads *and* runs the Parakeet model. MLX pins GPU
   arrays to their creating thread, so the model must only ever be touched here.
-  The whole meeting-processing pipeline (`_process_meeting`: streamed chunked
-  transcription → diarization → alignment → save) also runs as one job here.
-  Tracks are transcribed sequentially from their WAVs; only the one selected
-  for diarization is then loaded fully, and that array is released immediately
-  afterwards. Diarization is CPU/onnxruntime with no pinning rule, but it stays
-  on `worker` to keep the pipeline sequential rather than adding an executor.
+  During a meeting it consumes completed microphone overlap chunks from a
+  bounded writer-owned handoff. `_process_meeting` queues behind that job,
+  reuses its result, finishes system-track ASR, then performs diarization,
+  alignment, and save. A failed/overflowed handoff falls back to the complete
+  spool. Only the track selected for diarization is loaded fully, and that
+  array is released immediately afterwards. Diarization is CPU/onnxruntime
+  with no pinning rule, but it stays on `worker` to keep the pipeline
+  sequential rather than adding an executor.
 - **`control`** (1 thread) — recorder `start()`/`stop()`, including
   `MeetingRecorder`. They must never run on the event-tap thread. Recorder
   stop runs under a timeout watchdog
@@ -79,6 +81,10 @@ contexts are intentionally bounded and single-purpose:
   drains a bounded queue fed by the mic callback into the spool WAV. The
   audio callback itself must never touch disk or block; it only
   `put_nowait`s into the queue and drops frames if the writer falls behind.
+  After each write, the writer alone builds 120-second chunks with the same
+  15-second overlap as post-processing and offers them nonblockingly to a
+  two-chunk ASR queue. Overflow invalidates that optimization and the complete
+  spool is transcribed after stop.
   The writer thread exclusively owns WAV closure; `force_close()` signals it
   and uses a bounded join, never closing the file concurrently with a write.
 - **system-audio helper process** — owns the macOS 14.2+ Core Audio process

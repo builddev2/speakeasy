@@ -13,6 +13,7 @@ import pytest
 
 from speakeasy import config, meeting_recorder
 from speakeasy.meeting_recorder import MeetingRecorder
+from speakeasy.meeting_stream import MeetingASRSession
 
 
 class FakeStream:
@@ -67,6 +68,26 @@ def test_spool_round_trip(spool_dir, fake_stream):
         assert w.getnchannels() == 1
         assert w.getsampwidth() == 2
         assert w.getnframes() == 16000
+    path.unlink()
+
+
+def test_writer_feeds_pretranscription_after_persisting_audio(
+    spool_dir, fake_stream, monkeypatch
+):
+    monkeypatch.setattr(config, "MEETING_CHUNK_SECONDS", 0.1)
+    monkeypatch.setattr(config, "MEETING_OVERLAP_SECONDS", 0.02)
+    session = MeetingASRSession(max_chunks=2)
+    rec = MeetingRecorder()
+    rec.configure_pretranscription(session)
+    rec.start()
+
+    rec._on_audio(_block(), 1600, None, None)
+    path = rec.stop()
+
+    start, pcm = session.get(timeout=0)
+    assert start == 0
+    assert len(pcm) == 1600 * 2
+    assert session.finished is True
     path.unlink()
 
 

@@ -195,7 +195,9 @@ application**, or **microphone only**. Meetings capture up to three hours;
 the menu shows the elapsed time. Click **End Meeting** when you're done,
 and Speakeasy processes the recording entirely on-device:
 
-1. each available track is transcribed in chunks (progress shows in the menu),
+1. completed microphone chunks are transcribed during capture, then the final
+   microphone tail and each available system-audio chunk are finished after
+   you stop (progress shows in the menu),
 2. microphone speech is labelled **You**, while only the clean system track is
    separated by the local speaker-diarization model, and
 3. both tracks are shifted by their real first-buffer offsets, merged on one
@@ -222,6 +224,14 @@ also on cancel, on failure, on quit, and (if the app ever crashes mid-meeting)
 swept at the next launch. Transcripts are plain JSON in
 `~/Library/Application Support/Speakeasy/meetings/`. Everything — recording,
 transcription, speaker identification — runs offline; nothing leaves your Mac.
+
+During-capture microphone ASR uses the same 120-second chunks and 15-second
+overlap as the post-stop path. The meeting writer hands off only after a block
+has been written to the temporary WAV, through a two-chunk bounded queue. If
+that queue falls behind or the writer fails, Speakeasy discards the partial
+ASR result and retranscribes the authoritative spool after stop. System audio
+continues to be transcribed after stop because its helper exposes only
+content-free health events to the app.
 
 **Fallback and speaker-mode limitation.** macOS 14.0–14.1, a denied/revoked
 system-audio grant, or an unavailable capture helper falls back safely to the
@@ -358,9 +368,12 @@ entirely (sounds and status still work).
 
 Speakeasy writes one privacy-safe JSON record per completed dictation take to
 `~/Library/Logs/Speakeasy-dictation-latency.jsonl`. The size-bounded log
-contains only take/status identifiers, recorder outcome, a profile-active
-boolean, sample counts, and phase durations; it contains no audio, transcript,
-clipboard, profile, application, device, or window content.
+contains only build revision, take/status identifiers, recorder/fallback
+outcomes, queue capacity/high-water counts, a profile-active boolean, sample
+counts, and phase durations. It contains no audio, transcript, clipboard,
+profile, application, device, PID, or window content. Streaming phase fields
+separate context creation, first chunk, cumulative add-audio/provisional work,
+and final flush.
 
 After collecting dictations, summarize the local records fully offline:
 
@@ -382,8 +395,17 @@ Use fresh paths (or archive existing files) because logs append. Batch mode is
 for this controlled run only; normal launches keep the streaming fast path.
 The comparison counts successful streaming and batch fallbacks separately via
 the existing status field, while treating all pasted outcomes as successful.
-It does not add mode, timestamp, transcript, audio, app, device, window, or PID
-fields; every JSON record retains the fixed 21-field allowlist above.
+For takes of 15 seconds or longer, normal mode closes the stream and produces
+the one published result from the complete helper-owned audio using batch
+inference on the same worker. This avoids the streaming decoder's growing
+final-flush cost without exposing a draft or touching the model concurrently.
+It does not add timestamps, transcript, audio, app, device, window, or PID
+fields; every JSON record retains the fixed allowlist above.
+
+Meeting post-processing writes the same kind of content-free evidence to
+`~/Library/Logs/Speakeasy-meeting-latency.jsonl`: build revision, fixed
+capture-mode/status enums, track frame counts, and stop, mic/system ASR,
+diarization, voice-identification, alignment, save, and stop-to-final durations.
 
 Accuracy comparison is deliberately separate from product telemetry. With
 explicit consent, keep a local test-only corpus of at least 30 WAV files and
@@ -431,7 +453,7 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 
 ```
 Begin Meeting ─► mic + system audio spool separately (dictation disabled)
-End Meeting   ─► transcribe both tracks; mic = You; diarize system track
+End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system track
                   ─► apply first-buffer offsets ─► chronological merge
                   ─► save transcript ─► delete both temporary WAVs
                   ─► dictation hotkey re-armed
@@ -444,14 +466,22 @@ End Meeting   ─► transcribe both tracks; mic = You; diarize system track
 - **`recorder.py` / `microphone_helper.py`** — immediate dictation capture and
   live RMS level. A prewarmed helper process owns the persistent CoreAudio
   stream, so hotkey capture stays instant. Its realtime callback only copies
-  into a bounded queue; batch audio is retained independently from optional
-  bounded parent-side chunks. If teardown wedges, the watchdog kills the
+  into a bounded queue; a collector coalesces those callback buffers into
+  two-second blocks before process/worker queue boundaries. Queue capacities
+  are derived from seconds of audio, while complete batch audio is retained
+  independently for fallback. If teardown wedges, the watchdog kills the
   helper and the next take creates a fresh one without restarting Speakeasy
 - **`coreaudio.py`** — guards main-process meeting teardown. Dictation checks
   it before launching its helper so a meeting stop still unwinding in the HAL
   cannot race a new microphone open
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
+  Startup warms both batch inference and the complete streaming context/add/
+  result/cleanup lifecycle. Live streaming pulls a provisional result after
+  each completed two-second block but never inserts draft text; only the final
+  result follows the shared profile and clipboard paste path. Takes of 15
+  seconds or longer use the retained complete audio for a batch final after
+  the streaming context closes; this stays on the same worker.
   Audio is fed to the model in-memory (log-mel + generate), skipping the
   temp-WAV file and ffmpeg decode of the library's path-based API. Meeting ASR
   uses `transcribe_long_wav()` to read one overlap chunk at a time directly

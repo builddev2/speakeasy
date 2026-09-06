@@ -204,16 +204,17 @@ def test_capture_callback_enqueues_without_blocking_and_batch_stays_complete():
     streamed = queue.Queue(maxsize=1)
     capture = _CaptureBuffer(Level(), streamed)
     capture.start(deliver_chunks=True)
-    first = np.ones((4, 1), dtype=np.float32)
-    second = np.full((4, 1), 2.0, dtype=np.float32)
+    first = np.ones((80_000, 1), dtype=np.float32)
+    second = np.full((80_000, 1), 2.0, dtype=np.float32)
 
-    capture.callback(first, 4, None, None)
-    capture.callback(second, 4, None, None)
+    capture.callback(first, 80_000, None, None)
+    capture.callback(second, 80_000, None, None)
     audio, capture_dropped, stream_dropped = capture.finish()
 
-    assert audio.tolist() == [1.0] * 4 + [2.0] * 4
+    assert np.array_equal(audio[:80_000], np.ones(80_000))
+    assert np.array_equal(audio[80_000:], np.full(80_000, 2.0))
     assert capture_dropped == 0
-    assert stream_dropped >= 4
+    assert stream_dropped >= 80_000
     assert streamed.qsize() == 1  # preview may drop; final batch may not
     assert Level.value == 0.0
 

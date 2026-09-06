@@ -52,19 +52,21 @@ def test_helper_protocol_retains_complete_batch_and_streams_optional_chunks(
     assert parent.recv() == ("ready",)
     parent.send(("start", True))
     assert parent.recv() == ("started",)
-    first = np.ones((4, 1), dtype=np.float32)
-    second = np.full((3, 1), 2.0, dtype=np.float32)
-    streams[0].callback(first, 4, None, None)
-    streams[0].callback(second, 3, None, None)
+    first = np.ones((40_000, 1), dtype=np.float32)
+    second = np.full((45_000, 1), 2.0, dtype=np.float32)
+    streams[0].callback(first, 40_000, None, None)
+    streams[0].callback(second, 45_000, None, None)
 
     parent.send("stop")
     response = parent.recv()
 
     assert response[0] == "stopped"
-    assert response[1].tolist() == [1.0] * 4 + [2.0] * 3
+    assert np.array_equal(response[1][:40_000], np.ones(40_000))
+    assert np.array_equal(response[1][40_000:], np.full(45_000, 2.0))
     assert response[2:] == (0, 0)
-    assert streamed.get().shape == (4, 1)
-    assert streamed.get().shape == (3, 1)
+    assert streamed.get().shape == (32_000, 1)
+    assert streamed.get().shape == (32_000, 1)
+    assert streamed.get().shape == (21_000, 1)
     assert streamed.get() is None
     assert streams[0].aborted is True
     parent.send("quit")
@@ -177,6 +179,23 @@ def test_stop_reports_stream_overflow_without_losing_batch_audio():
 
     assert result is audio
     assert helper.stream_dropped_frames == 7
+
+
+def test_capture_buffer_coalesces_before_stream_queue_boundary():
+    streamed = queue.Queue(maxsize=8)
+    capture = microphone_helper._CaptureBuffer(Level(), streamed)
+    capture.start(deliver_chunks=True)
+    for _ in range(80):
+        capture.callback(np.ones((1_000, 1), dtype=np.float32), 1_000, None, None)
+
+    audio, capture_dropped, stream_dropped = capture.finish()
+
+    assert len(audio) == 80_000
+    assert streamed.qsize() == 3
+    assert streamed.get().shape == (32_000, 1)
+    assert streamed.get().shape == (32_000, 1)
+    assert streamed.get().shape == (16_000, 1)
+    assert capture_dropped == stream_dropped == 0
 
 
 def test_stop_rejects_callback_overflow_as_authoritative_batch():

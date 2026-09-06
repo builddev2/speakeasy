@@ -12,12 +12,11 @@ Threading rules (unchanged from the original, load-bearing):
 - Hotkey callbacks return instantly; they only submit to `control`.
 
 Meeting transcription follows the same rules: the meeting recorder starts and
-stops on `control`, and the whole processing pipeline (chunked transcription →
-diarization → alignment → save) runs as one job on `worker` — transcription
-because of the MLX rule, diarization (CPU/onnxruntime, no pinning) to keep the
-pipeline strictly sequential. Audio spools to disk and is deleted in the job's
-`finally`, whatever happens; cancellation is a polled Event, so it needs no
-extra thread.
+stops on `control`; completed mic chunks are transcribed during capture on
+`worker`, and the post-stop job queues behind them for remaining transcription,
+diarization, alignment, and save. Audio spools to disk and is deleted in that
+job's `finally`, whatever happens; cancellation is a polled Event, so it needs
+no extra thread.
 """
 
 import subprocess
@@ -38,7 +37,9 @@ from . import config, injector, meeting_recorder, meetings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
+from .meeting_benchmark import MeetingTiming
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
+from .meeting_stream import MeetingASRSession, MeetingASRStatus
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
@@ -121,6 +122,8 @@ class DictationEngine:
         self._meeting_active = False
         self._meeting_cancel = threading.Event()
         self._meeting_options = MeetingOptions()
+        self._meeting_asr_session: MeetingASRSession | None = None
+        self._meeting_asr_future: Future | None = None
         self._diarizer_speaker_count: int | None = None
         self.last_dictation_heard: str | None = None
         self.last_dictation_text: str | None = None
@@ -131,6 +134,9 @@ class DictationEngine:
         self._dictation_stream_timing: DictationTiming | None = None
         self._dictation_stream_lock = threading.Lock()
         self._dictation_stream_disabled = not config.DICTATION_STREAMING_ENABLED
+        self._dictation_generation = 0
+        self._recording_generation = 0
+        self._dictation_repeat_ready = False
 
     # -- lifecycle ------------------------------------------------------
 
@@ -195,6 +201,8 @@ class DictationEngine:
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
         self._meeting_cancel.set()
+        if self._meeting_asr_session is not None:
+            self._meeting_asr_session.cancel()
         if self._meeting_active:
             self.meeting_recorder.force_close()
             self.meeting_recorder.discard()
@@ -231,12 +239,22 @@ class DictationEngine:
         self._recorder_busy = False
         with self._dictation_stream_lock:
             streaming_enabled = not self._dictation_stream_disabled
+            active_stream = self._dictation_stream
+        repeat_ready = self._dictation_repeat_ready
+        self._dictation_repeat_ready = False
+        self._dictation_generation += 1
+        generation = self._dictation_generation
+        self._recording_generation = generation
         session = (
-            StreamingSession()
-            if self.state is State.READY
+            StreamingSession(
+                clock_ns=self._dictation_clock_ns,
+                generation=generation,
+            )
+            if (self.state is State.READY or repeat_ready)
             and self.transcriber is not None
             and not self._meeting_active
             and streaming_enabled
+            and active_stream is None
             else None
         )
         try:
@@ -289,8 +307,20 @@ class DictationEngine:
         except Exception as error:
             result = StreamResult(StreamStatus.FAILED, error=error)
 
-        if result.status in (StreamStatus.COMPLETE, StreamStatus.CANCELLED):
+        if result.status is StreamStatus.CANCELLED:
             return result
+        if result.status is StreamStatus.COMPLETE:
+            return result
+        if result.status is StreamStatus.BATCH_REQUIRED:
+            audio = session.audio
+            if audio is None:
+                return StreamResult(StreamStatus.FAILED)
+            text = transcriber.transcribe(audio, timing=session.timing)
+            return StreamResult(
+                StreamStatus.COMPLETE,
+                text=text,
+                fallback_reason="long_take_batch",
+            )
         if result.status is StreamStatus.FAILED:
             # A model streaming failure may recur on every take. Keep batch
             # dictation available, but stop creating streams until relaunch.
@@ -320,6 +350,7 @@ class DictationEngine:
         )
 
     def _stop_recording(self, release_received: int | None = None) -> None:
+        generation = getattr(self, "_recording_generation", None)
         timing = DictationTiming(
             next(self._dictation_take_ids), clock_ns=self._dictation_clock_ns
         )
@@ -336,7 +367,7 @@ class DictationEngine:
         except Exception:
             traceback.print_exc()
             timing.mark("recorder_stop_finished")
-            self._finish_dictation(timing, "pipeline_exception")
+            self._finish_dictation(timing, "pipeline_exception", generation)
             return
         timing.recorder_stop_outcome = stopped.outcome
         recorder_busy, self._recorder_busy = self._recorder_busy, False
@@ -347,7 +378,7 @@ class DictationEngine:
             )
         except Exception:
             traceback.print_exc()
-            self._finish_dictation(timing, "pipeline_exception")
+            self._finish_dictation(timing, "pipeline_exception", generation)
             return
         if recorder_busy or stopped.outcome != "normal" or too_short:
             self._cancel_dictation_stream()
@@ -369,7 +400,7 @@ class DictationEngine:
                 if status == "recording_too_short":
                     print("  → (too short, ignored)")
             finally:
-                self._finish_dictation(timing, status)
+                self._finish_dictation(timing, status, generation)
             return
         with self._dictation_stream_lock:
             session = self._dictation_stream
@@ -401,10 +432,15 @@ class DictationEngine:
         # Kick off transcription before the sound: Popen costs ~10-30 ms.
         timing.mark("worker_submitted")
         try:
-            self.worker.submit(self._transcribe_and_paste, stopped.audio, timing)
+            self.worker.submit(
+                self._transcribe_and_paste,
+                stopped.audio,
+                timing,
+                generation,
+            )
         except Exception:
             traceback.print_exc()
-            self._finish_dictation(timing, "pipeline_exception")
+            self._finish_dictation(timing, "pipeline_exception", generation)
             return
         if self.overlay:
             self.overlay.show_transcribing()
@@ -444,30 +480,48 @@ class DictationEngine:
             previous = self._read_dictation_clipboard(timing)
         except Exception:
             traceback.print_exc()
-            self._restore_after_dictation(previous, timing, "pipeline_exception")
+            self._restore_after_dictation(
+                previous,
+                timing,
+                "pipeline_exception",
+                generation=session.generation,
+            )
             return
         try:
             result = future.result()
         except Exception:
             traceback.print_exc()
             self._restore_after_dictation(
-                previous, timing, "transcription_exception"
+                previous,
+                timing,
+                "transcription_exception",
+                generation=session.generation,
             )
             return
+        for name, value in session.metrics().items():
+            setattr(timing, name, value)
+        timing.fallback_reason = result.fallback_reason
         if result.status is StreamStatus.COMPLETE:
             success_status = {
                 None: "success_streaming",
                 "stream_overflow": "success_fallback_queue_overflow",
                 "stream_error": "success_fallback_stream_error",
+                "long_take_batch": "success_batch_long_take",
             }.get(result.fallback_reason, "pipeline_exception")
             self._finalize_dictation(
                 result.text or "",
                 previous,
                 timing,
                 success_status=success_status,
+                generation=session.generation,
             )
             return
-        self._restore_after_dictation(previous, timing, "pipeline_exception")
+        self._restore_after_dictation(
+            previous,
+            timing,
+            "pipeline_exception",
+            generation=session.generation,
+        )
 
     def _stop_recorder_guarded(
         self, timing: DictationTiming | None = None
@@ -540,6 +594,19 @@ class DictationEngine:
         # its release will never arrive.
         self._listener.stop()
         self._stop_recorder_guarded()
+        configure = getattr(
+            self.meeting_recorder, "configure_pretranscription", None
+        )
+        transcribe_live = getattr(
+            self.transcriber, "transcribe_meeting_stream", None
+        )
+        if callable(configure) and callable(transcribe_live):
+            session = MeetingASRSession()
+            configure(session)
+            self._meeting_asr_session = session
+            self._meeting_asr_future = self.worker.submit(
+                transcribe_live, session
+            )
         try:
             self.meeting_recorder.start(system_audio_pid=options.system_audio_pid)
         except RecorderBusy:
@@ -547,12 +614,14 @@ class DictationEngine:
             # Opening another stream would deadlock against it and freeze the
             # control thread. Refuse the meeting until the stop returns.
             print("  → (mic busy — a previous stop is still releasing; try again)")
+            self._cancel_meeting_pretranscription()
             self._meeting_active = False
             self._listener.resume()
             self._set_state(self._idle_state())
             return
         except Exception:
             traceback.print_exc()
+            self._cancel_meeting_pretranscription()
             self._meeting_active = False
             self._listener.resume()
             self._set_state(self._idle_state())
@@ -567,18 +636,39 @@ class DictationEngine:
     def _end_meeting(self) -> None:
         if not self._meeting_active or self.state is not State.MEETING_RECORDING:
             return
+        timing = MeetingTiming()
+        timing.start("stop")
         recording = self._stop_meeting_recorder_guarded()
+        timing.finish("stop")
+        pretranscription_session = self._meeting_asr_session
+        pretranscription = self._meeting_asr_future
+        self._meeting_asr_session = None
+        self._meeting_asr_future = None
         play_sound(config.SOUND_MEETING_END)
         if recording is None:
+            if pretranscription_session is not None:
+                pretranscription_session.cancel()
             # Nothing made it to disk; back to dictation.
             self._meeting_active = False
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
+            timing.capture_mode = "mic_only"
+            timing.mark("pipeline_finished")
+            timing.emit("no_audio")
             return
         self._meeting_cancel.clear()
         self._set_state(State.MEETING_PROCESSING)
-        self.worker.submit(self._process_meeting, recording)
+        timing.capture_mode = recording.capture_mode
+        self.worker.submit(
+            self._process_meeting, recording, timing, pretranscription
+        )
+
+    def _cancel_meeting_pretranscription(self) -> None:
+        if self._meeting_asr_session is not None:
+            self._meeting_asr_session.cancel()
+        self._meeting_asr_session = None
+        self._meeting_asr_future = None
 
     def _stop_meeting_recorder_guarded(self) -> MeetingRecording | None:
         """meeting_recorder.stop() under the same watchdog as the dictation
@@ -632,7 +722,10 @@ class DictationEngine:
             return 0, 0.0, False
         return frames, frames / sample_rate if sample_rate else 0.0, streamable
 
-    def _transcribe_meeting_track(self, path, *, progress):
+    def _transcribe_meeting_track(self, path, *, progress, precomputed=None):
+        if precomputed is not None:
+            progress(1.0)
+            return precomputed
         _, _, streamable = self._meeting_track_info(path)
         transcribe_wav = getattr(self.transcriber, "transcribe_long_wav", None)
         if streamable and transcribe_wav is not None:
@@ -650,14 +743,22 @@ class DictationEngine:
             cancel=self._meeting_cancel,
         )
 
-    def _diarize_track(self, audio, progress):
+    def _diarize_track(self, audio, progress, timing: MeetingTiming | None = None):
         expected_count = self._meeting_options.expected_speaker_count
         if self.diarizer is None or self._diarizer_speaker_count != expected_count:
             from .diarizer import Diarizer
 
             self.diarizer = Diarizer(expected_count)
             self._diarizer_speaker_count = expected_count
-        turns = self.diarizer.diarize(audio, progress=progress)
+        if timing is not None:
+            timing.start("diarization")
+        try:
+            turns = self.diarizer.diarize(audio, progress=progress)
+        finally:
+            if timing is not None:
+                timing.finish("diarization")
+        if timing is not None:
+            timing.start("voice_identification")
         if self._meeting_options.expected_voice_profile_names:
             from .voice_profiles import VoiceProfileStore
 
@@ -667,13 +768,30 @@ class DictationEngine:
                 list(self._meeting_options.expected_voice_profile_names),
                 cancelled=self._meeting_cancel.is_set,
             )
+        if timing is not None:
+            timing.finish("voice_identification")
         return turns
 
-    def _process_meeting(self, recording: MeetingRecording) -> None:
+    def _process_meeting(
+        self,
+        recording: MeetingRecording,
+        timing: MeetingTiming | None = None,
+        pretranscription: Future | None = None,
+    ) -> None:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
         no matter how this exits — audio is never persisted."""
+        status = "error"
         try:
+            precomputed_mic = None
+            if pretranscription is not None:
+                try:
+                    live_result = pretranscription.result()
+                except Exception:
+                    traceback.print_exc()
+                else:
+                    if live_result.status is MeetingASRStatus.COMPLETE:
+                        precomputed_mic = live_result.transcript
             offsets = recording.track_offsets_seconds
             mic_frames, mic_duration, _ = self._meeting_track_info(
                 recording.mic_path
@@ -681,6 +799,10 @@ class DictationEngine:
             system_frames, system_duration, _ = self._meeting_track_info(
                 recording.system_path
             )
+            if timing is not None:
+                timing.capture_mode = recording.capture_mode
+                timing.mic_frames = mic_frames
+                timing.system_frames = system_frames
             dual_track = recording.capture_mode == "mic_and_system" and system_frames
             if not mic_frames and not system_frames:
                 raise ValueError("Meeting contained no readable audio")
@@ -689,22 +811,35 @@ class DictationEngine:
                 mic_sentences = []
                 if mic_frames:
                     self.on_meeting_progress("Transcribing your track… 0%")
-                    mic_result = self._transcribe_meeting_track(
-                        recording.mic_path,
-                        progress=lambda f: self.on_meeting_progress(
-                            f"Transcribing your track… {int(f * 35)}%"
-                        ),
-                    )
+                    if timing is not None:
+                        timing.start("mic_asr")
+                    try:
+                        mic_result = self._transcribe_meeting_track(
+                            recording.mic_path,
+                            precomputed=precomputed_mic,
+                            progress=lambda f: self.on_meeting_progress(
+                                f"Transcribing your track… {int(f * 35)}%"
+                            ),
+                        )
+                    finally:
+                        if timing is not None:
+                            timing.finish("mic_asr")
                     mic_sentences = mic_result.sentences
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 self.on_meeting_progress("Transcribing system audio… 35%")
-                system_result = self._transcribe_meeting_track(
-                    recording.system_path,
-                    progress=lambda f: self.on_meeting_progress(
-                        f"Transcribing system audio… {35 + int(f * 35)}%"
-                    ),
-                )
+                if timing is not None:
+                    timing.start("system_asr")
+                try:
+                    system_result = self._transcribe_meeting_track(
+                        recording.system_path,
+                        progress=lambda f: self.on_meeting_progress(
+                            f"Transcribing system audio… {35 + int(f * 35)}%"
+                        ),
+                    )
+                finally:
+                    if timing is not None:
+                        timing.finish("system_asr")
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 system_audio = self._read_meeting_track(recording.system_path)
@@ -717,19 +852,26 @@ class DictationEngine:
                     lambda f: self.on_meeting_progress(
                         f"Identifying remote speakers… {70 + int(f * 28)}%"
                     ),
+                    timing,
                 )
                 del system_audio
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                local_segments = meetings.shift_segments(
-                    meetings.known_speaker_segments(mic_sentences),
-                    offsets.get("mic", 0.0),
-                )
-                remote_segments = meetings.shift_segments(
-                    meetings.align_speakers(system_result.sentences, turns),
-                    offsets.get("system", 0.0),
-                )
-                segments = meetings.merge_tracks(local_segments, remote_segments)
+                if timing is not None:
+                    timing.start("alignment")
+                try:
+                    local_segments = meetings.shift_segments(
+                        meetings.known_speaker_segments(mic_sentences),
+                        offsets.get("mic", 0.0),
+                    )
+                    remote_segments = meetings.shift_segments(
+                        meetings.align_speakers(system_result.sentences, turns),
+                        offsets.get("system", 0.0),
+                    )
+                    segments = meetings.merge_tracks(local_segments, remote_segments)
+                finally:
+                    if timing is not None:
+                        timing.finish("alignment")
                 capture_mode = "mic_and_system"
                 system_status = recording.system_audio_status
             else:
@@ -740,12 +882,23 @@ class DictationEngine:
                     recording.mic_path if mic_frames else recording.system_path
                 )
                 self.on_meeting_progress("Transcribing meeting… 0%")
-                result = self._transcribe_meeting_track(
-                    audio_path,
-                    progress=lambda f: self.on_meeting_progress(
-                        f"Transcribing meeting… {int(f * 70)}%"
-                    ),
-                )
+                if timing is not None:
+                    timing.start("mic_asr")
+                try:
+                    result = self._transcribe_meeting_track(
+                        audio_path,
+                        precomputed=(
+                            precomputed_mic
+                            if audio_path == recording.mic_path
+                            else None
+                        ),
+                        progress=lambda f: self.on_meeting_progress(
+                            f"Transcribing meeting… {int(f * 70)}%"
+                        ),
+                    )
+                finally:
+                    if timing is not None:
+                        timing.finish("mic_asr")
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 audio = self._read_meeting_track(audio_path)
@@ -758,14 +911,21 @@ class DictationEngine:
                     lambda f: self.on_meeting_progress(
                         f"Identifying speakers… {70 + int(f * 28)}%"
                     ),
+                    timing,
                 )
                 del audio
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                segments = meetings.shift_segments(
-                    meetings.align_speakers(result.sentences, turns),
-                    offsets.get("mic", 0.0),
-                )
+                if timing is not None:
+                    timing.start("alignment")
+                try:
+                    segments = meetings.shift_segments(
+                        meetings.align_speakers(result.sentences, turns),
+                        offsets.get("mic", 0.0),
+                    )
+                finally:
+                    if timing is not None:
+                        timing.finish("alignment")
                 capture_mode = "mic_only"
                 system_status = (
                     "empty_track"
@@ -790,11 +950,19 @@ class DictationEngine:
                 ),
                 capture_scope=recording.capture_scope,
             )
-            meeting.save()
+            if timing is not None:
+                timing.start("save")
+            try:
+                meeting.save()
+            finally:
+                if timing is not None:
+                    timing.finish("save")
             print(f"  → meeting saved: {meeting.title} ({len(segments)} segments)")
             self.on_meeting_saved(meeting.meeting_id)
+            status = "success"
         except MeetingCancelled:
             print("  → meeting processing cancelled; nothing saved")
+            status = "cancelled"
         except Exception:
             traceback.print_exc()
         finally:
@@ -805,13 +973,23 @@ class DictationEngine:
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
+            if timing is not None:
+                timing.mark("pipeline_finished")
+                timing.emit(status)
 
-    def _finish_dictation(self, timing: DictationTiming, status: str) -> None:
+    def _finish_dictation(
+        self,
+        timing: DictationTiming,
+        status: str,
+        generation: int | None = None,
+    ) -> None:
         timing.mark("cleanup_started")
         try:
-            if self.overlay:
-                self.overlay.hide()
-            self._set_state(self._idle_state())
+            if generation is None or generation == self._dictation_generation:
+                self._dictation_repeat_ready = False
+                if self.overlay:
+                    self.overlay.hide()
+                self._set_state(self._idle_state())
         except Exception:
             traceback.print_exc()
             if status.startswith("success"):
@@ -821,7 +999,10 @@ class DictationEngine:
             timing.emit(status)
 
     def _transcribe_and_paste(
-        self, audio, timing: DictationTiming | None = None
+        self,
+        audio,
+        timing: DictationTiming | None = None,
+        generation: int | None = None,
     ) -> None:
         previous = None
         if timing is not None:
@@ -832,7 +1013,9 @@ class DictationEngine:
             previous = self._read_dictation_clipboard(timing)
         except Exception:
             traceback.print_exc()
-            self._restore_after_dictation(previous, timing, "pipeline_exception")
+            self._restore_after_dictation(
+                previous, timing, "pipeline_exception", generation=generation
+            )
             return
         started = time.perf_counter()
         try:
@@ -842,13 +1025,16 @@ class DictationEngine:
                 text = self.transcriber.transcribe(audio, timing=timing)
         except Exception:
             traceback.print_exc()
-            self._restore_after_dictation(previous, timing, "transcription_exception")
+            self._restore_after_dictation(
+                previous, timing, "transcription_exception", generation=generation
+            )
             return
         self._finalize_dictation(
             text,
             previous,
             timing,
             elapsed=time.perf_counter() - started,
+            generation=generation,
         )
 
     @staticmethod
@@ -869,6 +1055,7 @@ class DictationEngine:
         *,
         elapsed: float | None = None,
         success_status: str = "success",
+        generation: int | None = None,
     ) -> None:
         """Apply the final profile result and perform at most one paste."""
         status = "pipeline_exception"
@@ -914,6 +1101,7 @@ class DictationEngine:
                     raise
             finally:
                 if not self._user_paused:
+                    self._dictation_repeat_ready = True
                     self._listener.resume()
             time.sleep(config.PASTE_SETTLE_SECONDS)
             if timing is not None:
@@ -922,13 +1110,16 @@ class DictationEngine:
         except Exception:
             traceback.print_exc()
         finally:
-            self._restore_after_dictation(previous, timing, status)
+            self._restore_after_dictation(
+                previous, timing, status, generation=generation
+            )
 
     def _restore_after_dictation(
         self,
         previous,
         timing: DictationTiming | None,
         status: str,
+        generation: int | None = None,
     ) -> None:
         # Always restore, even if recognition, profiling, or insertion raised.
         if timing is None:
@@ -950,7 +1141,7 @@ class DictationEngine:
                 status = "pipeline_exception"
         finally:
             timing.mark("clipboard_restore_finished")
-            self._finish_dictation(timing, status)
+            self._finish_dictation(timing, status, generation)
 
     def correct_last_dictation(self, intended: str) -> bool:
         """Teach the active profile from the most recent raw ASR result."""

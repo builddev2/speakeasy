@@ -199,6 +199,7 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
     line = benchmark_lines(capsys)[0]
     names = [part.split("=", 1)[0] for part in line.split()[1:]]
     assert names == [
+        "build_commit",
         "take",
         "status",
         "recorder_stop_outcome",
@@ -210,6 +211,15 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
         "trim_ms",
         "mel_ms",
         "inference_ms",
+        "stream_context_ms",
+        "stream_first_chunk_ms",
+        "stream_add_audio_ms",
+        "stream_provisional_ms",
+        "stream_final_flush_ms",
+        "stream_queue_high_water",
+        "stream_queue_capacity",
+        "stream_overflowed",
+        "fallback_reason",
         "profile_active",
         "profile_ms",
         "insertion_to_dispatch_ms",
@@ -239,6 +249,7 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
 
     record = json.loads(isolate_latency_log.read_text(encoding="utf-8"))
     assert list(record) == [
+        "build_commit",
         "take",
         "status",
         "recorder_stop_outcome",
@@ -250,6 +261,15 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
         "trim_ms",
         "mel_ms",
         "inference_ms",
+        "stream_context_ms",
+        "stream_first_chunk_ms",
+        "stream_add_audio_ms",
+        "stream_provisional_ms",
+        "stream_final_flush_ms",
+        "stream_queue_high_water",
+        "stream_queue_capacity",
+        "stream_overflowed",
+        "fallback_reason",
         "profile_active",
         "profile_ms",
         "insertion_to_dispatch_ms",
@@ -265,6 +285,7 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
     assert "private transcript" not in serialized
     assert "private clipboard" not in serialized
     assert "private profile" not in serialized
+    assert record["build_commit"]
     assert record["release_to_paste_ms"] == 0.0
 
 

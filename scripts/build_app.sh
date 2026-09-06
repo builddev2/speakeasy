@@ -96,6 +96,12 @@ echo "==> Bundling system-audio helper"
 mkdir -p "$APP/Contents/Resources/native"
 rsync -a build/native/SpeakeasySystemAudioCapture "$APP/Contents/Resources/native/"
 
+BUILD_COMMIT=$(git rev-parse HEAD)
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    BUILD_COMMIT="${BUILD_COMMIT}-dirty"
+fi
+printf '%s\n' "$BUILD_COMMIT" > "$APP/Contents/Resources/build-commit.txt"
+
 echo "==> Sanity checks"
 METALLIB=$(find "$APP" -path "*mlx/lib/mlx.metallib" | head -1)
 [ -n "$METALLIB" ] || { echo "error: mlx.metallib missing from bundle"; exit 1; }
@@ -109,6 +115,8 @@ SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
 [ -f "$APP/Contents/Resources/frontend/dock.html" ] || { echo "error: frontend missing from bundle"; exit 1; }
 [ -x "$APP/Contents/Resources/native/SpeakeasySystemAudioCapture" ] \
     || { echo "error: system-audio helper missing from bundle"; exit 1; }
+[ -s "$APP/Contents/Resources/build-commit.txt" ] \
+    || { echo "error: build provenance missing from bundle"; exit 1; }
 LEFTOVERS=$(find "$APP" \( -iname "*librosa*" -o -iname "*numba*" -o -iname "*llvmlite*" \) | head -3)
 [ -z "$LEFTOVERS" ] || { echo "error: excluded packages leaked into bundle:"; echo "$LEFTOVERS"; exit 1; }
 

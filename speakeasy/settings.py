@@ -11,6 +11,7 @@ demand — no caching layer to invalidate.
 """
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 from . import config
 
 _SCHEMA = 1
+_BUILD_COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}(?:-dirty)?$")
 
 
 def app_support_dir() -> Path:
@@ -154,3 +156,53 @@ def system_audio_helper_path() -> Path:
         / "native"
         / "SpeakeasySystemAudioCapture"
     )
+
+
+def build_commit() -> str:
+    """Return only the source revision embedded at build time."""
+    if getattr(sys, "frozen", False):
+        path = (
+            Path(sys.executable).resolve().parent.parent
+            / "Resources"
+            / "build-commit.txt"
+        )
+    else:
+        path = Path(__file__).resolve().parent.parent / ".git"
+        try:
+            marker = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            marker = ""
+        if marker.startswith("gitdir: "):
+            git_dir = Path(marker[8:])
+        else:
+            git_dir = path
+        try:
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+            if head.startswith("ref: "):
+                ref = head[5:]
+                candidates = [git_dir / ref]
+                try:
+                    common_dir = (
+                        git_dir
+                        / (git_dir / "commondir").read_text(encoding="utf-8").strip()
+                    ).resolve()
+                    candidates.append(common_dir / ref)
+                except OSError:
+                    pass
+                for candidate in candidates:
+                    try:
+                        head = candidate.read_text(encoding="utf-8").strip()
+                        break
+                    except OSError:
+                        continue
+            marker = head
+        except OSError:
+            marker = ""
+        if _BUILD_COMMIT_RE.fullmatch(marker):
+            return marker
+        return "development"
+    try:
+        marker = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "unknown"
+    return marker if _BUILD_COMMIT_RE.fullmatch(marker) else "unknown"

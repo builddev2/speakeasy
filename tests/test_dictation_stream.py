@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pytest
 
+from speakeasy import config
 from speakeasy.dictation_stream import StreamStatus, StreamingSession, run_stream
 
 
@@ -82,15 +83,16 @@ class _Model:
         self.calls = stream.calls
         self.create_error = create_error
 
-    def transcribe_stream(self):
+    def transcribe_stream(self, **kwargs):
         self.calls.append(("create", threading.get_ident()))
+        self.stream_options = kwargs
         if self.create_error is not None:
             raise self.create_error
         return self.stream
 
 
 def test_session_is_bounded_and_marks_overflow():
-    session = StreamingSession(max_chunks=1)
+    session = StreamingSession(max_chunks=1, block_seconds=1.0)
     session.put_nowait(np.ones((4, 1), dtype=np.float32))
 
     with pytest.raises(queue.Full):
@@ -105,11 +107,19 @@ def test_session_cannot_be_unbounded():
         StreamingSession(max_chunks=0)
 
 
+def test_default_capacity_is_derived_from_audio_seconds():
+    session = StreamingSession()
+
+    assert session.queue_capacity_seconds == pytest.approx(
+        session.block_seconds * session.queue_capacity
+    )
+
+
 def test_stream_coalesces_one_second_and_pads_model_safe_tail():
     calls = []
     stream = _Stream(calls)
     model = _Model(stream)
-    session = StreamingSession()
+    session = StreamingSession(block_seconds=1.0)
     session.put_nowait(np.ones(8_000, dtype=np.float32))
     session.put_nowait(np.full(9_000, 2.0, dtype=np.float32))
     audio = np.ones(17_000, dtype=np.float32)
@@ -123,6 +133,36 @@ def test_stream_coalesces_one_second_and_pads_model_safe_tail():
     assert [len(chunk) for chunk in stream.added] == [16_000, 1_280]
     assert stream.added[1][:1_000].tolist() == [2.0] * 1_000
     assert stream.added[1][1_000:].tolist() == [0.0] * 280
+
+
+def test_stream_metrics_are_content_free_and_cover_lifecycle():
+    clock = iter(range(0, 100_000_000, 1_000_000))
+    session = StreamingSession(max_chunks=2, clock_ns=lambda: next(clock))
+    session.put_nowait(np.ones(8_000, dtype=np.float32))
+    session.put_nowait(np.ones(8_000, dtype=np.float32))
+    session.finish(np.ones(16_000, dtype=np.float32))
+
+    result = run_stream(_Model(_Stream([])), session, to_device=np.asarray)
+    metrics = session.metrics()
+
+    assert result.status is StreamStatus.COMPLETE
+    assert metrics["stream_context_ms"] is not None
+    assert metrics["stream_first_chunk_ms"] is not None
+    assert metrics["stream_add_audio_ms"] is not None
+    assert metrics["stream_final_flush_ms"] is not None
+    assert metrics["stream_queue_high_water"] == 2
+    assert metrics["stream_queue_capacity"] == 2
+    assert metrics["stream_overflowed"] is False
+    assert set(metrics) == {
+        "stream_context_ms",
+        "stream_first_chunk_ms",
+        "stream_add_audio_ms",
+        "stream_provisional_ms",
+        "stream_final_flush_ms",
+        "stream_queue_high_water",
+        "stream_queue_capacity",
+        "stream_overflowed",
+    }
 
 
 def test_all_model_context_operations_stay_on_calling_worker():
@@ -144,6 +184,69 @@ def test_all_model_context_operations_stay_on_calling_worker():
     assert result.status is StreamStatus.COMPLETE
     assert [name for name, _ in calls] == ["create", "enter", "add", "result", "exit"]
     assert {thread_id for _, thread_id in calls} == {worker_thread}
+    assert model.stream_options == {"depth": config.DICTATION_STREAM_CACHE_DEPTH}
+
+
+def test_provisional_result_is_pulled_after_each_complete_block():
+    calls = []
+    stream = _Stream(calls)
+    session = StreamingSession(block_seconds=1.0)
+    session.put_nowait(np.ones(32_000, dtype=np.float32))
+    session.finish(np.ones(32_000, dtype=np.float32))
+
+    result = run_stream(_Model(stream), session, to_device=np.asarray)
+
+    assert result.text == "streamed text"
+    assert [name for name, _ in calls] == [
+        "create",
+        "enter",
+        "add",
+        "result",
+        "add",
+        "result",
+        "exit",
+    ]
+    assert session.metrics()["stream_provisional_ms"] is not None
+
+
+def test_long_take_stops_model_work_and_drains_remaining_audio(monkeypatch):
+    monkeypatch.setattr(config, "DICTATION_BATCH_FINAL_SECONDS", 2.0)
+    calls = []
+    stream = _Stream(calls)
+    session = StreamingSession(block_seconds=1.0, max_chunks=8)
+    for _ in range(5):
+        session.put_nowait(np.ones(16_000, dtype=np.float32))
+    session.finish(np.ones(80_000, dtype=np.float32))
+
+    result = run_stream(_Model(stream), session, to_device=np.asarray)
+
+    assert result.status is StreamStatus.BATCH_REQUIRED
+    assert session.empty is True
+    assert [len(chunk) for chunk in stream.added] == [16_000, 16_000]
+    assert [name for name, _ in calls] == [
+        "create",
+        "enter",
+        "add",
+        "result",
+        "add",
+        "exit",
+    ]
+
+
+def test_threshold_uses_complete_audio_duration_for_partial_final_block(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "DICTATION_BATCH_FINAL_SECONDS", 1.5)
+    calls = []
+    stream = _Stream(calls)
+    session = StreamingSession(block_seconds=1.0)
+    session.put_nowait(np.ones(24_000, dtype=np.float32))
+    session.finish(np.ones(24_000, dtype=np.float32))
+
+    result = run_stream(_Model(stream), session, to_device=np.asarray)
+
+    assert result.status is StreamStatus.BATCH_REQUIRED
+    assert [len(chunk) for chunk in stream.added] == [16_000]
 
 
 def test_cancel_before_start_does_not_touch_model():
@@ -165,7 +268,7 @@ def test_overflow_during_inference_exits_context():
     add_release = threading.Event()
     stream = _Stream(calls, add_started=add_started, add_release=add_release)
     model = _Model(stream)
-    session = StreamingSession(max_chunks=1)
+    session = StreamingSession(max_chunks=1, block_seconds=1.0)
     session.put_nowait(np.ones(16_000, dtype=np.float32))
 
     with ThreadPoolExecutor(max_workers=1) as worker:
@@ -219,7 +322,7 @@ def test_stream_lifecycle_failure_is_a_failed_outcome(phase):
 def test_model_error_waits_for_terminal_and_preserves_failure_for_circuit_breaker():
     calls = []
     stream = _Stream(calls, add_error=RuntimeError("stream failed"))
-    session = StreamingSession()
+    session = StreamingSession(block_seconds=1.0)
     session.put_nowait(np.ones(16_000, dtype=np.float32))
 
     with ThreadPoolExecutor(max_workers=1) as worker:

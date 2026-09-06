@@ -201,12 +201,30 @@ def test_streaming_publishes_only_final_result_once(engine, monkeypatch):
     assert engine.last_dictation_text == "ONLY THE FINAL"
 
 
+def test_older_settlement_cannot_reset_newer_recording(engine, monkeypatch):
+    engine._dictation_generation = 2
+    engine._recording_generation = 2
+    engine.state = State.RECORDING
+    hidden = []
+    states = []
+    engine.overlay = type("Overlay", (), {"hide": lambda self: hidden.append(True)})()
+    engine.on_state_changed = states.append
+    timing = DictationTiming(1, clock_ns=lambda: 0)
+
+    engine._restore_after_dictation("old", timing, "success_streaming", generation=1)
+
+    assert engine.state is State.RECORDING
+    assert hidden == []
+    assert states == []
+
+
 @pytest.mark.parametrize(
     ("fallback_reason", "expected_status"),
     [
         (None, "success_streaming"),
         ("stream_overflow", "success_fallback_queue_overflow"),
         ("stream_error", "success_fallback_stream_error"),
+        ("long_take_batch", "success_batch_long_take"),
     ],
 )
 def test_streaming_result_maps_privacy_safe_success_status_and_timing(

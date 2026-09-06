@@ -116,6 +116,50 @@ def test_fallback_batch_receives_release_scoped_timing():
     assert transcriber.batch_timings == [timing]
 
 
+def test_long_successful_stream_uses_batch_final_on_same_worker():
+    engine = DictationEngine()
+    engine.worker.shutdown(wait=False)
+    engine.control.shutdown(wait=False)
+    transcriber = _FallbackTranscriber(
+        StreamResult(StreamStatus.BATCH_REQUIRED)
+    )
+    engine.transcriber = transcriber
+    session = StreamingSession()
+    audio = np.ones(16_000 * 16, dtype=np.float32)
+    session.finish(audio)
+
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        worker_thread, result = worker.submit(
+            lambda: (
+                threading.get_ident(),
+                engine._transcribe_stream_with_fallback(session),
+            )
+        ).result()
+
+    assert result == StreamResult(
+        StreamStatus.COMPLETE,
+        text="batch final",
+        fallback_reason="long_take_batch",
+    )
+    assert transcriber.events == ["stream_exit", "batch"]
+    assert transcriber.batch_audio == [audio]
+    assert set(transcriber.thread_ids) == {worker_thread}
+
+
+def test_short_successful_stream_keeps_stream_final():
+    result = StreamResult(StreamStatus.COMPLETE, text="stream final")
+    engine = DictationEngine()
+    engine.worker.shutdown(wait=False)
+    engine.control.shutdown(wait=False)
+    transcriber = _FallbackTranscriber(result)
+    engine.transcriber = transcriber
+    session = StreamingSession()
+    session.finish(np.ones(16_000 * 14, dtype=np.float32))
+
+    assert engine._transcribe_stream_with_fallback(session) is result
+    assert transcriber.events == ["stream_exit"]
+
+
 def test_cancelled_failed_stream_never_batch_transcribes():
     engine = DictationEngine()
     engine.worker.shutdown(wait=False)

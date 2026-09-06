@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import queue
 import threading
 import time
@@ -11,14 +12,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from . import config
+
 if TYPE_CHECKING:
     from .dictation_benchmark import DictationTiming
 
-_DEFAULT_MAX_CHUNKS = 128
-
-
 class StreamStatus(Enum):
     COMPLETE = "complete"
+    BATCH_REQUIRED = "batch_required"
     CANCELLED = "cancelled"
     OVERFLOW = "overflow"
     FAILED = "failed"
@@ -38,9 +39,16 @@ class StreamingSession:
     def __init__(
         self,
         *,
-        max_chunks: int = _DEFAULT_MAX_CHUNKS,
+        max_chunks: int | None = None,
+        block_seconds: float = config.DICTATION_STREAM_BLOCK_SECONDS,
+        max_buffer_seconds: float = config.DICTATION_STREAM_BUFFER_SECONDS,
+        generation: int = 0,
         clock_ns=time.perf_counter_ns,
     ) -> None:
+        if block_seconds <= 0 or max_buffer_seconds <= 0:
+            raise ValueError("stream buffer durations must be positive")
+        if max_chunks is None:
+            max_chunks = math.ceil(max_buffer_seconds / block_seconds)
         if max_chunks < 1:
             raise ValueError("max_chunks must be positive")
         self._chunks: queue.Queue[np.ndarray] = queue.Queue(max_chunks)
@@ -52,6 +60,8 @@ class StreamingSession:
         self._audio: np.ndarray | None = None
         self._timing: DictationTiming | None = None
         self._clock_ns = clock_ns
+        self._block_seconds = block_seconds
+        self.generation = generation
         self._created_ns = clock_ns()
         self._first_chunk_ns: int | None = None
         self._context_started_ns: int | None = None
@@ -179,6 +189,18 @@ class StreamingSession:
         }
 
     @property
+    def block_seconds(self) -> float:
+        return self._block_seconds
+
+    @property
+    def queue_capacity(self) -> int:
+        return self._chunks.maxsize
+
+    @property
+    def queue_capacity_seconds(self) -> float:
+        return self._chunks.maxsize * self._block_seconds
+
+    @property
     def empty(self) -> bool:
         return self._chunks.empty()
 
@@ -194,15 +216,20 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
         )
 
     sample_rate = model.preprocessor_config.sample_rate
+    block_samples = round(session.block_seconds * sample_rate)
     safe_tail = (
         model.preprocessor_config.hop_length
         * model.encoder_config.subsampling_factor
     )
     pending = np.empty(0, dtype=np.float32)
+    streamed_samples = 0
     outcome = None
+    latest_result = None
     try:
         session.context_started()
-        with model.transcribe_stream() as stream:
+        with model.transcribe_stream(
+            depth=config.DICTATION_STREAM_CACHE_DEPTH
+        ) as stream:
             session.context_ready()
             while True:
                 if session.cancelled:
@@ -218,14 +245,38 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
                     continue
                 chunk = np.asarray(chunk, dtype=np.float32).reshape(-1)
                 pending = np.concatenate((pending, chunk))
-                while len(pending) >= sample_rate:
+                while len(pending) >= block_samples:
                     started = session.add_audio_started()
                     try:
-                        stream.add_audio(to_device(pending[:sample_rate]))
+                        stream.add_audio(to_device(pending[:block_samples]))
                     finally:
                         session.add_audio_finished(started)
-                    pending = pending[sample_rate:]
+                    streamed_samples += block_samples
+                    pending = pending[block_samples:]
+                    if (
+                        streamed_samples
+                        >= config.DICTATION_BATCH_FINAL_SECONDS * sample_rate
+                    ):
+                        outcome = StreamResult(StreamStatus.BATCH_REQUIRED)
+                        pending = np.empty(0, dtype=np.float32)
+                        break
+                    started = session.provisional_started()
+                    try:
+                        latest_result = stream.result
+                    finally:
+                        session.provisional_finished(started)
+                if outcome is not None:
+                    break
 
+            audio = session.audio
+            if (
+                outcome is None
+                and audio is not None
+                and len(audio)
+                >= config.DICTATION_BATCH_FINAL_SECONDS * sample_rate
+            ):
+                outcome = StreamResult(StreamStatus.BATCH_REQUIRED)
+                pending = np.empty(0, dtype=np.float32)
             if outcome is None and len(pending):
                 if len(pending) < safe_tail:
                     pending = np.pad(pending, (0, safe_tail - len(pending)))
@@ -234,16 +285,31 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
                     stream.add_audio(to_device(pending))
                 finally:
                     session.add_audio_finished(started)
-            if outcome is None:
                 started = session.final_flush_started()
                 try:
-                    outcome = StreamResult(
-                        StreamStatus.COMPLETE, text=stream.result.text.strip()
-                    )
+                    latest_result = stream.result
                 finally:
                     session.final_flush_finished(started)
+            elif outcome is None and latest_result is None:
+                started = session.final_flush_started()
+                try:
+                    latest_result = stream.result
+                finally:
+                    session.final_flush_finished(started)
+            if outcome is None:
+                outcome = StreamResult(
+                    StreamStatus.COMPLETE, text=latest_result.text.strip()
+                )
     except Exception as error:
         outcome = StreamResult(StreamStatus.FAILED, error=error)
+
+    if outcome is not None and outcome.status is StreamStatus.BATCH_REQUIRED:
+        while not session.cancelled:
+            try:
+                session.get(timeout=0.05)
+            except queue.Empty:
+                if session.finished and session.empty:
+                    break
 
     if not session.finished and not session.cancelled:
         session.wait()

@@ -132,6 +132,9 @@ class DictationEngine:
         self._dictation_stream_timing: DictationTiming | None = None
         self._dictation_stream_lock = threading.Lock()
         self._dictation_stream_disabled = not config.DICTATION_STREAMING_ENABLED
+        self._dictation_generation = 0
+        self._recording_generation = 0
+        self._dictation_repeat_ready = False
 
     # -- lifecycle ------------------------------------------------------
 
@@ -232,12 +235,22 @@ class DictationEngine:
         self._recorder_busy = False
         with self._dictation_stream_lock:
             streaming_enabled = not self._dictation_stream_disabled
+            active_stream = self._dictation_stream
+        repeat_ready = self._dictation_repeat_ready
+        self._dictation_repeat_ready = False
+        self._dictation_generation += 1
+        generation = self._dictation_generation
+        self._recording_generation = generation
         session = (
-            StreamingSession(clock_ns=self._dictation_clock_ns)
-            if self.state is State.READY
+            StreamingSession(
+                clock_ns=self._dictation_clock_ns,
+                generation=generation,
+            )
+            if (self.state is State.READY or repeat_ready)
             and self.transcriber is not None
             and not self._meeting_active
             and streaming_enabled
+            and active_stream is None
             else None
         )
         try:
@@ -290,8 +303,20 @@ class DictationEngine:
         except Exception as error:
             result = StreamResult(StreamStatus.FAILED, error=error)
 
-        if result.status in (StreamStatus.COMPLETE, StreamStatus.CANCELLED):
+        if result.status is StreamStatus.CANCELLED:
             return result
+        if result.status is StreamStatus.COMPLETE:
+            return result
+        if result.status is StreamStatus.BATCH_REQUIRED:
+            audio = session.audio
+            if audio is None:
+                return StreamResult(StreamStatus.FAILED)
+            text = transcriber.transcribe(audio, timing=session.timing)
+            return StreamResult(
+                StreamStatus.COMPLETE,
+                text=text,
+                fallback_reason="long_take_batch",
+            )
         if result.status is StreamStatus.FAILED:
             # A model streaming failure may recur on every take. Keep batch
             # dictation available, but stop creating streams until relaunch.
@@ -321,6 +346,7 @@ class DictationEngine:
         )
 
     def _stop_recording(self, release_received: int | None = None) -> None:
+        generation = getattr(self, "_recording_generation", None)
         timing = DictationTiming(
             next(self._dictation_take_ids), clock_ns=self._dictation_clock_ns
         )
@@ -337,7 +363,7 @@ class DictationEngine:
         except Exception:
             traceback.print_exc()
             timing.mark("recorder_stop_finished")
-            self._finish_dictation(timing, "pipeline_exception")
+            self._finish_dictation(timing, "pipeline_exception", generation)
             return
         timing.recorder_stop_outcome = stopped.outcome
         recorder_busy, self._recorder_busy = self._recorder_busy, False
@@ -348,7 +374,7 @@ class DictationEngine:
             )
         except Exception:
             traceback.print_exc()
-            self._finish_dictation(timing, "pipeline_exception")
+            self._finish_dictation(timing, "pipeline_exception", generation)
             return
         if recorder_busy or stopped.outcome != "normal" or too_short:
             self._cancel_dictation_stream()
@@ -370,7 +396,7 @@ class DictationEngine:
                 if status == "recording_too_short":
                     print("  → (too short, ignored)")
             finally:
-                self._finish_dictation(timing, status)
+                self._finish_dictation(timing, status, generation)
             return
         with self._dictation_stream_lock:
             session = self._dictation_stream
@@ -402,10 +428,15 @@ class DictationEngine:
         # Kick off transcription before the sound: Popen costs ~10-30 ms.
         timing.mark("worker_submitted")
         try:
-            self.worker.submit(self._transcribe_and_paste, stopped.audio, timing)
+            self.worker.submit(
+                self._transcribe_and_paste,
+                stopped.audio,
+                timing,
+                generation,
+            )
         except Exception:
             traceback.print_exc()
-            self._finish_dictation(timing, "pipeline_exception")
+            self._finish_dictation(timing, "pipeline_exception", generation)
             return
         if self.overlay:
             self.overlay.show_transcribing()
@@ -445,14 +476,22 @@ class DictationEngine:
             previous = self._read_dictation_clipboard(timing)
         except Exception:
             traceback.print_exc()
-            self._restore_after_dictation(previous, timing, "pipeline_exception")
+            self._restore_after_dictation(
+                previous,
+                timing,
+                "pipeline_exception",
+                generation=session.generation,
+            )
             return
         try:
             result = future.result()
         except Exception:
             traceback.print_exc()
             self._restore_after_dictation(
-                previous, timing, "transcription_exception"
+                previous,
+                timing,
+                "transcription_exception",
+                generation=session.generation,
             )
             return
         for name, value in session.metrics().items():
@@ -463,15 +502,22 @@ class DictationEngine:
                 None: "success_streaming",
                 "stream_overflow": "success_fallback_queue_overflow",
                 "stream_error": "success_fallback_stream_error",
+                "long_take_batch": "success_batch_long_take",
             }.get(result.fallback_reason, "pipeline_exception")
             self._finalize_dictation(
                 result.text or "",
                 previous,
                 timing,
                 success_status=success_status,
+                generation=session.generation,
             )
             return
-        self._restore_after_dictation(previous, timing, "pipeline_exception")
+        self._restore_after_dictation(
+            previous,
+            timing,
+            "pipeline_exception",
+            generation=session.generation,
+        )
 
     def _stop_recorder_guarded(
         self, timing: DictationTiming | None = None
@@ -877,12 +923,19 @@ class DictationEngine:
                 timing.mark("pipeline_finished")
                 timing.emit(status)
 
-    def _finish_dictation(self, timing: DictationTiming, status: str) -> None:
+    def _finish_dictation(
+        self,
+        timing: DictationTiming,
+        status: str,
+        generation: int | None = None,
+    ) -> None:
         timing.mark("cleanup_started")
         try:
-            if self.overlay:
-                self.overlay.hide()
-            self._set_state(self._idle_state())
+            if generation is None or generation == self._dictation_generation:
+                self._dictation_repeat_ready = False
+                if self.overlay:
+                    self.overlay.hide()
+                self._set_state(self._idle_state())
         except Exception:
             traceback.print_exc()
             if status.startswith("success"):
@@ -892,7 +945,10 @@ class DictationEngine:
             timing.emit(status)
 
     def _transcribe_and_paste(
-        self, audio, timing: DictationTiming | None = None
+        self,
+        audio,
+        timing: DictationTiming | None = None,
+        generation: int | None = None,
     ) -> None:
         previous = None
         if timing is not None:
@@ -903,7 +959,9 @@ class DictationEngine:
             previous = self._read_dictation_clipboard(timing)
         except Exception:
             traceback.print_exc()
-            self._restore_after_dictation(previous, timing, "pipeline_exception")
+            self._restore_after_dictation(
+                previous, timing, "pipeline_exception", generation=generation
+            )
             return
         started = time.perf_counter()
         try:
@@ -913,13 +971,16 @@ class DictationEngine:
                 text = self.transcriber.transcribe(audio, timing=timing)
         except Exception:
             traceback.print_exc()
-            self._restore_after_dictation(previous, timing, "transcription_exception")
+            self._restore_after_dictation(
+                previous, timing, "transcription_exception", generation=generation
+            )
             return
         self._finalize_dictation(
             text,
             previous,
             timing,
             elapsed=time.perf_counter() - started,
+            generation=generation,
         )
 
     @staticmethod
@@ -940,6 +1001,7 @@ class DictationEngine:
         *,
         elapsed: float | None = None,
         success_status: str = "success",
+        generation: int | None = None,
     ) -> None:
         """Apply the final profile result and perform at most one paste."""
         status = "pipeline_exception"
@@ -985,6 +1047,7 @@ class DictationEngine:
                     raise
             finally:
                 if not self._user_paused:
+                    self._dictation_repeat_ready = True
                     self._listener.resume()
             time.sleep(config.PASTE_SETTLE_SECONDS)
             if timing is not None:
@@ -993,13 +1056,16 @@ class DictationEngine:
         except Exception:
             traceback.print_exc()
         finally:
-            self._restore_after_dictation(previous, timing, status)
+            self._restore_after_dictation(
+                previous, timing, status, generation=generation
+            )
 
     def _restore_after_dictation(
         self,
         previous,
         timing: DictationTiming | None,
         status: str,
+        generation: int | None = None,
     ) -> None:
         # Always restore, even if recognition, profiling, or insertion raised.
         if timing is None:
@@ -1021,7 +1087,7 @@ class DictationEngine:
                 status = "pipeline_exception"
         finally:
             timing.mark("clipboard_restore_finished")
-            self._finish_dictation(timing, status)
+            self._finish_dictation(timing, status, generation)
 
     def correct_last_dictation(self, intended: str) -> bool:
         """Teach the active profile from the most recent raw ASR result."""

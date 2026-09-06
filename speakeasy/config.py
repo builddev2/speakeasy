@@ -25,6 +25,19 @@ MIN_DURATION_SECONDS = 0.3
 # latency comparison; both paths remain fully offline.
 DICTATION_STREAMING_ENABLED = True
 
+# Immediate audio crosses bounded queues as two-second blocks. Queue capacity
+# is expressed in audio seconds so callback block-size changes cannot silently
+# shrink the safety margin back to a few seconds.
+DICTATION_CAPTURE_BLOCK_FRAMES = 512
+DICTATION_CAPTURE_BUFFER_SECONDS = 4.0
+DICTATION_STREAM_BLOCK_SECONDS = 2.0
+DICTATION_STREAM_CACHE_DEPTH = 2
+DICTATION_STREAM_BUFFER_SECONDS = 30.0
+# Streaming finalization grows with accumulated context. Beyond this duration,
+# reuse the authoritative helper-owned audio for a faster, accuracy-preserving
+# batch final on the same MLX worker after the streaming context has closed.
+DICTATION_BATCH_FINAL_SECONDS = 15.0
+
 # How long to wait for the recorder to stop before giving up on it. A wedged
 # CoreAudio call must not freeze the control thread (and with it the hotkey),
 # so past this the stream is abandoned and the mic forcibly released.

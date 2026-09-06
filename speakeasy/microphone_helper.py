@@ -7,6 +7,7 @@ one; Python cannot safely stop a thread blocked in the HAL.
 
 from __future__ import annotations
 
+import math
 import multiprocessing
 import queue
 import threading
@@ -19,7 +20,17 @@ from . import config
 
 _COMMAND_TIMEOUT_SECONDS = 1.5
 _TERMINATE_TIMEOUT_SECONDS = 0.5
-_AUDIO_QUEUE_MAX = 128
+_CAPTURE_QUEUE_MAX = math.ceil(
+    config.DICTATION_CAPTURE_BUFFER_SECONDS
+    * config.SAMPLE_RATE
+    / config.DICTATION_CAPTURE_BLOCK_FRAMES
+)
+_STREAM_QUEUE_MAX = math.ceil(
+    config.DICTATION_STREAM_BUFFER_SECONDS / config.DICTATION_STREAM_BLOCK_SECONDS
+)
+_STREAM_BLOCK_FRAMES = round(
+    config.DICTATION_STREAM_BLOCK_SECONDS * config.SAMPLE_RATE
+)
 
 
 class MicrophoneHelperError(Exception):
@@ -41,20 +52,42 @@ class _CaptureBuffer:
         self.capture_dropped_frames = 0
         self.stream_dropped_frames = 0
         chunks: list[np.ndarray] = []
-        audio_queue: queue.Queue[np.ndarray | None] = queue.Queue(_AUDIO_QUEUE_MAX)
+        audio_queue: queue.Queue[np.ndarray | None] = queue.Queue(_CAPTURE_QUEUE_MAX)
 
         def collect() -> None:
+            stream_parts = []
+            stream_frames = 0
+
+            def deliver(*, final: bool = False) -> None:
+                nonlocal stream_parts, stream_frames
+                if not stream_parts or (
+                    stream_frames < _STREAM_BLOCK_FRAMES and not final
+                ):
+                    return
+                combined = np.concatenate(stream_parts, axis=0)
+                deliver_frames = len(combined) if final else _STREAM_BLOCK_FRAMES
+                block = combined[:deliver_frames]
+                remainder = combined[deliver_frames:]
+                stream_parts = [remainder] if len(remainder) else []
+                stream_frames = len(remainder)
+                try:
+                    self._stream_queue.put_nowait(block)
+                except queue.Full:
+                    self.stream_dropped_frames += len(block)
+
             while True:
                 chunk = audio_queue.get()
                 if chunk is None:
+                    if deliver_chunks:
+                        deliver(final=True)
                     return
                 chunks.append(chunk)
                 self._level.value = float(np.sqrt(np.mean(chunk**2)))
                 if deliver_chunks:
-                    try:
-                        self._stream_queue.put_nowait(chunk)
-                    except queue.Full:
-                        self.stream_dropped_frames += len(chunk)
+                    stream_parts.append(chunk)
+                    stream_frames += len(chunk)
+                    while stream_frames >= _STREAM_BLOCK_FRAMES:
+                        deliver()
 
         collector = threading.Thread(
             target=collect, name="dictation-audio-collector", daemon=True
@@ -110,6 +143,7 @@ def _open_stream(capture: _CaptureBuffer):
         samplerate=config.SAMPLE_RATE,
         channels=1,
         dtype="float32",
+        blocksize=config.DICTATION_CAPTURE_BLOCK_FRAMES,
         callback=capture.callback,
     )
 
@@ -188,7 +222,7 @@ class MicrophoneHelper:
         self._child_connection = child
         self._child_connection_closed = False
         self._level = context.Value("d", 0.0, lock=False)
-        self._stream_queue = context.Queue(_AUDIO_QUEUE_MAX)
+        self._stream_queue = context.Queue(_STREAM_QUEUE_MAX)
         self._process = context.Process(
             target=run_microphone_helper,
             args=(child, self._level, self._stream_queue),

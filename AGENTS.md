@@ -60,9 +60,13 @@ contexts are intentionally bounded and single-purpose:
   `_stop_meeting_recorder_guarded`). Immediate dictation owns CoreAudio in a
   prewarmed helper process; on timeout `force_close()` kills it so the next take
   can create a fresh helper. Its realtime callback only copies and
-  `put_nowait`s into a bounded queue; optional parent-side chunks may drop but
-  complete batch audio is retained separately, and capture-queue overflow must
-  fail the take. Meeting capture remains in-process and uses the process-wide
+  `put_nowait`s into a bounded queue; the collector coalesces two-second blocks
+  before the IPC/worker boundaries, whose capacities are expressed in seconds
+  of audio. Optional streaming blocks may drop but complete batch audio is
+  retained separately, and capture-queue overflow must fail the take. Takes of
+  15 seconds or longer close the streaming context and use that complete audio
+  for a batch final on the same worker; no draft is ever published. Meeting
+  capture remains in-process and uses the process-wide
   `coreaudio.teardown` guard; never clear that marker from force-close.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from

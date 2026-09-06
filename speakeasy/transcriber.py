@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import config, preprocess, settings
 from .dictation_benchmark import DictationTiming
-from .dictation_stream import StreamResult, StreamingSession, run_stream
+from .dictation_stream import StreamResult, StreamStatus, StreamingSession, run_stream
 
 
 class MeetingCancelled(Exception):
@@ -113,6 +113,13 @@ class Transcriber:
         # First call triggers MLX graph compilation (~1s); pay it now with
         # a second of silence rather than on the user's first dictation.
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
+        warm_session = StreamingSession()
+        silence = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
+        warm_session.put_nowait(silence)
+        warm_session.finish(silence)
+        warmed = self.transcribe_stream(warm_session)
+        if warmed.status is not StreamStatus.COMPLETE:
+            raise RuntimeError("streaming model warmup failed")
 
     def transcribe(
         self, audio: np.ndarray, *, timing: DictationTiming | None = None

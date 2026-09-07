@@ -132,7 +132,9 @@ def record_take(transcriber, worker, control, reference, *, sounds=False):
             "integrity_matches": session.integrity_matches(),
             "delivery_complete": recorder.stream_delivery_complete,
             "stream_dropped_frames": recorder.stream_dropped_frames,
+            "stream_metrics": session.metrics(),
         }
+        signal = np.flatnonzero(np.abs(audio) >= config.TRIM_ABSOLUTE_FLOOR)
         report["audio"] = {
             "frames": len(audio), "seconds": len(audio) / config.SAMPLE_RATE,
             "sample_rate": config.SAMPLE_RATE, "channels": 1, "dtype": "float32",
@@ -141,6 +143,8 @@ def record_take(transcriber, worker, control, reference, *, sounds=False):
             "rms": float(np.sqrt(np.mean(audio ** 2))) if len(audio) else 0,
             "clipped_frames": int(np.count_nonzero(np.abs(audio) >= 1)),
             "silent_frames": int(np.count_nonzero(audio == 0)),
+            "first_signal_frame": int(signal[0]) if len(signal) else None,
+            "last_signal_frame": int(signal[-1]) if len(signal) else None,
             "start_sound_enabled": sounds,
         }
         return report
@@ -220,6 +224,8 @@ def main(argv=None):
     fd = os.open(args.output.expanduser(), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as target:
         sweep_temporary_audio()
+        # A missing dev cache must fail locally, never initiate a model download.
+        os.environ["HF_HUB_OFFLINE"] = "1"
         from .transcriber import Transcriber
         takes = []
 

@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import threading
 
 import numpy as np
@@ -69,7 +70,13 @@ def test_failed_attempt_is_recorded_and_cannot_pass_gate(tmp_path, monkeypatch):
     answers = iter(["RECORD", "private reference"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     monkeypatch.setattr(diagnostic.settings, "app_support_dir", lambda: tmp_path)
-    monkeypatch.setattr("speakeasy.transcriber.Transcriber", lambda: object())
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+
+    def load_offline():
+        assert os.environ["HF_HUB_OFFLINE"] == "1"
+        return object()
+
+    monkeypatch.setattr("speakeasy.transcriber.Transcriber", load_offline)
 
     def fail(*args, **kwargs):
         raise RuntimeError("private failure detail")

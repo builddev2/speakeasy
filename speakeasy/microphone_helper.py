@@ -98,6 +98,9 @@ class _CaptureBuffer:
         collector.start()
 
     def callback(self, indata: np.ndarray, frames: int, time, status) -> None:
+        if status and status.input_overflow:
+            # PortAudio lost input before our queue; the batch is incomplete too.
+            self.capture_dropped_frames += frames
         if not self._session_lock.acquire(blocking=False):
             self.capture_dropped_frames += frames
             return

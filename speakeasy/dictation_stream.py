@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import queue
 import threading
@@ -70,6 +71,8 @@ class StreamingSession:
         self._provisional_ns = 0
         self._final_flush_ns = 0
         self._queue_high_water = 0
+        self.received_frames = 0
+        self._received_digest = hashlib.sha256()
 
     def put_nowait(self, chunk: np.ndarray) -> None:
         try:
@@ -132,7 +135,23 @@ class StreamingSession:
         self._terminal.wait()
 
     def get(self, timeout: float) -> np.ndarray:
-        return self._chunks.get(timeout=timeout)
+        chunk = self._chunks.get(timeout=timeout)
+        audio = np.asarray(chunk, dtype=np.float32)
+        if audio.ndim != 1 and not (audio.ndim == 2 and audio.shape[1] == 1):
+            raise ValueError("stream audio must be mono")
+        self.received_frames += len(audio)
+        self._received_digest.update(audio.tobytes())
+        return chunk
+
+    def integrity_matches(self) -> bool:
+        audio = self.audio
+        return (
+            audio is not None
+            and audio.ndim == 1
+            and self.received_frames == len(audio)
+            and self._received_digest.digest()
+            == hashlib.sha256(np.asarray(audio, dtype=np.float32).tobytes()).digest()
+        )
 
     def get_nowait(self) -> np.ndarray:
         return self._chunks.get_nowait()
@@ -205,7 +224,8 @@ class StreamingSession:
         return self._chunks.empty()
 
 
-def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
+def run_stream(model, session: StreamingSession, *, to_device,
+               cache_depth=None, batch_final_seconds=None) -> StreamResult:
     """Run every model streaming operation on the calling worker thread."""
     if session.cancelled:
         return StreamResult(StreamStatus.CANCELLED)
@@ -216,6 +236,10 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
         )
 
     sample_rate = model.preprocessor_config.sample_rate
+    if cache_depth is None:
+        cache_depth = config.DICTATION_STREAM_CACHE_DEPTH
+    if batch_final_seconds is None:
+        batch_final_seconds = config.DICTATION_BATCH_FINAL_SECONDS
     block_samples = round(session.block_seconds * sample_rate)
     safe_tail = (
         model.preprocessor_config.hop_length
@@ -228,7 +252,7 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
     try:
         session.context_started()
         with model.transcribe_stream(
-            depth=config.DICTATION_STREAM_CACHE_DEPTH
+            depth=cache_depth
         ) as stream:
             session.context_ready()
             while True:
@@ -255,7 +279,7 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
                     pending = pending[block_samples:]
                     if (
                         streamed_samples
-                        >= config.DICTATION_BATCH_FINAL_SECONDS * sample_rate
+                        >= batch_final_seconds * sample_rate
                     ):
                         outcome = StreamResult(StreamStatus.BATCH_REQUIRED)
                         pending = np.empty(0, dtype=np.float32)
@@ -273,7 +297,7 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
                 outcome is None
                 and audio is not None
                 and len(audio)
-                >= config.DICTATION_BATCH_FINAL_SECONDS * sample_rate
+                >= batch_final_seconds * sample_rate
             ):
                 outcome = StreamResult(StreamStatus.BATCH_REQUIRED)
                 pending = np.empty(0, dtype=np.float32)
@@ -319,4 +343,7 @@ def run_stream(model, session: StreamingSession, *, to_device) -> StreamResult:
         return StreamResult(StreamStatus.CANCELLED)
     if session.overflowed:
         return StreamResult(StreamStatus.OVERFLOW)
+    if outcome.status is StreamStatus.COMPLETE and not session.integrity_matches():
+        return StreamResult(StreamStatus.FAILED,
+                            error=ValueError("stream audio integrity mismatch"))
     return outcome

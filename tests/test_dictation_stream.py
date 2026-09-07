@@ -122,7 +122,8 @@ def test_stream_coalesces_one_second_and_pads_model_safe_tail():
     session = StreamingSession(block_seconds=1.0)
     session.put_nowait(np.ones(8_000, dtype=np.float32))
     session.put_nowait(np.full(9_000, 2.0, dtype=np.float32))
-    audio = np.ones(17_000, dtype=np.float32)
+    audio = np.concatenate((np.ones(8_000, dtype=np.float32),
+                            np.full(9_000, 2.0, dtype=np.float32)))
     session.finish(audio)
 
     result = run_stream(model, session, to_device=np.asarray)
@@ -309,6 +310,7 @@ def test_stream_lifecycle_failure_is_a_failed_outcome(phase):
     stream = _Stream(calls, **kwargs)
     model = _Model(stream, create_error=error if phase == "create" else None)
     session = StreamingSession()
+    session.put_nowait(np.ones(16_000, dtype=np.float32))
     session.finish(np.ones(16_000, dtype=np.float32))
 
     result = run_stream(model, session, to_device=np.asarray)
@@ -365,3 +367,35 @@ def test_invalid_finish_marks_stream_overflow_after_attaching_audio():
     assert session.audio is audio
     assert session.finished is True
     assert session.overflowed is True
+
+
+@pytest.mark.parametrize("delivered", [np.arange(15999, dtype=np.float32),
+                                     np.arange(16001, dtype=np.float32),
+                                     np.arange(16000, dtype=np.float32)[::-1]])
+def test_missing_extra_or_reordered_frames_discard_final(delivered):
+    session = StreamingSession()
+    session.put_nowait(delivered)
+    session.finish(np.arange(16000, dtype=np.float32))
+    result = run_stream(_Model(_Stream([])), session, to_device=np.asarray)
+    assert result.status is StreamStatus.FAILED
+    assert result.text is None
+    assert "integrity" in str(result.error)
+
+
+def test_late_tail_is_drained_before_integrity_and_completion():
+    session = StreamingSession(block_seconds=1)
+    started, release = threading.Event(), threading.Event()
+    stream = _Stream([], add_started=started, add_release=release)
+    audio = np.arange(16123, dtype=np.float32)
+    session.put_nowait(audio[:16000])
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        future = worker.submit(run_stream, _Model(stream), session, to_device=np.asarray)
+        assert started.wait(1)
+        session.put_nowait(audio[16000:])
+        session.finish(audio)
+        release.set()
+        result = future.result()
+    assert result.status is StreamStatus.COMPLETE
+    assert session.received_frames == len(audio)
+    assert session.integrity_matches()
+    assert np.array_equal(stream.added[-1][:123], audio[-123:])

@@ -1,0 +1,16 @@
+.body { padding: 16px 32px 28px; overflow-y: auto; flex: 1; color: var(--text); font: 14px/1.5 var(--sans); }
+.body h1 { font-size: 25px; line-height: 1.2; margin: 10px 0 16px; letter-spacing: -.5px; }
+.eyebrow { color: var(--text-mid); font-size: 10px; letter-spacing: 1.5px; }
+.notice, .prompt { background: var(--glass-fill); border: 1px solid var(--hairline-lo); border-radius: 14px; padding: 18px; margin: 18px 0; }
+.notice p { margin: 9px 0 0; }
+.prompt { font-size: 19px; line-height: 1.55; max-height: 255px; overflow: auto; }
+.muted { color: var(--text-mid); font-size: 12px; }
+.condition { color: #f0b34a; font-weight: 600; }
+.status { color: var(--text-mid); margin: 12px 0; }
+.primary, .secondary { border-radius: 10px; border: 1px solid var(--hairline); padding: 11px 18px; font: 600 14px var(--sans); cursor: pointer; }
+.primary { background: linear-gradient(135deg, #e8955a, #d97844); color: #17120f; }
+.secondary { background: transparent; color: var(--text); margin-left: 12px; }
+.primary:disabled, .secondary:disabled { opacity: .45; cursor: default; }
+.primary:focus-visible, .secondary:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.score { font-size: 36px; margin: 22px 0; }
+.score span { font-size: 14px; color: var(--text-mid); }

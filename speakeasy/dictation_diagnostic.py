@@ -90,21 +90,25 @@ def compare(transcriber, audio, reference):
     return report
 
 
-def record_take(transcriber, worker, control, reference, *, sounds=False):
+def record_take(transcriber, worker, control, reference, *, sounds=False,
+                prompt=None, recorder=None, session=None, processing=lambda: None,
+                is_cancelled=lambda: False):
     from .recorder import Recorder
     from .engine import play_sound
 
-    recorder = Recorder()
-    session = StreamingSession()
+    prompt = prompt or input
+    recorder = recorder or Recorder()
+    session = session or StreamingSession()
     future = None
     try:
         control.submit(recorder.prewarm).result()
-        input("Reference is fixed. Press Return to start recording: ")
+        prompt("Reference is fixed. Press Return to start recording: ")
         control.submit(recorder.start, chunk_queue=session).result()
         future = worker.submit(transcriber.transcribe_stream, session)
         if sounds:
             play_sound(config.SOUND_START)
-        input("RECORDING — speak the reference, then press Return to stop: ")
+        prompt("RECORDING — speak the reference, then press Return to stop: ")
+        processing()
         released = time.perf_counter()
         stop = control.submit(recorder.stop)
         try:
@@ -117,6 +121,8 @@ def record_take(transcriber, worker, control, reference, *, sounds=False):
         if sounds:
             play_sound(config.SOUND_STOP)
         live = future.result()
+        if is_cancelled():
+            raise InterruptedError()
         live_ms = (time.perf_counter() - released) * 1000
         with temporary_wav(audio) as wav:
             saved = np.frombuffer(wav.read_bytes(), dtype="<f4", offset=44).copy()
@@ -176,8 +182,8 @@ def summarize(takes):
                              or not row["live"]["delivery_complete"]
                              or row["live"]["stream_dropped_frames"] > 0
                              for row in takes)
-    coverage = len(takes) >= 100 and all(len(rows) >= 32 for rows in groups.values())
-    coverage = coverage and all(sum(row.get(field) == value for row in takes) >= 40
+    coverage = len(takes) >= 30 and all(len(rows) >= 10 for rows in groups.values())
+    coverage = coverage and all(sum(row.get(field) == value for row in takes) >= 15
                                 for field, values in (("condition", ("quiet", "moderate_noise")),
                                                       ("vocabulary", ("ordinary", "technical")))
                                 for value in values)
@@ -187,7 +193,7 @@ def summarize(takes):
     numerical_pass = (coverage and not catastrophes and not integrity_failures
                       and all(value is not None and value <= .05 for value in required_wers)
                       and overall["stream_depth_2"] <= overall["batch"] + .01)
-    return {"takes": len(takes), "duration_counts": {k: len(v) for k, v in groups.items()},
+    return {"protocol": "30_prompt_screen", "takes": len(takes), "duration_counts": {k: len(v) for k, v in groups.items()},
             "weighted_wer": overall, "duration_wer": per_group,
             "catastrophic_candidates": catastrophes, "integrity_failures": integrity_failures,
             "numerical_gate_pass": numerical_pass,

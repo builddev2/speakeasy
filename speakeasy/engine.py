@@ -101,6 +101,8 @@ class DictationEngine:
     """
 
     def __init__(self) -> None:
+        self._diagnostic_cancel = None
+        self._shutting_down = False
         self.recorder = Recorder()
         self.meeting_recorder = MeetingCaptureRecorder()
         self.worker = ThreadPoolExecutor(max_workers=1)
@@ -172,6 +174,7 @@ class DictationEngine:
         the mic. Single source of truth for the menu item and dock button."""
         return (
             self.transcriber is not None
+            and self._diagnostic_cancel is None
             and self.profile is not None
             and self.state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING)
         )
@@ -195,6 +198,9 @@ class DictationEngine:
         self._set_state(self._idle_state())
 
     def shutdown(self) -> None:
+        self._shutting_down = True
+        if self._diagnostic_cancel is not None:
+            self._diagnostic_cancel()
         self._listener.stop()
         self._cancel_dictation_stream()
         self.recorder.force_close()

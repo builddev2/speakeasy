@@ -74,21 +74,24 @@ introduced.
   consent, exact WAV roundtrip, private permissions, deletion on success/error,
   expiry, orphan cleanup, failed-attempt accounting and no diagnostic telemetry.
 
-The repository provides 100 prewritten references: 34 short, 34 medium, 32 long;
-50 quiet/50 moderate-noise; 50 ordinary/50 technical. Actual recording durations
+The current app provides 30 prewritten references: ten per duration;
+15 quiet/15 moderate-noise; 15 ordinary/15 technical. This user-requested shorter
+screen does not establish equivalence to the original 100-take acceptance gate. Actual recording durations
 are measured, so reading outside a requested range can require additional takes.
 The real-device corpus currently has **zero takes**. WER and live latency are
 unmeasured. Manual catastrophic-error and condition review remains required even
 if numerical checks pass. The safe default cannot auto-enable itself.
 
-Read the README's consented microphone section and `real-mic-reading-sheet.md`.
-Run the installed executable in an interactive Terminal with
-`--dictation-diagnostic /tmp/speakeasy-real-mic-100.json --diagnostic-corpus`
-followed by the absolute path to `docs/real-mic-corpus.json`, and
-`--diagnostic-sounds`. Quit other instances first. Type `RECORD`, then press
-Return to start and stop each spoken reference. Expect roughly 30–45 minutes,
-including comparisons and changing recording conditions. Do not substitute
-synthetic playback or rewrite references after recognition.
+Open Speakeasy from the Dock, choose **Check Microphone**, and then **Begin
+30-prompt check**. Read the displayed reference and use Start recording / Stop &
+compare. All quiet prompts precede the noisy prompts. Allow about 12–18 minutes.
+Completed results persist in the private diagnostic-reports folder; cancel and
+window-close unblock the session and restore normal dictation after cleanup.
+Model and recorder work use the engine's existing worker/control executors.
+
+The original 323-test result above records the preceding CLI implementation.
+The in-app version additionally tests prompt balance, button sequencing,
+cancellation, shared engine resources and saved-report permissions.
 
 ## Scope and privacy
 

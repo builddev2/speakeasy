@@ -438,7 +438,7 @@ class StatusItemController(NSObject):
         # reached by delegation from the dock window's JS button, which has
         # no equivalent native disablement) — so the profile guard has to
         # live here too, matching the old dock-side check exactly.
-        if self.engine.profile is None:
+        if self.engine.profile is None or self.engine._diagnostic_cancel is not None:
             return
         from .training_window import TrainingWindowController
 

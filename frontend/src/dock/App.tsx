@@ -192,7 +192,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     }
   }
 
-  function openWindow(name: 'meetings' | 'training') {
+  function openWindow(name: 'meetings' | 'training' | 'diagnostic') {
     if (bridge.embedded) void bridge.call('app.openWindow', { name });
     else console.log('open', name);
   }
@@ -210,7 +210,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   const primaryDisabled = !isRecording && (app.mode !== 'ready' || !selectedAppAvailable);
 
   return (
-    <GlassPanel width={360} height={335}>
+    <GlassPanel width={360} height={385}>
       <TitleBar plain />
       <div className={styles.body}>
         <AppIdentity
@@ -311,6 +311,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             title={app.canTrain ? undefined : 'Pick a profile (not Guest) and wait for the model to load.'}
             onClick={app.canTrain ? () => openWindow('training') : undefined}
           />
+        </div>
+
+        <div className={styles.row}>
+          <GlassButton icon={<TrainIcon />} label="Check Microphone" dim={app.mode !== 'ready'} onClick={app.mode === 'ready' ? () => openWindow('diagnostic') : undefined} />
         </div>
 
         <div className={styles.foot}>

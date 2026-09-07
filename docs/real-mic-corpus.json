@@ -36,667 +36,177 @@
   },
   {
     "id": 6,
-    "expected_duration_group": "short",
+    "expected_duration_group": "medium",
     "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The application must preserve the clipboard."
+    "vocabulary": "ordinary",
+    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team."
   },
   {
     "id": 7,
-    "expected_duration_group": "short",
+    "expected_duration_group": "medium",
     "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Send the summary before lunch."
+    "vocabulary": "technical",
+    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
   },
   {
     "id": 8,
-    "expected_duration_group": "short",
+    "expected_duration_group": "medium",
     "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Validate the renewal forecast before planning."
+    "vocabulary": "ordinary",
+    "reference": "The customer approved the revised plan. Please bring the notes from our last discussion so that everyone has the same information."
   },
   {
     "id": 9,
-    "expected_duration_group": "short",
+    "expected_duration_group": "medium",
     "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Capture the decision and its owner."
+    "vocabulary": "technical",
+    "reference": "Keep the microphone audio fully offline. The release remains blocked until the team verifies the customer workflow on the actual device."
   },
   {
     "id": 10,
-    "expected_duration_group": "short",
+    "expected_duration_group": "medium",
     "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The engineering team reviewed the release."
+    "vocabulary": "ordinary",
+    "reference": "Schedule a follow up meeting tomorrow. I will check the details this afternoon and share any changes with the team."
   },
   {
     "id": 11,
-    "expected_duration_group": "short",
+    "expected_duration_group": "long",
     "condition": "quiet",
     "vocabulary": "ordinary",
-    "reference": "Please move our appointment to Friday."
+    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
   },
   {
     "id": 12,
-    "expected_duration_group": "short",
+    "expected_duration_group": "long",
     "condition": "quiet",
     "vocabulary": "technical",
-    "reference": "The worker processes one request at a time."
+    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
   },
   {
     "id": 13,
-    "expected_duration_group": "short",
+    "expected_duration_group": "long",
     "condition": "quiet",
     "vocabulary": "ordinary",
-    "reference": "The next meeting starts after lunch."
+    "reference": "The customer approved the revised plan. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
   },
   {
     "id": 14,
-    "expected_duration_group": "short",
+    "expected_duration_group": "long",
     "condition": "quiet",
     "vocabulary": "technical",
-    "reference": "Check the sample rate before transcription."
+    "reference": "Keep the microphone audio fully offline. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
   },
   {
     "id": 15,
-    "expected_duration_group": "short",
+    "expected_duration_group": "long",
     "condition": "quiet",
     "vocabulary": "ordinary",
-    "reference": "Leave the package beside the door."
+    "reference": "Schedule a follow up meeting tomorrow. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
   },
   {
     "id": 16,
     "expected_duration_group": "short",
-    "condition": "quiet",
+    "condition": "moderate_noise",
     "vocabulary": "technical",
-    "reference": "The product backlog needs an accountable owner."
+    "reference": "The application must preserve the clipboard."
   },
   {
     "id": 17,
     "expected_duration_group": "short",
-    "condition": "quiet",
+    "condition": "moderate_noise",
     "vocabulary": "ordinary",
-    "reference": "We should confirm the delivery date."
+    "reference": "Send the summary before lunch."
   },
   {
     "id": 18,
     "expected_duration_group": "short",
     "condition": "moderate_noise",
     "vocabulary": "technical",
-    "reference": "The deployment requires a regression check."
+    "reference": "Validate the renewal forecast before planning."
   },
   {
     "id": 19,
     "expected_duration_group": "short",
     "condition": "moderate_noise",
     "vocabulary": "ordinary",
-    "reference": "The team needs a clear answer."
+    "reference": "Capture the decision and its owner."
   },
   {
     "id": 20,
     "expected_duration_group": "short",
     "condition": "moderate_noise",
     "vocabulary": "technical",
-    "reference": "Our pipeline must detect missing frames."
-  },
-  {
-    "id": 21,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Please review the proposal today."
-  },
-  {
-    "id": 22,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The database migration finished successfully."
-  },
-  {
-    "id": 23,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The customer approved the revised plan."
-  },
-  {
-    "id": 24,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Keep the microphone audio fully offline."
-  },
-  {
-    "id": 25,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Schedule a follow up meeting tomorrow."
-  },
-  {
-    "id": 26,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The application must preserve the clipboard."
-  },
-  {
-    "id": 27,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Send the summary before lunch."
-  },
-  {
-    "id": 28,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Validate the renewal forecast before planning."
-  },
-  {
-    "id": 29,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Capture the decision and its owner."
-  },
-  {
-    "id": 30,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
     "reference": "The engineering team reviewed the release."
   },
   {
-    "id": 31,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Please move our appointment to Friday."
-  },
-  {
-    "id": 32,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The worker processes one request at a time."
-  },
-  {
-    "id": 33,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The next meeting starts after lunch."
-  },
-  {
-    "id": 34,
-    "expected_duration_group": "short",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Check the sample rate before transcription."
-  },
-  {
-    "id": 35,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 36,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 37,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "The customer approved the revised plan. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 38,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Keep the microphone audio fully offline. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 39,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Schedule a follow up meeting tomorrow. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 40,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The application must preserve the clipboard. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 41,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Send the summary before lunch. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 42,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Validate the renewal forecast before planning. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 43,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Capture the decision and its owner. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 44,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The engineering team reviewed the release. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 45,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Please move our appointment to Friday. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 46,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The worker processes one request at a time. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 47,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "The next meeting starts after lunch. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 48,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Check the sample rate before transcription. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 49,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Leave the package beside the door. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 50,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The product backlog needs an accountable owner. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 51,
-    "expected_duration_group": "medium",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "We should confirm the delivery date. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 52,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The deployment requires a regression check. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 53,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The team needs a clear answer. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 54,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Our pipeline must detect missing frames. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 55,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 56,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 57,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The customer approved the revised plan. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 58,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Keep the microphone audio fully offline. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 59,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Schedule a follow up meeting tomorrow. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 60,
+    "id": 21,
     "expected_duration_group": "medium",
     "condition": "moderate_noise",
     "vocabulary": "technical",
     "reference": "The application must preserve the clipboard. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
   },
   {
-    "id": 61,
+    "id": 22,
     "expected_duration_group": "medium",
     "condition": "moderate_noise",
     "vocabulary": "ordinary",
     "reference": "Send the summary before lunch. Please bring the notes from our last discussion so that everyone has the same information."
   },
   {
-    "id": 62,
+    "id": 23,
     "expected_duration_group": "medium",
     "condition": "moderate_noise",
     "vocabulary": "technical",
     "reference": "Validate the renewal forecast before planning. The release remains blocked until the team verifies the customer workflow on the actual device."
   },
   {
-    "id": 63,
+    "id": 24,
     "expected_duration_group": "medium",
     "condition": "moderate_noise",
     "vocabulary": "ordinary",
     "reference": "Capture the decision and its owner. I will check the details this afternoon and share any changes with the team."
   },
   {
-    "id": 64,
+    "id": 25,
     "expected_duration_group": "medium",
     "condition": "moderate_noise",
     "vocabulary": "technical",
     "reference": "The engineering team reviewed the release. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
   },
   {
-    "id": 65,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Please move our appointment to Friday. Please bring the notes from our last discussion so that everyone has the same information."
-  },
-  {
-    "id": 66,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The worker processes one request at a time. The release remains blocked until the team verifies the customer workflow on the actual device."
-  },
-  {
-    "id": 67,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The next meeting starts after lunch. I will check the details this afternoon and share any changes with the team."
-  },
-  {
-    "id": 68,
-    "expected_duration_group": "medium",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Check the sample rate before transcription. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
-  },
-  {
-    "id": 69,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 70,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 71,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "The customer approved the revised plan. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 72,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Keep the microphone audio fully offline. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
-  },
-  {
-    "id": 73,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Schedule a follow up meeting tomorrow. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 74,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The application must preserve the clipboard. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 75,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Send the summary before lunch. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 76,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Validate the renewal forecast before planning. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
-  },
-  {
-    "id": 77,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Capture the decision and its owner. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 78,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The engineering team reviewed the release. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 79,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Please move our appointment to Friday. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 80,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The worker processes one request at a time. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
-  },
-  {
-    "id": 81,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "The next meeting starts after lunch. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 82,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "Check the sample rate before transcription. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 83,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "ordinary",
-    "reference": "Leave the package beside the door. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 84,
-    "expected_duration_group": "long",
-    "condition": "quiet",
-    "vocabulary": "technical",
-    "reference": "The product backlog needs an accountable owner. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
-  },
-  {
-    "id": 85,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "We should confirm the delivery date. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 86,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The deployment requires a regression check. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 87,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The team needs a clear answer. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 88,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Our pipeline must detect missing frames. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
-  },
-  {
-    "id": 89,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 90,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 91,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "The customer approved the revised plan. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 92,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "Keep the microphone audio fully offline. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
-  },
-  {
-    "id": 93,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Schedule a follow up meeting tomorrow. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
-  },
-  {
-    "id": 94,
+    "id": 26,
     "expected_duration_group": "long",
     "condition": "moderate_noise",
     "vocabulary": "technical",
     "reference": "The application must preserve the clipboard. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
   },
   {
-    "id": 95,
+    "id": 27,
     "expected_duration_group": "long",
     "condition": "moderate_noise",
     "vocabulary": "ordinary",
     "reference": "Send the summary before lunch. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
   },
   {
-    "id": 96,
+    "id": 28,
     "expected_duration_group": "long",
     "condition": "moderate_noise",
     "vocabulary": "technical",
     "reference": "Validate the renewal forecast before planning. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
   },
   {
-    "id": 97,
+    "id": 29,
     "expected_duration_group": "long",
     "condition": "moderate_noise",
     "vocabulary": "ordinary",
     "reference": "Capture the decision and its owner. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
   },
   {
-    "id": 98,
+    "id": 30,
     "expected_duration_group": "long",
     "condition": "moderate_noise",
     "vocabulary": "technical",
     "reference": "The engineering team reviewed the release. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
-  },
-  {
-    "id": 99,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "ordinary",
-    "reference": "Please move our appointment to Friday. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision."
-  },
-  {
-    "id": 100,
-    "expected_duration_group": "long",
-    "condition": "moderate_noise",
-    "vocabulary": "technical",
-    "reference": "The worker processes one request at a time. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually."
   }
 ]

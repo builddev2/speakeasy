@@ -388,6 +388,28 @@ also batch mode. Latency logs alone cannot establish recognition correctness.
 
 ### Consented microphone correctness checks
 
+Open Speakeasy from the Dock and click **Check Microphone**, then **Begin
+30-prompt check**. The app displays each reference with **Start recording** and
+**Stop & compare** buttons. No Terminal, reading-sheet switching, or separate
+model process is needed. Allow approximately 12–18 minutes. Cancel or close the
+window to stop; dictation resumes after capture/comparison cleanup. The check
+pauses dictation and prevents training/meeting capture from starting concurrently.
+The results screen opens the private report in Finder.
+
+The current protocol is a **30-prompt screen**, reduced by user request from
+100 recordings: ten per duration, 15 quiet followed by 15 moderate-noise,
+and 15 ordinary/15 technical. It retains the WER and frame-integrity criteria,
+but does not provide the same coverage or confidence as 100 independent takes.
+Passing it never automatically enables streaming. The coordinator only waits
+for buttons; all model operations use the existing engine worker.
+
+Private reports are saved under
+`~/Library/Application Support/Speakeasy/diagnostic-reports/` (0700 directory,
+0600 files). References and recognized text remain there until you delete them;
+normal telemetry is unchanged. The existing audio-deletion rules below apply.
+
+The Terminal entry point remains available for development:
+
 Use an interactive Terminal, quit other Speakeasy instances, and run:
 
 ```bash
@@ -416,12 +438,12 @@ For the acceptance session, open [the reading sheet](docs/real-mic-reading-sheet
 and run:
 
 ```bash
-.venv/bin/python -m speakeasy --dictation-diagnostic /tmp/speakeasy-real-mic-100.json \
+.venv/bin/python -m speakeasy --dictation-diagnostic /tmp/speakeasy-real-mic-30.json \
   --diagnostic-corpus docs/real-mic-corpus.json --diagnostic-sounds
 ```
 
-The prepared corpus contains 100 takes: 34 short, 34 medium, 32 long; 50 quiet
-and 50 representative moderate-noise takes; 50 ordinary and 50 technical
+The prepared corpus contains 30 takes: ten per duration, 15 quiet
+and 15 representative moderate-noise takes, 15 ordinary and 15 technical
 references. Read naturally, with short recordings under five seconds, medium
 from five to under fifteen, and long at least fifteen. Duration groups are
 computed from captured frames, not the requested labels. References are fixed
@@ -430,7 +452,7 @@ person should be recorded without consent. Reports are flushed after each take,
 so interrupted sessions retain completed evidence. A repeat command uses a new
 report path; unfinished takes never count as completed acceptance evidence.
 
-Required gate: at least 100 consented real microphone takes, overall and each
+Short-screen numerical gate: at least 30 consented real microphone takes, overall and each
 major duration group WER <= 5%, current depth-two streaming WER no more than one
 percentage point worse than batch, no audible-speech empty result, no gross
 truncation/repetition, no utterance below 50% word accuracy, and no silent frame

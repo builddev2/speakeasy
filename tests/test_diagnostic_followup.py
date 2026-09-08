@@ -97,6 +97,12 @@ def test_failed_prior_attempt_cannot_be_hidden_by_followup():
     report = diagnostic_followup.normalize_report(source)
     assert report['failed_attempts'] == 1
     assert not report['summary']['numerical_gate_pass']
+    assert any('no saved cause' in reason for reason in report['summary']['failure_reasons'])
+    source['failure_details'] = [{'operation': 'microphone_stop', 'type': 'TimeoutError',
+                                 'prompt_index': 5, 'build_commit': 'old-build'}]
+    run = diagnostic_run.DiagnosticRun(None, lambda payload: None, base_report=source)
+    assert run.failure_details == source['failure_details']
+    assert run.failure_details is not source['failure_details']
 
 
 def test_invalid_new_report_does_not_hide_previous_valid_one(tmp_path, monkeypatch):

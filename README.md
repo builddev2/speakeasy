@@ -400,6 +400,10 @@ not transcription failures. When medium and long coverage is complete, **Add
 short recordings** offers only the missing under-five-second takes using
 four-word prompts. These results are merged into a new report with the previous
 takes and their build provenance; the original report remains unchanged.
+Failed attempts retain the operation, safe exception category, known helper
+failure code, and source file/line locations. Exception messages and stack locals
+are excluded. Older failures without this evidence remain explicitly undiagnosed;
+retrying does not erase them or automatically grant a pass.
 
 The current protocol is a **30-prompt screen**, reduced by user request from
 100 recordings: ten per duration, 15 quiet followed by 15 moderate-noise,

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import sys
 import tempfile
 import threading
 import time
@@ -56,24 +57,27 @@ def measured(function):
     return result, (time.perf_counter() - started) * 1000
 
 
-def compare(transcriber, audio, reference):
+def compare(transcriber, audio, reference, stage=lambda name: None):
     """Called only on the existing model worker, after live context exit."""
     from .evaluate import word_error_rate
     import mlx.core as mx
 
     report = {}
+    stage("batch_transcription")
     text, elapsed = measured(lambda: transcriber.transcribe(audio))
     report["batch"] = {"text": text, "ms": elapsed,
                        "wer": word_error_rate(reference, text)}
     trim_enabled = config.DICTATION_TRIM_ENABLED
     try:
         config.DICTATION_TRIM_ENABLED = False
+        stage("untrimmed_transcription")
         text, elapsed = measured(lambda: transcriber.transcribe(audio))
         report["batch_untrimmed"] = {"text": text, "ms": elapsed,
                                      "wer": word_error_rate(reference, text)}
     finally:
         config.DICTATION_TRIM_ENABLED = trim_enabled
     for depth in (1, 2):
+        stage(f"stream_depth_{depth}")
         session = StreamingSession(max_chunks=1)
         # run_stream still coalesces this into the exact live two-second blocks.
         session.put_nowait(audio)
@@ -92,7 +96,7 @@ def compare(transcriber, audio, reference):
 
 def record_take(transcriber, worker, control, reference, *, sounds=False,
                 prompt=None, recorder=None, session=None, processing=lambda: None,
-                is_cancelled=lambda: False):
+                is_cancelled=lambda: False, stage=lambda name: None):
     from .recorder import Recorder
     from .engine import play_sound
 
@@ -101,15 +105,20 @@ def record_take(transcriber, worker, control, reference, *, sounds=False,
     session = session or StreamingSession()
     future = None
     try:
+        stage("microphone_prewarm")
         control.submit(recorder.prewarm).result()
+        stage("waiting_to_start")
         prompt("Reference is fixed. Press Return to start recording: ")
+        stage("microphone_start")
         control.submit(recorder.start, chunk_queue=session).result()
         future = worker.submit(transcriber.transcribe_stream, session)
         if sounds:
             play_sound(config.SOUND_START)
+        stage("recording")
         prompt("RECORDING — speak the reference, then press Return to stop: ")
         processing()
         released = time.perf_counter()
+        stage("microphone_stop")
         stop = control.submit(recorder.stop)
         try:
             audio = stop.result(timeout=config.RECORDER_STOP_TIMEOUT_SECONDS)
@@ -120,15 +129,19 @@ def record_take(transcriber, worker, control, reference, *, sounds=False,
                        and recorder.stream_dropped_frames == 0)
         if sounds:
             play_sound(config.SOUND_STOP)
+        stage("live_finalization")
         live = future.result()
         if is_cancelled():
             raise InterruptedError()
         live_ms = (time.perf_counter() - released) * 1000
+        stage("temporary_audio")
         with temporary_wav(audio) as wav:
             saved = np.frombuffer(wav.read_bytes(), dtype="<f4", offset=44).copy()
             if not np.array_equal(saved, audio):
                 raise ValueError("diagnostic WAV roundtrip mismatch")
-            report = worker.submit(compare, transcriber, saved, reference).result()
+            report = worker.submit(compare, transcriber, saved, reference, stage).result()
+            stage("temporary_audio_cleanup")
+        stage("result_metrics")
         from .evaluate import word_error_rate
         report["live"] = {
             "text": live.text, "status": live.status.value,
@@ -158,10 +171,19 @@ def record_take(transcriber, worker, control, reference, *, sounds=False,
         }
         return report
     finally:
-        session.cancel()
-        recorder.force_close()
-        if future is not None:
-            future.result()
+        failing = sys.exc_info()[0] is not None
+        if not failing:
+            stage("capture_cleanup")
+        try:
+            session.cancel()
+            try:
+                recorder.force_close()
+            finally:
+                if future is not None:
+                    future.result()
+        except Exception:
+            if not failing:
+                raise
 
 
 def summarize(takes):

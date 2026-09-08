@@ -47,7 +47,7 @@ def test_capture_comparison_uses_same_audio_and_worker_without_telemetry(tmp_pat
             model_threads.append(threading.get_ident())
             return run_stream(_Model(_Stream([])), session, to_device=np.asarray)
 
-    def compare(transcriber, saved, reference):
+    def compare(transcriber, saved, reference, stage):
         model_threads.append(threading.get_ident())
         assert np.array_equal(saved, audio)
         assert reference == "private reference"
@@ -94,3 +94,19 @@ def test_failed_attempt_is_recorded_and_cannot_pass_gate(tmp_path, monkeypatch):
     assert report["failed_attempt"] == {"attempt": 1, "type": "RuntimeError"}
     assert not report["summary"]["numerical_gate_pass"]
     assert "private failure detail" not in output.read_text()
+
+
+def test_cleanup_error_does_not_hide_capture_error():
+    operations = []
+
+    class Recorder:
+        def prewarm(self):
+            raise TimeoutError('original capture failure')
+
+        def force_close(self):
+            raise RuntimeError('secondary cleanup failure')
+
+    with ThreadPoolExecutor(max_workers=1) as worker, ThreadPoolExecutor(max_workers=1) as control:
+        with pytest.raises(TimeoutError, match='original capture failure'):
+            diagnostic.record_take(None, worker, control, 'reference', recorder=Recorder(), stage=operations.append)
+    assert operations == ['microphone_prewarm']

@@ -5,7 +5,7 @@ from AppKit import NSWorkspace
 from Foundation import NSObject
 
 from ..diagnostic_run import DiagnosticRun
-from ..diagnostic_followup import latest_report, short_followup, save_reviewed_report
+from ..diagnostic_followup import latest_report, short_followup, save_reviewed_report, normalize_report
 from ..engine import State
 from .webbridge import BridgeDispatcher
 from .webwindow import WebWindow
@@ -63,6 +63,8 @@ class DiagnosticWindowController(NSObject):
             base_report=self._previous_report if followup else None,
             parent_report=str(self._previous_path) if followup else None)
         self._owns_engine = True
+        self._previous_report = None
+        self._reviewed_path = None
         self.engine._diagnostic_cancel = self.run.cancel
         self.engine.pause()
         self._payload = {"phase": "processing", "total": len(self.run.prompts)}
@@ -81,7 +83,18 @@ class DiagnosticWindowController(NSObject):
             self.engine._diagnostic_cancel = None
             if not self.engine._shutting_down:
                 self.engine.resume()
-            self._load_previous(self._payload["phase"])
+            if self._payload["phase"] != "error":
+                self._load_previous(self._payload["phase"])
+            else:
+                self._previous_report = {
+                    "status": "error", "source": "consented_real_microphone",
+                    "build_commit": self.run.failure_details[-1]["build_commit"],
+                    "takes": self.run.takes, "failed_attempts": self.run.failed_attempts,
+                    "failure_details": self.run.failure_details,
+                    "parent_report": self.run.parent_report}
+                self._previous_path = self.run.report_path
+                self._previous_report = normalize_report(self._previous_report)
+                self._payload["followupCount"] = len(short_followup(self._previous_report))
         self._web.emit("diagnostic.state", self._payload)
 
     @objc.python_method

@@ -81,6 +81,7 @@ def test_capture_failure_never_passes_or_leaks_error_text(tmp_path, monkeypatch)
     run = diagnostic_run.DiagnosticRun(engine, lambda payload: None)
 
     def fail(*args, **kwargs):
+        kwargs['stage']('microphone_stop')
         raise RuntimeError('private content')
 
     monkeypatch.setattr(diagnostic_run, 'record_take', fail)
@@ -90,3 +91,32 @@ def test_capture_failure_never_passes_or_leaks_error_text(tmp_path, monkeypatch)
     assert report['status'] == 'error'
     assert not report['summary']['numerical_gate_pass']
     assert 'private content' not in text
+    assert report['failure_details'][0]['operation'] == 'microphone_stop'
+    assert report['failure_details'][0]['type'] == 'RuntimeError'
+    assert report['failure_details'][0]['prompt_index'] == 1
+    assert report['failure_details'][0]['saved_takes'] == 0
+    assert report['failure_details'][0]['reason'] == 'unclassified'
+    assert report['failure_details'][0]['locations']
+    assert 'Prompt 1: microphone stop (RuntimeError).' in report['summary']['failure_reasons']
+
+
+def test_report_creation_failure_is_visible_without_replacing_results(tmp_path, monkeypatch):
+    blocked = tmp_path / 'not-a-directory'
+    blocked.write_text('preserved')
+    monkeypatch.setattr(diagnostic_run.settings, 'app_support_dir', lambda: blocked)
+    updates = []
+    run = diagnostic_run.DiagnosticRun(None, updates.append)
+    run._run()
+    assert updates[-1]['phase'] == 'error'
+    assert not updates[-1]['summary']['numerical_gate_pass']
+    assert run.failure_details[0]['operation'] == 'report_create'
+    assert blocked.read_text() == 'preserved'
+
+
+def test_known_helper_cause_gets_fixed_reason_without_private_message():
+    run = diagnostic_run.DiagnosticRun(None, lambda payload: None)
+    error = RuntimeError('private device details')
+    error.__cause__ = RuntimeError('helper timed out')
+    run._failure(error)
+    assert run.failure_details[0]['reason'] == 'helper_timeout'
+    assert 'private device details' not in json.dumps(run.failure_details)

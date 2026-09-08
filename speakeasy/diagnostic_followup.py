@@ -38,6 +38,14 @@ def normalize_report(report):
     if failures:
         result["summary"]["numerical_gate_pass"] = False
         result["summary"]["failure_reasons"].append(f"{failures} recording/comparison failure(s) need review.")
+        details = result.get("failure_details", [])
+        for detail in details:
+            result["summary"]["failure_reasons"].append(
+                f"Prompt {detail['prompt_index']}: {detail['operation'].replace('_', ' ')} ({detail['type']}).")
+            if detail.get("reason", "unclassified") != "unclassified":
+                result["summary"]["failure_reasons"].append(detail["reason"].replace('_', ' ').capitalize() + ".")
+        if failures > len(details):
+            result["summary"]["failure_reasons"].append("An earlier failure has no saved cause; it cannot be diagnosed from this report.")
     return result
 
 

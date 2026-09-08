@@ -5,6 +5,7 @@ from AppKit import NSWorkspace
 from Foundation import NSObject
 
 from ..diagnostic_run import DiagnosticRun
+from ..diagnostic_followup import latest_report, short_followup, save_reviewed_report
 from ..engine import State
 from .webbridge import BridgeDispatcher
 from .webwindow import WebWindow
@@ -18,6 +19,9 @@ class DiagnosticWindowController(NSObject):
         self.engine = engine
         self.run = None
         self._owns_engine = False
+        self._previous_report = None
+        self._previous_path = None
+        self._reviewed_path = None
         self._payload = {"phase": "consent", "total": 30}
         dispatcher = BridgeDispatcher()
         dispatcher.register("diagnostic.state", lambda params, reply: reply(self._payload))
@@ -30,18 +34,38 @@ class DiagnosticWindowController(NSObject):
         return self
 
     def show(self):
+        if not self._owns_engine:
+            self._load_previous()
         self._web.show()
+
+    @objc.python_method
+    def _load_previous(self, phase="results"):
+        self._reviewed_path = None
+        self._previous_path, self._previous_report = latest_report()
+        if self._previous_report is not None:
+            self._payload = {"phase": phase, "total": len(self._previous_report["takes"]),
+                             "summary": self._previous_report["summary"],
+                             "reportPath": str(self._previous_path),
+                             "followupCount": len(short_followup(self._previous_report))}
+            self._web.emit("diagnostic.state", self._payload)
 
     @objc.python_method
     def _start(self, params, reply):
         if self._owns_engine or self.engine.state is not State.READY:
             reply(error="Wait until dictation and other sessions are idle.")
             return
+        followup = bool(params.get("followup"))
+        if followup and not short_followup(self._previous_report):
+            reply(error="No short-recording follow-up is available for the saved report.")
+            return
+        self.run = DiagnosticRun(
+            self.engine, self._emit,
+            base_report=self._previous_report if followup else None,
+            parent_report=str(self._previous_path) if followup else None)
         self._owns_engine = True
-        self.run = DiagnosticRun(self.engine, self._emit)
         self.engine._diagnostic_cancel = self.run.cancel
         self.engine.pause()
-        self._payload = {"phase": "processing", "total": 30}
+        self._payload = {"phase": "processing", "total": len(self.run.prompts)}
         self._web.emit("diagnostic.state", self._payload)
         self.run.start()
         reply(True)
@@ -57,6 +81,7 @@ class DiagnosticWindowController(NSObject):
             self.engine._diagnostic_cancel = None
             if not self.engine._shutting_down:
                 self.engine.resume()
+            self._load_previous(self._payload["phase"])
         self._web.emit("diagnostic.state", self._payload)
 
     @objc.python_method
@@ -75,8 +100,11 @@ class DiagnosticWindowController(NSObject):
 
     @objc.python_method
     def _report(self, params, reply):
-        if self.run is not None and self.run.report_path:
-            NSWorkspace.sharedWorkspace().selectFile_inFileViewerRootedAtPath_(self.run.report_path, "")
+        if self._previous_report is not None and self._reviewed_path is None:
+            self._reviewed_path = save_reviewed_report(self._previous_report)
+        path = self._reviewed_path
+        if path:
+            NSWorkspace.sharedWorkspace().selectFile_inFileViewerRootedAtPath_(path, "")
         reply(True)
 
     def windowWillClose_(self, notification):

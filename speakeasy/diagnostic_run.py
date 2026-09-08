@@ -7,12 +7,13 @@ import threading
 
 from . import settings
 from .diagnostic_content import PROMPTS
+from .diagnostic_followup import normalize_report, short_followup
 from .dictation_diagnostic import record_take, summarize
 from .dictation_stream import StreamingSession
 
 
 class DiagnosticRun:
-    def __init__(self, engine, emit):
+    def __init__(self, engine, emit, *, base_report=None, parent_report=None):
         self.engine = engine
         self.emit = emit
         self.cancelled = threading.Event()
@@ -20,7 +21,13 @@ class DiagnosticRun:
         self.session = None
         self.phase = "consent"
         self.index = 0
-        self.takes = []
+        self.base_report = normalize_report(base_report) if base_report is not None else None
+        self.prompts = short_followup(self.base_report) if self.base_report else PROMPTS
+        if not self.prompts:
+            raise ValueError("No missing short recordings in this report")
+        self.takes = self.base_report["takes"] if self.base_report else []
+        self.parent_report = parent_report
+        self.failed_attempts = self.base_report["failed_attempts"] if self.base_report else 0
         self.report_path = None
         self.thread = None
 
@@ -42,8 +49,8 @@ class DiagnosticRun:
 
     def _publish(self, phase, **extra):
         self.phase = phase
-        self.emit({"phase": phase, "index": self.index + 1, "total": len(PROMPTS),
-                   "prompt": PROMPTS[self.index], **extra})
+        self.emit({"phase": phase, "index": self.index + 1, "total": len(self.prompts),
+                   "prompt": self.prompts[self.index], **extra})
 
     def _wait_button(self, message):
         self.next_button.clear()
@@ -56,11 +63,14 @@ class DiagnosticRun:
 
     def _save(self, target, status):
         summary = summarize(self.takes)
-        if status != "complete":
+        if status != "complete" or self.failed_attempts:
             summary["numerical_gate_pass"] = False
+        if self.failed_attempts:
+            summary["failure_reasons"].append(f"{self.failed_attempts} recording/comparison failure(s) need review.")
         target.seek(0)
         json.dump({"source": "consented_real_microphone", "status": status,
                    "build_commit": settings.build_commit(), "takes": self.takes,
+                   "parent_report": self.parent_report, "failed_attempts": self.failed_attempts,
                    "summary": summary}, target, indent=2, allow_nan=False)
         target.truncate()
         target.flush()
@@ -77,7 +87,7 @@ class DiagnosticRun:
             fd, self.report_path = tempfile.mkstemp(prefix="microphone-", suffix=".json", dir=folder)
             with os.fdopen(fd, "w") as target:
                 try:
-                    for self.index, entry in enumerate(PROMPTS):
+                    for self.index, entry in enumerate(self.prompts):
                         if self.cancelled.is_set():
                             raise InterruptedError()
                         self.session = StreamingSession()
@@ -90,7 +100,8 @@ class DiagnosticRun:
                         if self.cancelled.is_set():
                             raise InterruptedError()
                         seconds = result["audio"]["seconds"]
-                        result.update(reference=entry["reference"], condition=entry["condition"],
+                        result.update(build_commit=settings.build_commit(),
+                                      reference=entry["reference"], condition=entry["condition"],
                                       vocabulary=entry["vocabulary"],
                                       duration_group="short" if seconds < 5 else "medium" if seconds < 15 else "long")
                         self.takes.append(result)
@@ -99,6 +110,7 @@ class DiagnosticRun:
                 except InterruptedError:
                     status = "cancelled"
                 except Exception:
+                    self.failed_attempts += 1
                     status = "error"
                 finally:
                     summary = self._save(target, status)

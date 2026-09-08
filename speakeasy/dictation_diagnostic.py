@@ -14,7 +14,7 @@ import time
 import numpy as np
 
 from . import config, settings
-from .dictation_stream import StreamingSession, run_stream
+from .dictation_stream import StreamStatus, StreamingSession, run_stream
 
 TEMP_TTL_SECONDS = 900
 
@@ -133,7 +133,10 @@ def record_take(transcriber, worker, control, reference, *, sounds=False,
         report["live"] = {
             "text": live.text, "status": live.status.value,
             "release_to_result_ms": live_ms,
-            "wer": word_error_rate(reference, live.text or ""),
+            "wer": (word_error_rate(reference, live.text or "")
+                    if live.status is StreamStatus.COMPLETE else None),
+            "outcome": ("batch_handoff" if live.status is StreamStatus.BATCH_REQUIRED
+                        else live.status.value),
             "received_frames": session.received_frames,
             "integrity_matches": session.integrity_matches(),
             "delivery_complete": recorder.stream_delivery_complete,
@@ -193,8 +196,34 @@ def summarize(takes):
     numerical_pass = (coverage and not catastrophes and not integrity_failures
                       and all(value is not None and value <= .05 for value in required_wers)
                       and overall["stream_depth_2"] <= overall["batch"] + .01)
+    missing = {name: max(0, 10 - len(rows)) for name, rows in groups.items()}
+    reasons = []
+    for name, count in missing.items():
+        if count:
+            reasons.append(f"{name.title()} recordings: {len(groups[name])}/10; {count} more needed.")
+    if len(takes) < 30:
+        reasons.append(f"Completed recordings: {len(takes)}/30.")
+    for field, values in (("condition", ("quiet", "moderate_noise")),
+                          ("vocabulary", ("ordinary", "technical"))):
+        for value in values:
+            count = sum(row.get(field) == value for row in takes)
+            if count < 15:
+                reasons.append(f"{value.replace('_', ' ').title()} coverage: {count}/15.")
+    for name, rates in [("Overall", overall), *[(k.title(), v) for k, v in per_group.items()]]:
+        for mode, label in (("batch", "batch"), ("stream_depth_2", "streaming")):
+            rate = rates[mode]
+            if rate is not None and rate > .05:
+                reasons.append(f"{name} {label} accuracy: {100 * (1 - rate):.2f}%; requires 95%.")
+    if overall["batch"] is not None and overall["stream_depth_2"] > overall["batch"] + .01:
+        reasons.append("Streaming WER exceeds batch by more than one percentage point.")
+    if catastrophes:
+        reasons.append(f"{catastrophes} potential catastrophic transcription(s).")
+    if integrity_failures:
+        reasons.append(f"{integrity_failures} audio integrity failure(s).")
     return {"protocol": "30_prompt_screen", "takes": len(takes), "duration_counts": {k: len(v) for k, v in groups.items()},
             "weighted_wer": overall, "duration_wer": per_group,
+            "missing_duration_counts": missing, "failure_reasons": reasons,
+            "batch_handoffs": sum(row["live"].get("status") == "batch_required" for row in takes),
             "catastrophic_candidates": catastrophes, "integrity_failures": integrity_failures,
             "numerical_gate_pass": numerical_pass,
             "gate": "unmet: manual audible-speech, truncation, repetition and condition review required"}

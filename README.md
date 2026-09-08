@@ -394,7 +394,12 @@ Open Speakeasy from the Dock and click **Check Microphone**, then **Begin
 model process is needed. Allow approximately 12–18 minutes. Cancel or close the
 window to stop; dictation resumes after capture/comparison cleanup. The check
 pauses dictation and prevents training/meeting capture from starting concurrently.
-The results screen opens the private report in Finder.
+The results screen shows the latest saved check and opens a corrected copy of
+the private report in Finder. Planned live-stream handoffs to batch are unscored,
+not transcription failures. When medium and long coverage is complete, **Add
+short recordings** offers only the missing under-five-second takes using
+four-word prompts. These results are merged into a new report with the previous
+takes and their build provenance; the original report remains unchanged.
 
 The current protocol is a **30-prompt screen**, reduced by user request from
 100 recordings: ten per duration, 15 quiet followed by 15 moderate-noise,

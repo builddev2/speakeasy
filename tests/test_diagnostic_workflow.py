@@ -14,7 +14,10 @@ from speakeasy.dictation_stream import run_stream
 from test_dictation_stream import _Model, _Stream
 
 
-def test_capture_comparison_uses_same_audio_and_worker_without_telemetry(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("batch_required", [False, True])
+def test_capture_comparison_uses_same_audio_and_worker_without_telemetry(tmp_path, monkeypatch, capsys, batch_required):
+    if batch_required:
+        monkeypatch.setattr("speakeasy.config.DICTATION_BATCH_FINAL_SECONDS", 1)
     audio = np.arange(16123, dtype=np.float32) / 20000
     model_threads = []
     controls = []
@@ -59,6 +62,9 @@ def test_capture_comparison_uses_same_audio_and_worker_without_telemetry(tmp_pat
         report = diagnostic.record_take(Transcriber(), worker, control, "private reference")
     assert report["live"]["received_frames"] == len(audio)
     assert report["live"]["integrity_matches"]
+    if batch_required:
+        assert report["live"]["wer"] is None
+        assert report["live"]["outcome"] == "batch_handoff"
     assert len(set(model_threads)) == len(set(controls)) == 1
     assert model_threads[0] != controls[0]
     assert not list(tmp_path.rglob("*.wav"))

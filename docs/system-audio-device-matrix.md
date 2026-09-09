@@ -88,3 +88,9 @@ These checks must never switch to global capture:
 Record the app version, macOS version, audio route, scope, outcome, and any
 unexpected health state for each failed cell. Do not record participant names,
 meeting names, device names, window titles, transcript content, or audio.
+
+## Separate dictation evidence
+
+The September 2026 [microphone diagnostic results](real-mic-correctness.md)
+cover dictation only. They do not satisfy this meeting/system-audio matrix.
+Microphone checks pause normal capture and must not run alongside a meeting.

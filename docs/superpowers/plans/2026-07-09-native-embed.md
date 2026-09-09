@@ -1,5 +1,10 @@
 # Native Embedding (Phase 2) Implementation Plan
 
+> September 2026 update: this remains a historical snapshot. Current dictation
+> uses batch finalization with silence trimming and a separate in-app microphone
+> diagnostic. See [current correctness evidence](../../real-mic-correctness.md)
+> for the 37-take screen, follow-ups, and unresolved failure.
+
 > **Historical implementation record — completed.** The WKWebView host,
 > bridge, three web-rendered windows, packaging, and tests described here are
 > implemented. The live bridge now also includes speaker relabeling and

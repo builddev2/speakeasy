@@ -21,9 +21,9 @@ SAMPLE_RATE = 16_000
 # Recordings shorter than this are treated as accidental taps and dropped.
 MIN_DURATION_SECONDS = 0.3
 
-# Streaming is the normal fast path. Disable only for a controlled batch-mode
-# latency comparison; both paths remain fully offline.
-DICTATION_STREAMING_ENABLED = True
+# Real-microphone acceptance is still unmet. Publish authoritative batch finals
+# until every duration class passes the documented correctness gate.
+DICTATION_STREAMING_ENABLED = False
 
 # Immediate audio crosses bounded queues as two-second blocks. Queue capacity
 # is expressed in audio seconds so callback block-size changes cannot silently

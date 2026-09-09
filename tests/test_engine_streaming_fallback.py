@@ -304,3 +304,33 @@ def test_begin_meeting_refuses_stale_active_stream(monkeypatch):
 
     assert started == []
     assert engine._meeting_active is False
+
+
+@pytest.fixture(autouse=True)
+def enable_streaming_for_stream_path_tests(monkeypatch):
+    monkeypatch.setattr("speakeasy.config.DICTATION_STREAMING_ENABLED", True)
+
+
+def test_real_integrity_failure_recovers_batch_without_publishing_draft():
+    from speakeasy.dictation_stream import run_stream
+    from test_dictation_stream import _Model, _Stream
+
+    engine = DictationEngine()
+    engine.worker.shutdown(wait=False)
+    engine.control.shutdown(wait=False)
+    session = StreamingSession()
+    audio = np.arange(16000, dtype=np.float32)
+    session.put_nowait(audio[:-1])
+    session.finish(audio)
+    transcriber = _FallbackTranscriber(None)
+    transcriber.transcribe_stream = lambda active: run_stream(
+        _Model(_Stream([])), active, to_device=np.asarray)
+    engine.transcriber = transcriber
+    published = []
+    engine.on_text = published.append
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        result = worker.submit(engine._transcribe_stream_with_fallback, session).result()
+    assert result.text == "batch final"
+    assert result.fallback_reason == "stream_error"
+    assert published == []
+    assert transcriber.batch_audio[0] is audio

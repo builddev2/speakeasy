@@ -381,40 +381,114 @@ After collecting dictations, summarize the local records fully offline:
 .venv/bin/python -m speakeasy --dictation-latency-summary
 ```
 
-For a controlled batch-versus-streaming comparison, use two new log paths
-(each run should contain 30 attempts: at least 10 short, 10 medium, and 10
-long), quit the app after each run, then compare them:
+Normal dictation currently publishes authoritative batch results for every duration.
+Streaming has not passed real-microphone acceptance and is disabled by default.
+The legacy `--dictation-batch-mode` flag remains accepted; a normal launch is
+also batch mode. Latency logs alone cannot establish recognition correctness.
+
+### Consented microphone correctness checks
+
+Open Speakeasy from the Dock and click **Check Microphone**, then **Begin
+30-prompt check**. The app displays each reference with **Start recording** and
+**Stop & compare** buttons. No Terminal, reading-sheet switching, or separate
+model process is needed. Allow approximately 12–18 minutes. Cancel or close the
+window to stop; dictation resumes after capture/comparison cleanup. The check
+pauses dictation and prevents training/meeting capture from starting concurrently.
+See [current device evidence](docs/real-mic-correctness.md) for the 37-take
+results and unresolved historical interruption.
+
+The results screen shows the latest saved check and opens a corrected copy of
+the private report in Finder. Planned live-stream handoffs to batch are unscored,
+not transcription failures. When medium and long coverage is complete, **Add
+short recordings** offers only the missing under-five-second takes using
+four-word prompts. These results are merged into a new report with the previous
+takes and their build provenance; the original report remains unchanged.
+Failed attempts retain the operation, safe exception category, known helper
+failure code, and source file/line locations. Exception messages and stack locals
+are excluded. Older failures without this evidence remain explicitly undiagnosed;
+retrying does not erase them or automatically grant a pass.
+
+The current protocol is a **30-prompt screen**, reduced by user request from
+100 recordings: ten per duration, 15 quiet followed by 15 moderate-noise,
+and 15 ordinary/15 technical. It retains the WER and frame-integrity criteria,
+but does not provide the same coverage or confidence as 100 independent takes.
+Passing it never automatically enables streaming. The coordinator only waits
+for buttons; all model operations use the existing engine worker.
+
+Private reports are saved under
+`~/Library/Application Support/Speakeasy/diagnostic-reports/` (0700 directory,
+0600 files). References and recognized text remain there until you delete them;
+normal telemetry is unchanged. The existing audio-deletion rules below apply.
+
+The Terminal entry point remains available for development:
+
+Use an interactive Terminal, quit other Speakeasy instances, and run:
 
 ```bash
-.venv/bin/python -m speakeasy --dictation-batch-mode --dictation-latency-log /tmp/speakeasy-batch.jsonl
-.venv/bin/python -m speakeasy --dictation-latency-log /tmp/speakeasy-streaming.jsonl
-.venv/bin/python -m speakeasy --dictation-latency-compare /tmp/speakeasy-batch.jsonl /tmp/speakeasy-streaming.jsonl
+.venv/bin/python -m speakeasy --dictation-diagnostic /tmp/speakeasy-one-take.json
 ```
 
-Use fresh paths (or archive existing files) because logs append. Batch mode is
-for this controlled run only; normal launches keep the streaming fast path.
-The comparison counts successful streaming and batch fallbacks separately via
-the existing status field, while treating all pasted outcomes as successful.
-For takes of 15 seconds or longer, normal mode closes the stream and produces
-the one published result from the complete helper-owned audio using batch
-inference on the same worker. This avoids the streaming decoder's growing
-final-flush cost without exposing a draft or touching the model concurrently.
-It does not add timestamps, transcript, audio, app, device, window, or PID
-fields; every JSON record retains the fixed allowlist above.
+Nothing records until you type `RECORD`, fix a reference, and press Return to
+start. Press Return after speaking to stop. The diagnostic uses the same
+microphone helper, bounded streaming session and single model worker as the
+app. It compares the live result, batch with/without silence trimming, and
+replay at cache depths one and two on the exact same captured float32 WAV.
+Only the diagnostic replays bypass the 15-second batch cutoff to inspect long
+streaming behavior. It does not apply profiles or paste text.
 
-Meeting post-processing writes the same kind of content-free evidence to
-`~/Library/Logs/Speakeasy-meeting-latency.jsonl`: build revision, fixed
-capture-mode/status enums, track frame counts, and stop, mic/system ASR,
-diarization, voice-identification, alignment, save, and stop-to-final durations.
+The disclosure explains retention: the WAV is mode 0600 in a mode 0700
+`dictation-diagnostic-temp` directory under Application Support. It is deleted
+in `finally` after comparison/error and expires after 15 minutes while the
+process runs. A crash prevents in-process expiry; the next normal or diagnostic
+launch deletes orphan WAVs. The explicitly requested, exclusive-created 0600
+JSON report retains references and transcripts until you delete it. It never
+enters either normal telemetry file. Audio is not saved permanently. Run only
+one Speakeasy/diagnostic instance at a time because launch cleanup owns that
+whole temporary directory.
 
-Accuracy comparison is deliberately separate from product telemetry. With
-explicit consent, keep a local test-only corpus of at least 30 WAV files and
-their reference text outside the product log, run the same files through batch
-and streaming offline, and compare WER plus truncation manually or with a
-test-only evaluator. Accept streaming only if overall WER is within 1 percentage
-point of batch, every duration group is within 2 points, normalized transcripts
-match in at least 90% of takes, and no take is truncated. Do not attach audio,
-references, or recognized text to the latency JSONL files.
+For the acceptance session, open [the reading sheet](docs/real-mic-reading-sheet.md)
+and run:
+
+```bash
+.venv/bin/python -m speakeasy --dictation-diagnostic /tmp/speakeasy-real-mic-30.json \
+  --diagnostic-corpus docs/real-mic-corpus.json --diagnostic-sounds
+```
+
+The prepared corpus contains 30 takes: ten per duration, 15 quiet
+and 15 representative moderate-noise takes, 15 ordinary and 15 technical
+references. Read naturally, with short recordings under five seconds, medium
+from five to under fifteen, and long at least fifteen. Duration groups are
+computed from captured frames, not the requested labels. References are fixed
+before speaking; do not rewrite them to fit recognition errors. No other
+person should be recorded without consent. Reports are flushed after each take,
+so interrupted sessions retain completed evidence. A repeat command uses a new
+report path; unfinished takes never count as completed acceptance evidence.
+
+Short-screen numerical gate: at least 30 consented real microphone takes, overall and each
+major duration group WER <= 5%, current depth-two streaming WER no more than one
+percentage point worse than batch, no audible-speech empty result, no gross
+truncation/repetition, no utterance below 50% word accuracy, and no silent frame
+loss. The report calculates word-weighted edit distance using lowercase words,
+with punctuation removed and apostrophes retained (no numeral expansion). It
+also flags candidate catastrophic errors. Manual review of audible speech,
+truncation, repetition and actual recording conditions is mandatory; numerical
+success alone never changes the recorded `unmet` gate or enables streaming.
+
+Repeat an initial failing phrase once with `--diagnostic-sounds` and once
+without it to investigate start-sound contamination. The start sound occurs
+after capture begins in normal dictation; stop sound occurs after authoritative
+capture stops. Each recording is independently compared on identical audio.
+Frame counts, exact sample parity, clipping/silence and level metadata are in
+the private report. Streaming replay timings measure total inference;
+`live.release_to_result_ms` includes stop/finalization but excludes clipboard
+insertion. Do not compare those as equivalent latency measures.
+
+Retry Last Failed Dictation is not implemented in this change. The existing
+insertion path posts a keyboard event without confirmation from the target app;
+it cannot tell a failed insertion from a delayed successful one. Audio also has
+no retention owner spanning asynchronous insertion completion. A retry would
+need an explicit bounded retention lifecycle and a user decision about possible
+duplicate paste. This change retains no failed-take audio in normal use.
 
 The summary reports release-to-paste and phase percentiles by recording length.
 It withholds bottleneck conclusions until there are at least 20 successful
@@ -476,8 +550,8 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   cannot race a new microphone open
 - **`transcriber.py`** — Parakeet MLX model; loaded and run on one dedicated
   worker thread, because MLX pins its GPU arrays to their creating thread.
-  Startup warms both batch inference and the complete streaming context/add/
-  result/cleanup lifecycle. Live streaming pulls a provisional result after
+  Startup warms both batch inference and the diagnostic streaming context/add/
+  result/cleanup lifecycle. The gated streaming path pulls a provisional result after
   each completed two-second block but never inserts draft text; only the final
   result follows the shared profile and clipboard paste path. Takes of 15
   seconds or longer use the retained complete audio for a batch final after

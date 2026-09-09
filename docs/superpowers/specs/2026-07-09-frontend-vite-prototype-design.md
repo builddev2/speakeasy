@@ -1,5 +1,10 @@
 # Speakeasy frontend prototype — React/Vite/TypeScript (phase 1 of 2)
 
+> September 2026 update: this remains a historical snapshot. Current dictation
+> uses batch finalization with silence trimming and a separate in-app microphone
+> diagnostic. See [current correctness evidence](../../real-mic-correctness.md)
+> for the 37-take screen, follow-ups, and unresolved failure.
+
 > **Status: implemented; historical phase-1 design record.** The standalone
 > mock prototype described below was subsequently embedded into the native app
 > and wired to real data. Current production behavior and dependency versions

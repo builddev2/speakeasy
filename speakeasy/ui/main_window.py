@@ -26,6 +26,7 @@ class MainWindowController(NSObject):
         self.engine = engine
         self.meetings_window = None
         self.training_window = None
+        self.diagnostic_window = None
         self._progress_text = None
         # Set by menubar.py after both controllers exist: when present, this
         # is the single owner of meetings/training windows and _open_window
@@ -41,7 +42,7 @@ class MainWindowController(NSObject):
         dispatcher.register("app.endMeeting", self._end_meeting)
         dispatcher.register("app.openWindow", self._open_window)
         dispatcher.register("app.quit", self._quit)
-        self._web = WebWindow("Speakeasy", 360, 385, "dock", dispatcher)
+        self._web = WebWindow("Speakeasy", 360, 430, "dock", dispatcher)
         self._web.window.setDelegate_(self)
         return self
 
@@ -156,6 +157,13 @@ class MainWindowController(NSObject):
     @objc.python_method
     def _open_window(self, params, respond):
         name = params.get("name")
+        if name == "diagnostic":
+            if self.diagnostic_window is None:
+                from .diagnostic_window import DiagnosticWindowController
+                self.diagnostic_window = DiagnosticWindowController.alloc().initWithEngine_(self.engine)
+            self.diagnostic_window.show()
+            respond(True)
+            return
         if self.window_owner is not None:
             # StatusItemController is the single owner of meetings/training
             # windows once set (see menubar.py); delegate rather than

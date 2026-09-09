@@ -48,9 +48,31 @@ def main() -> None:
     parser.add_argument(
         "--dictation-batch-mode",
         action="store_true",
-        help="disable streaming for a controlled batch latency run",
+        help="use authoritative batch dictation (currently the safe default)",
     )
+    parser.add_argument("--dictation-diagnostic", metavar="REPORT_JSON",
+                        help="consented one-shot microphone comparison; requires a terminal")
+    parser.add_argument("--diagnostic-corpus", metavar="CORPUS_JSON")
+    parser.add_argument("--diagnostic-sounds", action="store_true")
     args = parser.parse_args()
+
+    from .dictation_diagnostic import sweep_temporary_audio
+
+    sweep_temporary_audio()
+
+    if args.dictation_diagnostic:
+        import sys
+        from .dictation_diagnostic import main as diagnostic_main
+
+        if not sys.stdin or not sys.stdin.isatty() or not sys.stdout.isatty():
+            parser.error("microphone diagnostics require an interactive terminal")
+        diagnostic_args = ["--output", args.dictation_diagnostic]
+        if args.diagnostic_corpus:
+            diagnostic_args += ["--corpus", args.diagnostic_corpus]
+        if args.diagnostic_sounds:
+            diagnostic_args += ["--sounds"]
+        diagnostic_main(diagnostic_args)
+        return
 
     if args.dictation_latency_log:
         from .dictation_benchmark import set_latency_log_path

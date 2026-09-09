@@ -1,5 +1,10 @@
 # Dictation Latency & Accuracy Pass — Implementation Plan
 
+> September 2026 update: this remains a historical snapshot. Current dictation
+> uses batch finalization with silence trimming and a separate in-app microphone
+> diagnostic. See [current correctness evidence](../../real-mic-correctness.md)
+> for the 37-take screen, follow-ups, and unresolved failure.
+
 > **Historical implementation record — completed.** Silence trimming,
 > phonetic/fuzzy vocabulary correction, their tests, and the benchmark harness
 > are implemented. Long-form meeting ASR has since gained the streaming

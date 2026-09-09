@@ -357,3 +357,8 @@ def test_pause_and_shutdown_cancel_active_session_without_using_model(engine):
     assert shutdown.cancelled is True
     assert engine.recorder.force_closed is True
     assert engine.transcriber.calls == 0
+
+
+@pytest.fixture(autouse=True)
+def enable_streaming_for_stream_path_tests(monkeypatch):
+    monkeypatch.setattr("speakeasy.config.DICTATION_STREAMING_ENABLED", True)

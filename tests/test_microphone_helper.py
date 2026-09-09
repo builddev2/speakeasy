@@ -225,3 +225,15 @@ def test_busy_capture_lock_counts_drop_instead_of_blocking_callback():
 
     _, dropped, _ = capture.finish()
     assert dropped == 6
+
+
+def test_portaudio_input_overflow_invalidates_capture():
+    class Status:
+        input_overflow = True
+
+    capture = microphone_helper._CaptureBuffer(Level(), queue.Queue(maxsize=1))
+    capture.start()
+    capture.callback(np.ones((512, 1), dtype=np.float32), 512, None, Status())
+    audio, dropped, _ = capture.finish()
+    assert len(audio) == 512
+    assert dropped > 0

@@ -181,7 +181,7 @@ rebuilds.
   `False` so closing that window doesn't quit the background service, and
   `applicationShouldHandleReopen_hasVisibleWindows_` reopens it on a Dock
   click.
-- **The three windows are web-rendered** (`ui/webwindow.py` hosts the built
+- **The four windows (Dock, meetings, training, and microphone check) are web-rendered** (`ui/webwindow.py` hosts the built
   `frontend/` pages in transparent WKWebViews over the usual glass windows;
   `ui/webbridge.py` is the pure-logic bridge half, tested without WebKit).
   All webview calls are main-thread only — engine callbacks keep hopping via
@@ -192,3 +192,13 @@ rebuilds.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.
+
+## Microphone diagnostics
+
+The button-driven check uses the existing worker/control executors and pauses
+normal capture. Batch finalization and silence trimming stay enabled. Saved
+checks can add only missing short takes without rewriting prior evidence.
+Planned batch handoffs have null live WER. Failure reports retain only operation,
+safe category/code, and source locations; never add exception messages or locals.
+Failed attempts survive retries and keep acceptance unmet. See
+`docs/real-mic-correctness.md` for current device evidence and limitations.

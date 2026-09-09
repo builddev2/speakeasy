@@ -1,5 +1,11 @@
 # Microphone check: 30 prompts
 
+Use the in-app **Check Microphone** flow for recording. This sheet is the original
+30-prompt reference, not a requirement to repeat completed tests. The app can
+request only missing short takes, using four-word prompts and a 2–4 second
+recording target, while preserving previous results. See
+[latest evidence](real-mic-correctness.md).
+
 15 quiet, then 15 with representative moderate room noise. Read at your normal pace.
 
 ## 1. quiet — short

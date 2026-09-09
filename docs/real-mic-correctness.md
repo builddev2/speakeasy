@@ -1,9 +1,44 @@
-# Correctness investigation — 6 September 2026
+# Correctness investigation — updated 8 September 2026
 
-Real-device acceptance is **UNMET**. No new microphone recordings have been
-collected. The cause of the reported garbled microphone transcript is not yet
-established. Normal dictation now uses authoritative batch audio for every
-duration; this is a containment policy, not proof that batch meets acceptance.
+Real-device acceptance remains **UNMET**, although the saved recordings now
+meet the short-screen accuracy and coverage thresholds. Normal dictation uses
+authoritative batch results with silence trimming; streaming remains disabled.
+
+## Latest installed-device evidence
+
+The user completed 30 recordings on build `8356a30`, then seven short recordings
+on `3f48639`. The combined report contains 37 takes (910 reference words):
+
+| Measure | Batch | Depth-two streaming |
+|---|---:|---:|
+| Overall word accuracy | 98.79% | 98.79% |
+| Short word accuracy | 97.78% | 95.56% |
+| Medium word accuracy | 97.90% | 98.74% |
+| Long word accuracy | 99.20% | 99.04% |
+
+Coverage is 10 short, 17 medium, 10 long; 21 quiet/16 moderate-noise and
+19 ordinary/18 technical. All seven added takes were under five seconds and
+transcribed with zero word errors. Saved takes have zero recorded integrity
+failures or catastrophic candidates. Ten long live streams deliberately handed
+off to batch and are unscored, not 100%-WER failures.
+
+The first follow-up stopped after four takes with a recording/comparison error.
+The retry retained those takes and added three, preserving the original report
+and per-take build provenance. The report retains one failed attempt, so its
+numerical gate is false. Its cause was not recorded and cannot be reconstructed;
+no Speakeasy crash report was found during review. Manual acoustic/condition
+review and the broader production gate remain outstanding. Repeated references
+on retry and this single-user sample limit generalization.
+
+Build `0af7379` adds operation, safe exception category, known helper failure code,
+and source file/line evidence for future failures. Messages, locals, audio and
+transcripts are excluded from failure details. Cleanup preserves the original
+exception. Older failures remain explicitly undiagnosed; a retry cannot erase
+them or automatically pass acceptance. No extra reading is requested now.
+
+Reports remain local in the private diagnostic-reports folder; content-bearing
+reports and audio are not checked into Git. The original garbled utterance has
+no retained audio, so these results do not establish its acoustic root cause.
 
 ## Confirmed defects and regression evidence
 
@@ -78,8 +113,7 @@ The current app provides 30 prewritten references: ten per duration;
 15 quiet/15 moderate-noise; 15 ordinary/15 technical. This user-requested shorter
 screen does not establish equivalence to the original 100-take acceptance gate. Actual recording durations
 are measured, so reading outside a requested range can require additional takes.
-The real-device corpus currently has **zero takes**. WER and live latency are
-unmeasured. Manual catastrophic-error and condition review remains required even
+The latest real-device evidence is summarized above. Manual catastrophic-error and condition review remains required even
 if numerical checks pass. The safe default cannot auto-enable itself.
 
 Open Speakeasy from the Dock, choose **Check Microphone**, and then **Begin
@@ -90,6 +124,8 @@ window-close unblock the session and restore normal dictation after cleanup.
 Model and recorder work use the engine's existing worker/control executors.
 
 The original 323-test result above records the preceding CLI implementation.
+The final release verification includes 339 tests covering the in-app workflow,
+follow-up preservation, error reporting, and cleanup.
 The in-app version additionally tests prompt balance, button sequencing,
 cancellation, shared engine resources and saved-report permissions.
 
@@ -108,7 +144,8 @@ owner spanning insertion completion. A safe retry would require a new explicit
 retention lifecycle and control for ambiguous/duplicate insertion; silently
 retaining every take would violate this task's privacy boundary.
 
-Meeting processing, UI layout, normal telemetry schema and final-only profile /
-clipboard publication remain unchanged. No broader latency or meeting-progress
-optimization was performed. Installation/provenance is reported separately after
-building this committed revision; no push is authorized or performed.
+Meeting processing, normal telemetry and final-only profile/clipboard publication
+remain unchanged. The diagnostic UI adds saved results, missing-short follow-ups,
+and explicit failure reasons. The authorized release uses an in-place signed
+installation from the merged `master` revision; installed provenance and origin
+parity are verified during release.

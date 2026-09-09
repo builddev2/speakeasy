@@ -1,5 +1,10 @@
 # Dictation latency & accuracy pass
 
+> September 2026 update: this remains a historical snapshot. Current dictation
+> uses batch finalization with silence trimming and a separate in-app microphone
+> diagnostic. See [current correctness evidence](../../real-mic-correctness.md)
+> for the 37-take screen, follow-ups, and unresolved failure.
+
 **Date:** 2026-07-11
 **Status:** Implemented; historical design record
 **Scope:** Reduce dictation latency and improve dictation + meeting accuracy,

@@ -1,5 +1,10 @@
 # Speakeasy Frontend Prototype (React/Vite/TS) Implementation Plan
 
+> September 2026 update: this remains a historical snapshot. Current dictation
+> uses batch finalization with silence trimming and a separate in-app microphone
+> diagnostic. See [current correctness evidence](../../real-mic-correctness.md)
+> for the 37-take screen, follow-ups, and unresolved failure.
+
 > **Historical implementation record — completed.** This plan preserves the
 > phase-1 browser-prototype snapshot and its planning-time checkboxes/code.
 > The current frontend is embedded in WKWebViews, uses the real Python bridge,

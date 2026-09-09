@@ -394,6 +394,9 @@ Open Speakeasy from the Dock and click **Check Microphone**, then **Begin
 model process is needed. Allow approximately 12–18 minutes. Cancel or close the
 window to stop; dictation resumes after capture/comparison cleanup. The check
 pauses dictation and prevents training/meeting capture from starting concurrently.
+See [current device evidence](docs/real-mic-correctness.md) for the 37-take
+results and unresolved historical interruption.
+
 The results screen shows the latest saved check and opens a corrected copy of
 the private report in Finder. Planned live-stream handoffs to batch are unscored,
 not transcription failures. When medium and long coverage is complete, **Add

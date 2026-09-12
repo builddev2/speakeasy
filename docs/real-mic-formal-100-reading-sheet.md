@@ -9,8 +9,8 @@ configured, run the command below in an interactive Terminal. The disclosure
 appears first; recording begins only after you type `RECORD` and press Return.
 For each take, read its fixed prompt below; press Return to start and again to
 stop. Do not change a reference to match recognition. Short takes must be under
-5 seconds, medium 5 to under 15, and long at least 15. Conditions are quiet for
-takes 1–50 and moderate noise for 51–100. Never record others without consent.
+5 seconds, medium 5 to under 15, and long at least 15. Follow each prompt’s listed condition
+(50 quiet and 50 moderate-noise takes). Never record others without consent.
 
 ```sh
 .venv/bin/python -m speakeasy --dictation-diagnostic /tmp/speakeasy-formal-100.json \

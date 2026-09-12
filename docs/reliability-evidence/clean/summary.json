@@ -1,0 +1,162 @@
+[
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "after_diagnostic",
+    "duration_group": "short",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 144.2,
+    "p95_ms": 166.4
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "after_meeting",
+    "duration_group": "short",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 90.68,
+    "p95_ms": 102.37
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "cold",
+    "duration_group": "long",
+    "attempts": 1,
+    "sufficient": false,
+    "p50_ms": 2790.77,
+    "p95_ms": 2790.77
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "cold",
+    "duration_group": "medium",
+    "attempts": 1,
+    "sufficient": false,
+    "p50_ms": 325.19,
+    "p95_ms": 325.19
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "cold",
+    "duration_group": "short",
+    "attempts": 31,
+    "sufficient": true,
+    "p50_ms": 106.9,
+    "p95_ms": 143.56
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "warm",
+    "duration_group": "long",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 499.3,
+    "p95_ms": 2832.19
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "warm",
+    "duration_group": "medium",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 351.28,
+    "p95_ms": 375.56
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "batch",
+    "temperature": "warm",
+    "duration_group": "short",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 144.79,
+    "p95_ms": 163.17
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "after_diagnostic",
+    "duration_group": "short",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 575.77,
+    "p95_ms": 607.44
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "after_meeting",
+    "duration_group": "short",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 562.22,
+    "p95_ms": 579.76
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "cold",
+    "duration_group": "long",
+    "attempts": 1,
+    "sufficient": false,
+    "p50_ms": 10423.24,
+    "p95_ms": 10423.24
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "cold",
+    "duration_group": "medium",
+    "attempts": 1,
+    "sufficient": false,
+    "p50_ms": 3105.77,
+    "p95_ms": 3105.77
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "cold",
+    "duration_group": "short",
+    "attempts": 31,
+    "sufficient": true,
+    "p50_ms": 849.89,
+    "p95_ms": 956.82
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "warm",
+    "duration_group": "long",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 9697.61,
+    "p95_ms": 13833.79
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "warm",
+    "duration_group": "medium",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 3038.52,
+    "p95_ms": 7961.68
+  },
+  {
+    "build_commit": "13ae18d3d085dbf736b8ade469fa9346b61491bf",
+    "mode": "streaming",
+    "temperature": "warm",
+    "duration_group": "short",
+    "attempts": 30,
+    "sufficient": true,
+    "p50_ms": 850.86,
+    "p95_ms": 878.36
+  }
+]

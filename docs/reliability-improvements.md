@@ -30,7 +30,7 @@ and unmet. The existing 30-prompt screen cannot grant that acceptance.
   leaving a subsequently launched process alive. A launch/shutdown lock fixes
   this demonstrated race without blocking realtime callbacks or level reads.
 - A prewarmed stream retained its previous default input. The helper now checks
-  transient input identity before capture and reopens on a change. Identity never
+  the PortAudio-reported transient input identity before capture and reopens on a change. Identity never
   crosses IPC or enters telemetry. Wake notifications queue recovery on control.
 - The historical 6.4-second **batch** inference was not reproduced or explained.
   Graph shape, residency, idle/wake and queue contention remain hypotheses.
@@ -43,43 +43,55 @@ state labels. Focused tests accompany each demonstrated regression.
 
 ## Latency and accuracy evidence
 
-[Raw metrics and grouped summary](reliability-evidence/summary.json) contain 366
-synthetic host-Metal inference attempts on **three synthesized fixtures**, not
-366 independent utterances. All had 0% WER against their fixed references; none
-was empty and no streaming parity check failed. These establish neither microphone
-accuracy nor real-app delivery. No synthetic audio or reference text is committed.
+[Clean-source raw metrics and grouped summary](reliability-evidence/clean/summary.json)
+contain 366 synthetic host-Metal inference attempts on **three synthesized
+fixtures**, not 366 independent utterances. Every record identifies clean source
+commit `13ae18d3d085dbf736b8ade469fa9346b61491bf`. All had 0% WER against their
+fixed references; none was empty and no streaming parity check failed. These
+establish neither microphone accuracy nor real-app delivery. No synthetic audio
+or reference text is committed.
 
-Each table entry has 30 attempts. Values are **total inference p50 / p95 in ms**,
-not release-to-paste. First-take rows mean a fresh process with model warmup
-completed, not a cold machine. Streaming replay bypasses the long-take cutoff
-only for comparison, as diagnostics do; production retains the cutoff.
+Each table entry has 30 attempts except first-short, which has 31 independent
+fresh processes per mode. Values are **total inference p50 / p95 in ms**, not
+release-to-paste. First-take rows follow model warmup, not a cold machine.
+Streaming replay bypasses the long-take cutoff only for comparison, as diagnostics
+do; production retains the cutoff.
 
-| Group | Batch | Depth-two replay | Source HEAD |
-|---|---:|---:|---|
-| Warm short, 2.464 s | 85.80 / 90.13 | 572.90 / 587.41 | 18c2a62 |
-| Warm medium, 11.803 s | 221.86 / 240.83 | 1897.18 / 1940.78 | 9f9e78e |
-| Warm long, 26.101 s | 436.80 / 460.90 | 6095.93 / 7489.19 | 9f9e78e |
-| First short after load, 30 fresh processes/mode | 112.04 / 117.80 | 576.22 / 614.55 | 9f9e78e |
-| Short after diagnostic comparison | 109.28 / 116.65 | 615.11 / 640.04 | 9f9e78e |
-| Short after meeting ASR | 92.93 / 98.04 | 603.37 / 636.25 | 9f9e78e |
-| First after 30-minute idle | Unmeasured | Unmeasured | — |
+| Group | Batch | Depth-two replay |
+|---|---:|---:|
+| Warm short, 2.464 s | 144.79 / 163.17 | 850.86 / 878.36 |
+| Warm medium, 11.803 s | 351.28 / 375.56 | 3038.52 / 7961.68 |
+| Warm long, 26.101 s | 499.30 / 2832.19 | 9697.61 / 13833.79 |
+| First short after load, 31 fresh processes/mode | 106.90 / 143.56 | 849.89 / 956.82 |
+| Short after diagnostic comparison | 144.20 / 166.40 | 575.77 / 607.44 |
+| Short after meeting ASR | 90.68 / 102.37 | 562.22 / 579.76 |
+| First after 30-minute idle | Unmeasured | Unmeasured |
 
-The 30 fresh-process runs separately measured model load plus warmup:
-batch-run p50/p95 **1609.15 / 1894.97 ms**; streaming-run **1445.99 / 1772.86 ms**.
+The 31 fresh-process short runs measured model load plus warmup separately:
+batch-run p50/p95 **1977.22 / 2409.89 ms**; streaming-run **2189.35 / 3378.01 ms**.
 Do not add these to release latency without measuring capture/queue overlap.
 Medium/long first-take observations have only one sample each and support no
 cold-start conclusion. The meeting transition exercises ASR, not the complete
 engine/diarization pipeline; diagnostic transition similarly exercises comparison,
 not UI close/re-arm. Real idle is not replaced by an accelerated fake clock.
 
-The recorded HEADs had uncommitted instrumentation/insertion/recovery work; the
-inference implementation itself remained the 18c2a62 implementation. Original
-records are preserved unchanged, including null warmup-to-first-inference gaps.
-The final benchmark additionally records source-tree dirtiness and that gap.
-Builds are grouped separately. Mixed-build observations are not pooled to claim
-an improvement. The first sandbox-generated fixture had zero frames and caused
-an invalid-input model error; it was excluded. Empty/too-short fixtures and empty
-references are now rejected before loading the model.
+Long batch tail latency and the substantial variation between groups remain
+unexplained. Runs were sequential but host load, thermal state and OS residency
+were not controlled; mode order was not randomized. These are observations, not
+causal evidence of an improvement or regression. The earlier 366 exploratory
+records and [their summary](reliability-evidence/summary.json) are retained
+unchanged outside `clean/`. They had uncommitted work and mixed HEADs; they are
+not pooled with the clean-source run. The first sandbox-generated fixture had
+zero frames and caused an invalid-input model error; it was excluded. Empty or
+too-short fixtures and empty references are now rejected before model loading.
+
+Inspection of installed pinned Parakeet-MLX 0.5.2 found no explicit `mx.compile`
+call; MLX 0.31.2 activation functions use shapeless compilation. This does not
+establish compilation as the outlier cause. Mel construction is lazy: the
+reported inference phase includes evaluation of mel/encoder work and is not pure
+decoder time. MLX active allocation remained approximately 1218 MiB within the
+warm runs; peak allocation varied by fixture/mode (approximately 2107–3826 MiB).
+Allocator statistics do not establish total process RSS or OS/Metal residency.
 
 The requested release-to-paste p50/p95 targets are **not established**. The long
 replay cost supports retaining the existing long-take batch handoff, but does
@@ -161,7 +173,7 @@ Other driver failures remain generic, with an input/permission remedy.
 
 The Dock/menu show recovery and failure. Holds beginning during recovery are
 rejected as a pair rather than queued for unexpected later capture. Wake recovery
-respects shutdown, training, diagnostics and meeting ownership. Input changes
+respects shutdown, training, diagnostics and meeting ownership. PortAudio-reported input changes
 are checked before the next take, not midway through an active recording.
 Recovery telemetry contains only revision, safe reason/state enums, attempt count
 and duration. The CoreAudio teardown guard is never reset.
@@ -205,3 +217,14 @@ Offline runtime, one MLX worker, one control executor, bounded audio queues,
 authoritative complete audio, same-worker fallback, final-only insertion and
 diagnostic privacy/audio deletion boundaries are preserved. No model, meeting
 pipeline, language, package-size, or cloud feature was changed.
+
+## Local implementation commits
+
+- `332be16`: build-scoped inference protocol and explicit streaming canary.
+- `9f9e78e`: guarded final insertion and expiring explicit text recovery.
+- `13ae18d`: bounded microphone recovery and completed reliability guards.
+
+The clean benchmark and latest suite validate the third commit. Subsequent
+evidence-only changes do not alter executable source. The temporary dependency
+virtualenv link used for verification is removed after completion; configure a
+project environment before running the reproduction or microphone commands.

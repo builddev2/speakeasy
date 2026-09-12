@@ -1,0 +1,44 @@
+[
+  {
+    "id": 1,
+    "expected_duration_group": "short",
+    "condition": "quiet",
+    "vocabulary": "ordinary",
+    "reference": "Please review the proposal today."
+  },
+  {
+    "id": 2,
+    "expected_duration_group": "short",
+    "condition": "quiet",
+    "vocabulary": "technical",
+    "reference": "The database migration finished successfully."
+  },
+  {
+    "id": 3,
+    "expected_duration_group": "medium",
+    "condition": "quiet",
+    "vocabulary": "ordinary",
+    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team."
+  },
+  {
+    "id": 4,
+    "expected_duration_group": "medium",
+    "condition": "quiet",
+    "vocabulary": "technical",
+    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections."
+  },
+  {
+    "id": 5,
+    "expected_duration_group": "long",
+    "condition": "quiet",
+    "vocabulary": "ordinary",
+    "reference": "Please review the proposal today. I will check the details this afternoon and share any changes with the team. We need enough time to review the document before making a final decision. Please bring the notes from our last discussion so that everyone has the same information. If the schedule changes, let me know before I leave the office this evening."
+  },
+  {
+    "id": 6,
+    "expected_duration_group": "long",
+    "condition": "quiet",
+    "vocabulary": "technical",
+    "reference": "The database migration finished successfully. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue."
+  }
+]

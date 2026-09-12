@@ -1,5 +1,8 @@
 # Formal 100-take microphone session
 
+**Historical protocol, not the current next step.** Use the
+[six-recording check](real-mic-quick-6-reading-sheet.md) instead.
+
 Original corpus preserved from commit `0e286aa`. This is a separate session; the
 in-app 30-prompt screen and its acceptance calculation are unchanged. Completing
 the recordings does not automatically enable streaming or establish a pass.

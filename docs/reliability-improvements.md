@@ -7,8 +7,10 @@ The fresh worktree, master, origin/master and installed release all matched
 `codex/latency-paste-mic-recovery`. No merge, push, installation, branch/worktree
 deletion, microphone recording, or system permission change was performed.
 
-Production streaming remains off. The formal 100-real-microphone gate is unchanged
-and unmet. The existing 30-prompt screen cannot grant that acceptance.
+Production streaming remains off. **The next step is now a six-recording diagnostic**
+([instructions and prompts](real-mic-quick-6-reading-sheet.md)), replacing the
+100-recording request. The historical formal gate remains unmet; neither this
+small check nor the existing 30-prompt screen establishes production acceptance.
 
 ## Demonstrated causes and changes
 
@@ -201,12 +203,16 @@ TCC reset, microphone recording, or installed-app modification was used.
 - `npm --prefix frontend run build`: TypeScript check passed; Vite built **59 modules in 448 ms**.
 - Sandbox MLX collection failed because Metal was unavailable; host results above are the product test evidence.
 
-Still required before production acceptance: real end-to-end latency including
+Next human step: six quiet-room recordings, followed by individual review. Do not
+request another bulk session before investigating those results.
+
+Outstanding evidence for the original production acceptance criteria: real end-to-end latency including
 30-minute idle, the complete meeting/diagnostic-to-dictation transitions, the real
 application insertion matrix, OS recovery timing and the formal 100-take consented
 microphone/reference gate. The original 100-prompt corpus from `0e286aa` is
 preserved separately in `real-mic-formal-100-corpus.json`, with exact instructions
-in [the formal reading sheet](real-mic-formal-100-reading-sheet.md). Its 34 short,
+in [the historical formal reading sheet](real-mic-formal-100-reading-sheet.md);
+that session is not required for the next step. Its 34 short,
 34 medium and 32 long prompts are evenly balanced across conditions/vocabulary.
 The current UI screen and legacy 30-prompt numerical summary remain unchanged;
 100-take acceptance requires separate manual review and never auto-enables

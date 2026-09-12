@@ -129,6 +129,9 @@ class DictationEngine:
         self._diarizer_speaker_count: int | None = None
         self.last_dictation_heard: str | None = None
         self.last_dictation_text: str | None = None
+        self._last_dictation_timer = None
+        self.last_insertion_outcome = None
+        self._insertion_lock = threading.RLock()
         self._dictation_take_ids = count(1)
         self._dictation_clock_ns = time.perf_counter_ns
         self._recorder_busy = False
@@ -163,9 +166,10 @@ class DictationEngine:
         self._listener.start()
 
     def set_profile(self, profile: Profile | None) -> None:
-        self.profile = profile
-        self.last_dictation_heard = None
-        self.last_dictation_text = None
+        with self._delivery_lock():
+            self._dictation_generation += 1
+            self.profile = profile
+            self._clear_last_dictation()
 
     @property
     def can_train(self) -> bool:
@@ -199,6 +203,7 @@ class DictationEngine:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self._clear_last_dictation()
         if self._diagnostic_cancel is not None:
             self._diagnostic_cancel()
         self._listener.stop()
@@ -248,9 +253,11 @@ class DictationEngine:
             active_stream = self._dictation_stream
         repeat_ready = self._dictation_repeat_ready
         self._dictation_repeat_ready = False
-        self._dictation_generation += 1
-        generation = self._dictation_generation
-        self._recording_generation = generation
+        with self._delivery_lock():
+            self._dictation_generation += 1
+            generation = self._dictation_generation
+            self._recording_generation = generation
+            self._dictation_target = injector.focused_target()
         session = (
             StreamingSession(
                 clock_ns=self._dictation_clock_ns,
@@ -1053,7 +1060,12 @@ class DictationEngine:
             if timing is not None:
                 timing.mark("clipboard_read_finished")
 
-    def _finalize_dictation(
+    def _finalize_dictation(self, *args, **kwargs):
+        # Serialize generation/profile changes with final retention and dispatch.
+        with self._delivery_lock():
+            return self._finalize_dictation_locked(*args, **kwargs)
+
+    def _finalize_dictation_locked(
         self,
         raw_text: str,
         previous,
@@ -1064,9 +1076,14 @@ class DictationEngine:
         generation: int | None = None,
     ) -> None:
         """Apply the final profile result and perform at most one paste."""
+        if generation is not None and generation != self._dictation_generation:
+            return
+        if getattr(self, "_shutting_down", False):
+            return
         status = "pipeline_exception"
         try:
             self.last_dictation_heard = raw_text
+            self._retain_last_dictation(None)
             text = raw_text
             if self.profile is not None:
                 if timing is not None:
@@ -1079,7 +1096,7 @@ class DictationEngine:
                         timing.mark("profile_finished")
             elif timing is not None:
                 timing.profile_active = False
-            self.last_dictation_text = text
+            self._retain_last_dictation(text)
 
             if not text:
                 print("  → (no speech detected)")
@@ -1098,10 +1115,17 @@ class DictationEngine:
                 if timing is not None:
                     timing.mark("insertion_started")
                 try:
-                    if timing is None:
-                        injector.insert_text(text)
-                    else:
-                        injector.insert_text(text, timing=timing)
+                    with self._delivery_lock():
+                        if generation is not None and generation != self._dictation_generation:
+                            return
+                        if hasattr(self, "_dictation_target"):
+                            self.last_insertion_outcome = injector.deliver_final(
+                                text, self._dictation_target, timing=timing,
+                            )
+                        elif timing is None:
+                            injector.insert_text(text)
+                        else:
+                            injector.insert_text(text, timing=timing)
                 except Exception:
                     status = "insertion_exception"
                     raise
@@ -1149,6 +1173,66 @@ class DictationEngine:
             timing.mark("clipboard_restore_finished")
             self._finish_dictation(timing, status, generation)
 
+    def _delivery_lock(self):
+        return self.__dict__.setdefault("_insertion_lock", threading.RLock())
+
+    def _clear_last_dictation(self):
+        with self._delivery_lock():
+            timer = getattr(self, "_last_dictation_timer", None)
+            if timer is not None:
+                timer.cancel()
+            self._last_dictation_timer = None
+            self.last_dictation_text = None
+            self.last_dictation_heard = None
+
+    def _retain_last_dictation(self, text):
+        with self._delivery_lock():
+            timer = getattr(self, "_last_dictation_timer", None)
+            if timer is not None:
+                timer.cancel()
+            self.last_dictation_text = text
+            # One cancellable timer; no transcript captured in its callback.
+            timer = threading.Timer(60, self._expire_last_dictation)
+            timer.daemon = True
+            self._last_dictation_timer = timer
+            timer.start()
+
+    def _expire_last_dictation(self):
+        with self._delivery_lock():
+            if threading.current_thread() is self._last_dictation_timer:
+                self._clear_last_dictation()
+
+    def copy_last_dictation(self):
+        with self._delivery_lock():
+            if not self.last_dictation_text or self._shutting_down:
+                return False
+            injector.set_clipboard(self.last_dictation_text)
+            return True
+
+    def paste_last_dictation(self):
+        # Explicit recovery shares the model worker's serialized insertion path.
+        target = injector.focused_target()
+        generation = self._dictation_generation
+        self.worker.submit(self._paste_last_dictation, target, generation)
+
+    def _paste_last_dictation(self, target, generation):
+        try:
+            with self._delivery_lock():
+                if (self._shutting_down or generation != self._dictation_generation
+                        or not self.last_dictation_text):
+                    return
+                self._listener.pause()
+                try:
+                    self.last_insertion_outcome = injector.deliver_final(
+                        self.last_dictation_text, target,
+                    )
+                finally:
+                    if not self._user_paused and not self._shutting_down:
+                        self._listener.resume()
+            time.sleep(config.PASTE_SETTLE_SECONDS)
+        finally:
+            injector.restore_clipboard(None)
+
     def correct_last_dictation(self, intended: str) -> bool:
         """Teach the active profile from the most recent raw ASR result."""
         if self.profile is None or not self.last_dictation_heard:
@@ -1157,5 +1241,5 @@ class DictationEngine:
             self.last_dictation_heard, intended.strip()
         )
         if learned:
-            self.last_dictation_text = intended.strip()
+            self._retain_last_dictation(intended.strip())
         return learned

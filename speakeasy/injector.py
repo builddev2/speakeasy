@@ -8,9 +8,11 @@ has shown a text field — see hotkey.py).
 """
 
 import time
+import threading
+from dataclasses import dataclass
 
 import Quartz
-from AppKit import NSPasteboard, NSPasteboardTypeString
+from AppKit import NSPasteboard, NSPasteboardItem, NSPasteboardTypeString
 
 from . import config
 from .dictation_benchmark import DictationTiming
@@ -19,20 +21,62 @@ _CMD_KEYCODE = 55
 _V_KEYCODE = 9  # 'v' on the ANSI layout
 
 
-def read_clipboard() -> str | None:
-    """Return the clipboard's text, or None if it holds no text."""
-    return NSPasteboard.generalPasteboard().stringForType_(NSPasteboardTypeString)
+_transaction = threading.local()
 
 
-def restore_clipboard(previous: str | None) -> None:
-    if previous:
-        _set_clipboard(previous)
+def _pasteboard():
+    return NSPasteboard.generalPasteboard()
+
+
+@dataclass
+class ClipboardSnapshot:
+    items: list
+    restore_count: int | None = None
+
+
+def _make_item(values):
+    item = NSPasteboardItem.alloc().init()
+    for kind, data in values:
+        item.setData_forType_(data, kind)
+    return item
+
+
+def read_clipboard() -> ClipboardSnapshot:
+    """Materialize advertised data without interpreting or logging content."""
+    pb = _pasteboard()
+    items = []
+    for item in pb.pasteboardItems() or []:
+        values = []
+        for kind in item.types():
+            data = item.dataForType_(kind)
+            if data is None:
+                raise RuntimeError("clipboard representation unavailable")
+            values.append((kind, data))
+        items.append(values)
+    return ClipboardSnapshot(items)
+
+
+def restore_clipboard(previous) -> None:
+    saved = getattr(_transaction, "snapshot", None)
+    _transaction.snapshot = None
+    if saved is not None:
+        previous = saved
+    if not isinstance(previous, ClipboardSnapshot):
+        return
+    pb = _pasteboard()
+    if previous.restore_count is None or pb.changeCount() != previous.restore_count:
+        return
+    items = [_make_item(values) for values in previous.items]
+    pb.clearContents()
+    if items and not pb.writeObjects_(items):
+        raise RuntimeError("clipboard restoration failed")
 
 
 def _set_clipboard(text: str) -> None:
-    pb = NSPasteboard.generalPasteboard()
+    pb = _pasteboard()
     pb.clearContents()
-    pb.setString_forType_(text, NSPasteboardTypeString)
+    if not pb.setString_forType_(text, NSPasteboardTypeString):
+        raise RuntimeError("clipboard write failed")
 
 
 def set_clipboard(text: str) -> None:
@@ -66,8 +110,54 @@ def _post_cmd_v() -> None:
 def insert_text(text: str, *, timing: DictationTiming | None = None) -> None:
     if not text:
         return
-    _set_clipboard(text)
+    # Snapshot at delivery time so a copy during inference is preserved.
+    saved = read_clipboard()
+    _transaction.snapshot = saved
+    try:
+        _set_clipboard(text)
+    finally:
+        saved.restore_count = _pasteboard().changeCount()
     time.sleep(config.CLIPBOARD_SETTLE_SECONDS)  # let the app observe the new pasteboard
     _post_cmd_v()
     if timing is not None:
         timing.mark("paste_dispatched")
+
+
+def focused_target():
+    """Only AX element identity/role metadata; never fetch value or selection."""
+    import ApplicationServices as ax
+    error, element = ax.AXUIElementCopyAttributeValue(
+        ax.AXUIElementCreateSystemWide(), "AXFocusedUIElement", None)
+    return element if error == 0 else None
+
+
+def _attribute(element, name):
+    import ApplicationServices as ax
+    error, value = ax.AXUIElementCopyAttributeValue(element, name, None)
+    return value if error == 0 else None
+
+
+def deliver_final(text, target, *, timing=None):
+    """AX write acknowledgement or one unacknowledged Quartz dispatch.
+
+    A failed AX write is ambiguous and must never trigger a second insertion.
+    Secure or uninspectable fields fail closed before touching the clipboard.
+    """
+    import ApplicationServices as ax
+    current = focused_target()
+    if target is None or current is None:
+        return "permission_or_focus_unavailable"
+    if current != target:
+        return "focus_changed"
+    role = _attribute(current, "AXRole")
+    subrole = _attribute(current, "AXSubrole")
+    if role is None or subrole == "AXSecureTextField":
+        return "secure_or_unknown_field"
+    error, writable = ax.AXUIElementIsAttributeSettable(current, "AXSelectedText", None)
+    if role in {"AXTextField", "AXTextArea"} and error == 0 and writable:
+        result = ax.AXUIElementSetAttributeValue(current, "AXSelectedText", text)
+        if timing is not None and result == 0:
+            timing.mark("paste_dispatched")
+        return "ax_acknowledged" if result == 0 else "delivery_unknown"
+    insert_text(text, timing=timing)
+    return "dispatched_unconfirmed"

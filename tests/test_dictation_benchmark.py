@@ -683,6 +683,9 @@ def test_injector_marks_dispatch_only_after_post(monkeypatch):
     clock = Clock()
     timing = DictationTiming(1, clock_ns=clock)
     order = []
+    from types import SimpleNamespace
+    monkeypatch.setattr(injector, "read_clipboard", lambda: injector.ClipboardSnapshot([]))
+    monkeypatch.setattr(injector, "_pasteboard", lambda: SimpleNamespace(changeCount=lambda: 0))
     monkeypatch.setattr(injector, "_set_clipboard", lambda text: order.append("set"))
     monkeypatch.setattr(injector.time, "sleep", lambda seconds: order.append("settle"))
 

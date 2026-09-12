@@ -48,3 +48,15 @@ def make_profile(profiles_dir):
         return p
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def insertion_target(monkeypatch):
+    """Unit tests use a stable incompatible target; never inspect host focus."""
+    import ApplicationServices as ax
+    from speakeasy import injector
+    monkeypatch.setattr(injector._transaction, "snapshot", None, raising=False)
+    target = object()
+    monkeypatch.setattr(injector, "focused_target", lambda: target)
+    monkeypatch.setattr(injector, "_attribute", lambda element, name: "AXGroup")
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (0, False))

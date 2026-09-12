@@ -41,3 +41,35 @@ padding or keep-warm change was made. Medium/long, 30 independent cold starts,
 30-minute idle, complete meeting/diagnostic transitions, end-to-end delivery,
 and the formal 100-real-microphone gate remain unvalidated. The 37-take release
 evidence is historical and does not satisfy that gate.
+
+## Final text insertion
+
+The menu exposes Copy Last Dictation and Paste Last Dictation (may duplicate).
+Only the latest final and existing correction source remain in memory, for 60
+seconds, replaced on a newer final and cleared on profile change/shutdown/expiry.
+There is no audio retention or persistent history. No new global shortcut was
+added. Explicit paste shares the existing worker; it never retries automatically.
+
+At key-down the engine retains an AX element identity. Delivery rejects changed
+focus, inaccessible focus, and secure fields. For standard writable AX text
+controls it writes AXSelectedText without reading values or selections. Successful
+AX API return is an acknowledgement, not proof of visible application behavior.
+An ambiguous AX failure never falls through to Cmd+V. Incompatible accessible
+targets receive one clipboard/Quartz dispatch with an unconfirmed outcome.
+
+Clipboard representations are materialized at delivery time; empty strings,
+empty pasteboards and available non-text data are preserved. Restoration is
+conditional on the pasteboard change count, so a later user copy wins. Promised
+or unavailable representations can block insertion; lossless support is limited
+to materializable representations. Clipboard operations are not OS-atomic against
+another process changing them during the write itself. Delayed target handling
+beyond the existing settle interval remains unverified. Recovery can duplicate an
+already-delivered but unacknowledged paste; the menu labels that risk.
+
+Mocked 1000-attempt matrix: 200 AX acknowledgements, 200 secure rejections,
+200 changed-focus rejections, 400 unconfirmed fallback dispatches. All matched
+expected outcomes; no automatic duplicate dispatch. These are harness outcomes,
+not a 99.9% real-app delivery claim. Real AppKit, browser/contenteditable,
+Electron, Terminal/editor, permission-revocation and delayed target checks remain
+required on a consented host. Focus/clipboard metadata and final strings never
+enter the standard telemetry schema.

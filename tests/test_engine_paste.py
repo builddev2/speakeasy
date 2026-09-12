@@ -183,3 +183,37 @@ def test_profile_error_restores_without_inserting(monkeypatch):
     ]
     assert engine.last_dictation_heard == "raw final"
     assert engine.last_dictation_text is None
+
+
+def test_stale_final_never_profiles_retains_or_inserts(monkeypatch):
+    engine = DictationEngine.__new__(DictationEngine)
+    engine._dictation_generation = 2
+    engine.last_dictation_text = "new final"
+    engine.last_dictation_heard = "new raw"
+    calls = []
+    monkeypatch.setattr(engine, "_restore_after_dictation", lambda *a, **k: None)
+    monkeypatch.setattr(engine_module.injector, "insert_text", lambda *a, **k: calls.append(a))
+    engine._finalize_dictation("old final", None, generation=1)
+    assert engine.last_dictation_heard == "new raw"
+    assert engine.last_dictation_text == "new final"
+    assert not calls
+
+
+def test_recovery_ttl_replacement_and_shutdown_clear(monkeypatch):
+    import threading
+    engine = DictationEngine.__new__(DictationEngine)
+    engine._insertion_lock = threading.RLock()
+    engine._last_dictation_timer = None
+    engine.last_dictation_heard = "raw"
+    engine._retain_last_dictation("first")
+    first = engine._last_dictation_timer
+    engine._retain_last_dictation("second")
+    assert first.finished.is_set()
+    monkeypatch.setattr(engine_module.threading, "current_thread", lambda: first)
+    engine._expire_last_dictation()
+    assert engine.last_dictation_text == "second"
+    current = engine._last_dictation_timer
+    monkeypatch.setattr(engine_module.threading, "current_thread", lambda: current)
+    engine._expire_last_dictation()
+    assert engine.last_dictation_text is None
+    assert engine.last_dictation_heard is None

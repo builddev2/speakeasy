@@ -219,6 +219,13 @@ class StatusItemController(NSObject):
         )
         self._correct_item.setTarget_(self)
         menu.addItem_(self._correct_item)
+        for title, action in (
+            ("Copy Last Dictation", b"copyLastDictation:"),
+            ("Paste Last Dictation (may duplicate)", b"pasteLastDictation:"),
+        ):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, "")
+            item.setTarget_(self)
+            menu.addItem_(item)
         self._sync_train_item()
 
         menu.addItem_(NSMenuItem.separatorItem())
@@ -294,6 +301,10 @@ class StatusItemController(NSObject):
         text = _STATE_TEXT[state]
         if state is State.READY:
             text = f"Ready — {profile.name if profile else 'Guest'}"
+            outcome = self.engine.last_insertion_outcome
+            if outcome in {"focus_changed", "permission_or_focus_unavailable",
+                           "secure_or_unknown_field", "delivery_unknown"}:
+                text = "Text retained for 60 seconds — use Copy Last Dictation"
         elif state is State.MEETING_RECORDING:
             text = _meeting_status_text(self.engine.meeting_recorder)
         self._status_line.setTitle_(text)
@@ -447,6 +458,12 @@ class StatusItemController(NSObject):
                 self.engine
             )
         self.training_window.showForProfile_(self.engine.profile)
+
+    def copyLastDictation_(self, sender):
+        self.engine.copy_last_dictation()
+
+    def pasteLastDictation_(self, sender):
+        self.engine.paste_last_dictation()
 
     def correctLastDictation_(self, sender):
         if self.engine.profile is None or not self.engine.last_dictation_heard:

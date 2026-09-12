@@ -60,3 +60,9 @@ def insertion_target(monkeypatch):
     monkeypatch.setattr(injector, "focused_target", lambda: target)
     monkeypatch.setattr(injector, "_attribute", lambda element, name: "AXGroup")
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (0, False))
+
+
+@pytest.fixture(autouse=True)
+def microphone_authorization(monkeypatch):
+    from speakeasy import recorder
+    monkeypatch.setattr(recorder, "_permission_blocked", lambda: False)

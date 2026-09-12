@@ -236,3 +236,81 @@ def test_duration_and_idle_stop_compatibility():
     recorder = Recorder()
     assert recorder.stop().size == 0
     assert recorder.duration_seconds(np.zeros(16000, dtype=np.float32)) == 1.0
+
+
+def test_recovery_prewarms_fresh_helper_without_another_take():
+    failed, healthy = FakeHelper(), FakeHelper()
+    recorder = _recorder_with(failed, healthy)
+    recorder.prewarm()
+    assert recorder.recover("helper_exit")
+    assert failed.terminated
+    assert healthy.launched
+    assert recorder.state == "ready"
+
+
+def test_recovery_is_finite_and_shutdown_never_reopens():
+    helpers = [FakeHelper(launch_error=True) for _ in range(2)]
+    recorder = _recorder_with(*helpers)
+    assert not recorder.recover("launch_failure")
+    assert all(helper.terminated for helper in helpers)
+    assert recorder.state == "failed"
+    recorder.shutdown()
+    assert not recorder.recover("helper_exit")
+
+
+def test_1000_recovery_cycles_keep_exact_helper_ownership():
+    recorder = Recorder()
+    helpers = []
+    def create():
+        helper = FakeHelper()
+        helpers.append(helper)
+        return helper
+    recorder._new_helper = create
+    for cycle in range(1000):
+        recorder.start()
+        assert recorder.stop().shape == (8,)
+        assert recorder.recover("helper_exit")
+        assert sum(not h.terminated for h in helpers) == 1
+    recorder.shutdown()
+    assert all(h.terminated for h in helpers)
+
+
+def test_shutdown_during_prewarm_cannot_leave_a_live_helper():
+    class SlowLaunch(FakeHelper):
+        entered = threading.Event()
+        release = threading.Event()
+        def launch(self):
+            self.entered.set()
+            assert self.release.wait(1)
+            super().launch()
+            self.live = True
+        def terminate(self):
+            if self.terminated:
+                return
+            super().terminate()
+            self.live = False
+    helper = SlowLaunch()
+    recorder = _recorder_with(helper)
+    prewarm = threading.Thread(target=recorder.prewarm)
+    prewarm.start()
+    assert helper.entered.wait(.2)
+    shutdown = threading.Thread(target=recorder.shutdown)
+    shutdown.start()
+    shutdown.join(.05)
+    helper.release.set()
+    prewarm.join(1)
+    shutdown.join(1)
+    assert not prewarm.is_alive() and not shutdown.is_alive()
+    assert helper.terminated
+    assert not helper.live
+    assert not recorder.prewarm()
+
+
+def test_permission_denial_stops_recovery_without_launch(monkeypatch):
+    import speakeasy.recorder as module
+    monkeypatch.setattr(module, "_permission_blocked", lambda: True, raising=False)
+    helper = FakeHelper()
+    recorder = _recorder_with(helper)
+    assert not recorder.recover("launch_failure")
+    assert recorder.state == "permission_blocked"
+    assert not helper.launched

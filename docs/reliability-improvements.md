@@ -1,75 +1,207 @@
-# Reliability work and evidence
+# Speakeasy reliability changes and verification
 
-Baseline: master/origin/master/HEAD matched 18c2a62 before edits. Baseline host
-suite: 339 passed in 6.73s. Sandbox collection cannot access Metal.
+## Scope and provenance
 
-## Latency protocol and canary
+The fresh worktree, master, origin/master and installed release all matched
+`18c2a62dbe571dbd202b42cf96832f7210ec4f5d` before implementation. Work is on
+`codex/latency-paste-mic-recovery`. No merge, push, installation, branch/worktree
+deletion, microphone recording, or system permission change was performed.
 
-`--dictation-streaming-canary` opts in for one launch. The default remains batch;
-`--dictation-batch-mode` overrides the canary. Diagnostic results cannot enable
-it. Existing frame parity, bounded queues, same-worker fallback, long-take
-handoff, and stream-error circuit breaker remain in use.
+Production streaming remains off. The formal 100-real-microphone gate is unchanged
+and unmet. The existing 30-prompt screen cannot grant that acceptance.
 
-Run `.venv/bin/python scripts/bench_temperature.py WAV REFERENCE --output JSONL`.
-Use `--mode streaming` for depth-two replay, `--after diagnostic` or `--after
-meeting` for model transitions, and `--idle-seconds 1800` for actual idle. This
-script uses one sequential model owner and never records or inserts. The meeting
-transition exercises ASR, not the complete diarization/engine pipeline. Every
-cold sample requires a fresh process. Use at least 30 attempts per build,
-duration, mode and temperature group; do not pool cold with warm. No accelerated
-idle equivalent is asserted. References and audio are input-only; output contains
-numeric metrics and safe enums. Streaming replay deliberately bypasses the long
-take cutoff for comparison, as diagnostics do; production does not.
+## Demonstrated causes and changes
 
-Initial synthetic host-Metal probe (single 2.9-second synthesized sentence,
-unchanged 18c2a62 inference implementation with uncommitted benchmark additions):
+- Clipboard restoration previously ignored empty strings and non-text data.
+  The fallback now materializes all available representations and snapshots again
+  at delivery time, preserving copies made during inference. Restoration checks
+  change count so a later user copy wins.
+- An older final could overwrite the latest retained text. Generation/profile
+  changes are serialized with final retention and dispatch. A separate 1000-stale-
+  generation regression verifies that older finals neither replace nor insert.
+- Focus could change during clipboard settling. Focus and clipboard ownership are
+  now rechecked immediately before Cmd+V. The generation lock is released before
+  the 500-ms post-dispatch wait so the next capture is not delayed by that wait.
+- Stop errors discarded helpers without immediately prewarming replacements.
+  The existing control executor now performs bounded recovery. A prior stop must
+  relinquish ownership before a new helper opens; repeated calls cannot create
+  additional abandoned stop threads.
+- Shutdown could terminate a helper before its in-progress launch completed,
+  leaving a subsequently launched process alive. A launch/shutdown lock fixes
+  this demonstrated race without blocking realtime callbacks or level reads.
+- A prewarmed stream retained its previous default input. The helper now checks
+  transient input identity before capture and reopens on a change. Identity never
+  crosses IPC or enters telemetry. Wake notifications queue recovery on control.
+- The historical 6.4-second **batch** inference was not reproduced or explained.
+  Graph shape, residency, idle/wake and queue contention remain hypotheses.
+  No speculative padding, duration warmup, or continuous keep-warm was added.
 
-| Mode | Warm n | Total inference p50 ms | p95 ms | WER |
-|---|---:|---:|---:|---:|
-| Batch | 30 | 85.80 | 90.13 | 0% |
-| Depth-two replay | 30 | 572.90 | 587.41 | 0% |
+Changed implementation: `__main__.py`, `latency_protocol.py`,
+`scripts/bench_temperature.py`, `injector.py`, `dictation_benchmark.py`,
+`engine.py`, `recorder.py`, `microphone_helper.py`, `ui/menubar.py`, and the Dock's
+state labels. Focused tests accompany each demonstrated regression.
 
-First-take observations: batch 114.31 ms; replay 564.77 ms (one each, insufficient
-for conclusions). These are NOT release-to-paste measurements and cannot meet
-that acceptance criterion. No real microphone or installed app validation was
-performed. The initial sandbox-generated WAV had zero frames; its model error
-was excluded and the benchmark now rejects too-short fixtures before model load.
+## Latency and accuracy evidence
 
-The 6.4-second occurrence was not reproduced. Shape compilation, residency,
-idle wake and worker contention remain hypotheses. No speculative warmup,
-padding or keep-warm change was made. Medium/long, 30 independent cold starts,
-30-minute idle, complete meeting/diagnostic transitions, end-to-end delivery,
-and the formal 100-real-microphone gate remain unvalidated. The 37-take release
-evidence is historical and does not satisfy that gate.
+[Raw metrics and grouped summary](reliability-evidence/summary.json) contain 366
+synthetic host-Metal inference attempts on **three synthesized fixtures**, not
+366 independent utterances. All had 0% WER against their fixed references; none
+was empty and no streaming parity check failed. These establish neither microphone
+accuracy nor real-app delivery. No synthetic audio or reference text is committed.
 
-## Final text insertion
+Each table entry has 30 attempts. Values are **total inference p50 / p95 in ms**,
+not release-to-paste. First-take rows mean a fresh process with model warmup
+completed, not a cold machine. Streaming replay bypasses the long-take cutoff
+only for comparison, as diagnostics do; production retains the cutoff.
+
+| Group | Batch | Depth-two replay | Source HEAD |
+|---|---:|---:|---|
+| Warm short, 2.464 s | 85.80 / 90.13 | 572.90 / 587.41 | 18c2a62 |
+| Warm medium, 11.803 s | 221.86 / 240.83 | 1897.18 / 1940.78 | 9f9e78e |
+| Warm long, 26.101 s | 436.80 / 460.90 | 6095.93 / 7489.19 | 9f9e78e |
+| First short after load, 30 fresh processes/mode | 112.04 / 117.80 | 576.22 / 614.55 | 9f9e78e |
+| Short after diagnostic comparison | 109.28 / 116.65 | 615.11 / 640.04 | 9f9e78e |
+| Short after meeting ASR | 92.93 / 98.04 | 603.37 / 636.25 | 9f9e78e |
+| First after 30-minute idle | Unmeasured | Unmeasured | — |
+
+The 30 fresh-process runs separately measured model load plus warmup:
+batch-run p50/p95 **1609.15 / 1894.97 ms**; streaming-run **1445.99 / 1772.86 ms**.
+Do not add these to release latency without measuring capture/queue overlap.
+Medium/long first-take observations have only one sample each and support no
+cold-start conclusion. The meeting transition exercises ASR, not the complete
+engine/diarization pipeline; diagnostic transition similarly exercises comparison,
+not UI close/re-arm. Real idle is not replaced by an accelerated fake clock.
+
+The recorded HEADs had uncommitted instrumentation/insertion/recovery work; the
+inference implementation itself remained the 18c2a62 implementation. Original
+records are preserved unchanged, including null warmup-to-first-inference gaps.
+The final benchmark additionally records source-tree dirtiness and that gap.
+Builds are grouped separately. Mixed-build observations are not pooled to claim
+an improvement. The first sandbox-generated fixture had zero frames and caused
+an invalid-input model error; it was excluded. Empty/too-short fixtures and empty
+references are now rejected before loading the model.
+
+The requested release-to-paste p50/p95 targets are **not established**. The long
+replay cost supports retaining the existing long-take batch handoff, but does
+not explain the old batch outlier. No new real-device accuracy evidence was
+collected. The supplied release evidence (37 takes, 98.79% batch/depth-two
+accuracy) remains historical and below the formal gate.
+
+### Reproduction
+
+Run from the worktree using its configured `.venv/bin/python` and local,
+consented PCM16 WAV/fixed UTF-8 reference files:
+
+```sh
+.venv/bin/python scripts/bench_temperature.py FIXTURE.wav REFERENCE.txt --output batch.jsonl --attempts 31
+.venv/bin/python scripts/bench_temperature.py FIXTURE.wav REFERENCE.txt --output streaming.jsonl --attempts 31 --mode streaming
+.venv/bin/python scripts/bench_temperature.py FIXTURE.wav REFERENCE.txt --output after-diagnostic.jsonl --attempts 30 --after diagnostic
+.venv/bin/python scripts/bench_temperature.py FIXTURE.wav REFERENCE.txt --output after-meeting.jsonl --attempts 30 --after meeting
+.venv/bin/python scripts/bench_temperature.py FIXTURE.wav REFERENCE.txt --output idle.jsonl --attempts 30 --idle-seconds 1800
+```
+
+Repeat the first command with `--attempts 1` in 30 separate processes and unique
+output paths for a cold group. Run each mode sequentially; never share a model
+across threads. The script captures no microphone input and performs no insertion.
+Thirty actual 30-minute idle intervals require at least 15 hours per group;
+no equivalent idle condition has been validated. Outputs are exclusive-created,
+mode 0600, and contain only safe numeric metrics/enums and revision metadata.
+
+`--dictation-streaming-canary` opts in for one app launch. Batch mode overrides
+it and the next normal launch returns to batch. Diagnostic results cannot enable
+it. Existing frame parity, bounded queues, same-worker fallback, long-take handoff
+and stream-error circuit breaker remain in use.
+
+## Insertion outcomes and recovery
+
+Standard writable AX text controls receive an AXSelectedText write without
+reading values or selected text. Successful API return is `ax_acknowledged`,
+not proof of visible application behavior. AX messaging uses a 100-ms timeout.
+An ambiguous write never falls through to a second insertion. Secure fields,
+missing/inaccessible focus, and changed focus block delivery. Incompatible
+accessible targets receive one clipboard/Quartz dispatch, explicitly unconfirmed.
+Blocked/ambiguous outcomes are not logged as successful dictation delivery;
+only allowlisted outcome enums are added to standard telemetry.
 
 The menu exposes Copy Last Dictation and Paste Last Dictation (may duplicate).
-Only the latest final and existing correction source remain in memory, for 60
-seconds, replaced on a newer final and cleared on profile change/shutdown/expiry.
-There is no audio retention or persistent history. No new global shortcut was
-added. Explicit paste shares the existing worker; it never retries automatically.
+Only the latest final and the existing correction source remain in memory for
+60 seconds, cleared on replacement, profile change, expiry and shutdown. A single
+cancellable expiry timer retains no text in its callback. There is no audio
+retention, persistent history, or new global shortcut. Explicit paste uses the
+existing worker and is available only while idle/failed, not during an active
+take. The menu disables recovery after expiry.
 
-At key-down the engine retains an AX element identity. Delivery rejects changed
-focus, inaccessible focus, and secure fields. For standard writable AX text
-controls it writes AXSelectedText without reading values or selections. Successful
-AX API return is an acknowledgement, not proof of visible application behavior.
-An ambiguous AX failure never falls through to Cmd+V. Incompatible accessible
-targets receive one clipboard/Quartz dispatch with an unconfirmed outcome.
+| Automated matrix | Result | Host-app validation |
+|---|---|---|
+| Standard AX editable control | API acknowledgement; no clipboard dispatch | AppKit unverified |
+| Browser/contenteditable, Electron-like, Terminal/editor fallback | One unconfirmed dispatch | All unverified |
+| Secure field / missing permission or focus | Blocked, no automatic insertion | Real permission/secure targets unverified |
+| Focus changes during inference or clipboard settle | Blocked | Real focus switching unverified |
+| Clipboard copied during inference / after dispatch | Latest copy preserved | Real non-text/promised providers unverified |
+| Delayed paste | Existing 250-ms simulated handler reads final before restoration | Handlers beyond 500 ms unverified |
+| AX ambiguous error | No fallback or automatic retry | Real ambiguous errors unverified |
+| Stale generation | 1000 rejected, latest final unchanged | Unit concurrency evidence |
 
-Clipboard representations are materialized at delivery time; empty strings,
-empty pasteboards and available non-text data are preserved. Restoration is
-conditional on the pasteboard change count, so a later user copy wins. Promised
-or unavailable representations can block insertion; lossless support is limited
-to materializable representations. Clipboard operations are not OS-atomic against
-another process changing them during the write itself. Delayed target handling
-beyond the existing settle interval remains unverified. Recovery can duplicate an
-already-delivered but unacknowledged paste; the menu labels that risk.
+The 1000-attempt mocked delivery matrix produced exactly 200 AX acknowledgements,
+200 secure rejections, 200 focus-change rejections and 400 unconfirmed dispatches.
+All expected outcomes matched, with zero duplicate automatic dispatches. This is
+not a 99.9% real-app delivery claim. Clipboard restoration is lossless only for
+materializable representations. Promised/unavailable data can block fallback.
+The OS clipboard is not atomic against another process changing it during a
+write itself. Explicit recovery may duplicate an already-delivered paste.
 
-Mocked 1000-attempt matrix: 200 AX acknowledgements, 200 secure rejections,
-200 changed-focus rejections, 400 unconfirmed fallback dispatches. All matched
-expected outcomes; no automatic duplicate dispatch. These are harness outcomes,
-not a 99.9% real-app delivery claim. Real AppKit, browser/contenteditable,
-Electron, Terminal/editor, permission-revocation and delayed target checks remain
-required on a consented host. Focus/clipboard metadata and final strings never
-enter the standard telemetry schema.
+## Microphone recovery and remaining device checks
+
+Ready, recording, stopping, restarting, permission_blocked, device_unavailable
+and failed are explicit recorder states. The existing control executor attempts
+at most two replacement launches with one 50-ms backoff. Native authorization
+status is queried without prompting/resetting permission; denied/restricted
+permission stops retry immediately. A missing default input also stops retry.
+Other driver failures remain generic, with an input/permission remedy.
+
+The Dock/menu show recovery and failure. Holds beginning during recovery are
+rejected as a pair rather than queued for unexpected later capture. Wake recovery
+respects shutdown, training, diagnostics and meeting ownership. Input changes
+are checked before the next take, not midway through an active recording.
+Recovery telemetry contains only revision, safe reason/state enums, attempt count
+and duration. The CoreAudio teardown guard is never reset.
+
+1000 serialized control cycles with 100 injected helper errors had no busy
+cascade, no leaked helpers and no extra surviving threads: cycle p50/p95/max
+**0.04 / 0.25 / 0.46 ms**. These are mocked timings, not OS re-arm measurements.
+A separate 1000-cycle recorder ownership soak passed. The existing 1.5-second
+command deadline means two failed launches plus termination can exceed two
+seconds. Actual OS re-arm within two seconds is **not established**.
+
+Real sleep/wake, default-input changes, permission revocation, unexpected helper
+exit and overflow still require controlled device validation. Simulations cover
+wake, input change, finite failure, stop timeout, helper exit, overflow, shutdown
+races, rejected hotkey holds and repeated control cycles. No coreaudiod restart,
+TCC reset, microphone recording, or installed-app modification was used.
+
+## Verification and acceptance boundaries
+
+- Baseline: `.venv/bin/python -m pytest -q` on host: **339 passed in 6.73s**.
+- Latest full suite: **366 passed in 6.01s**.
+- Focused insertion/stream/timing run: **63 passed in 0.64s**.
+- `tests/test_recorder.py tests/test_microphone_helper.py tests/test_dictation_diagnostic.py`: **34 passed in 1.16s**.
+- Control soak command: `.venv/bin/python -m pytest -q -s tests/test_engine_watchdog.py::test_1000_control_recovery_cycles_have_no_busy_cascade`.
+- `npm --prefix frontend run build`: TypeScript check passed; Vite built **59 modules in 448 ms**.
+- Sandbox MLX collection failed because Metal was unavailable; host results above are the product test evidence.
+
+Still required before production acceptance: real end-to-end latency including
+30-minute idle, the complete meeting/diagnostic-to-dictation transitions, the real
+application insertion matrix, OS recovery timing and the formal 100-take consented
+microphone/reference gate. The original 100-prompt corpus from `0e286aa` is
+preserved separately in `real-mic-formal-100-corpus.json`, with exact instructions
+in [the formal reading sheet](real-mic-formal-100-reading-sheet.md). Its 34 short,
+34 medium and 32 long prompts are evenly balanced across conditions/vocabulary.
+The current UI screen and legacy 30-prompt numerical summary remain unchanged;
+100-take acceptance requires separate manual review and never auto-enables
+streaming. The changes are not installed, so checks of the current installed app
+cannot validate the new insertion/recovery behavior.
+
+Offline runtime, one MLX worker, one control executor, bounded audio queues,
+authoritative complete audio, same-worker fallback, final-only insertion and
+diagnostic privacy/audio deletion boundaries are preserved. No model, meeting
+pipeline, language, package-size, or cloud feature was changed.

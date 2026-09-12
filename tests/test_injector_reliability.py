@@ -83,3 +83,38 @@ def test_ambiguous_ax_write_never_falls_back(monkeypatch):
     monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: -25202)
     monkeypatch.setattr(injector, "insert_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
     assert injector.deliver_final("final", target) == "delivery_unknown"
+
+
+def test_copy_during_inference_is_the_clipboard_restored(monkeypatch):
+    pb = Pasteboard({"text": "before inference"})
+    monkeypatch.setattr(injector, "_pasteboard", lambda: pb)
+    monkeypatch.setattr(injector, "_make_item", lambda values: Item(dict(values)))
+    monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(injector, "_post_cmd_v", lambda: None)
+    previous = injector.read_clipboard()
+    pb.setString_forType_("copied during inference", "text")
+    injector.insert_text("final")
+    injector.restore_clipboard(previous)
+    assert pb.items[0].values == {"text": "copied during inference"}
+
+
+def test_permission_or_missing_focus_never_inserts(monkeypatch):
+    monkeypatch.setattr(injector, "focused_target", lambda: None)
+    monkeypatch.setattr(injector, "insert_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
+    assert injector.deliver_final("final", None) == "permission_or_focus_unavailable"
+
+
+def test_focus_change_during_clipboard_settle_never_posts(monkeypatch):
+    pb = Pasteboard({"text": "previous"})
+    target = object()
+    focus = [target]
+    posts = []
+    monkeypatch.setattr(injector, "_pasteboard", lambda: pb)
+    monkeypatch.setattr(injector, "_make_item", lambda values: Item(dict(values)))
+    monkeypatch.setattr(injector, "focused_target", lambda: focus[0])
+    monkeypatch.setattr(injector, "_post_cmd_v", lambda: posts.append(1))
+    monkeypatch.setattr(injector.time, "sleep", lambda seconds: focus.__setitem__(0, object()))
+    assert injector.deliver_final("final", target) == "focus_changed"
+    injector.restore_clipboard(None)
+    assert posts == []
+    assert pb.items[0].values == {"text": "previous"}

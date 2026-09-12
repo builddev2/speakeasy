@@ -217,3 +217,43 @@ def test_recovery_ttl_replacement_and_shutdown_clear(monkeypatch):
     engine._expire_last_dictation()
     assert engine.last_dictation_text is None
     assert engine.last_dictation_heard is None
+
+
+def test_1000_stale_generations_never_overwrite_latest_final(monkeypatch):
+    engine = DictationEngine.__new__(DictationEngine)
+    engine._dictation_generation = 1001
+    engine.last_dictation_text = "latest"
+    engine.last_dictation_heard = "latest raw"
+    monkeypatch.setattr(engine_module.injector, "insert_text",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
+    for generation in range(1000):
+        engine._finalize_dictation("stale", None, generation=generation)
+    assert engine.last_dictation_text == "latest"
+    assert engine.last_dictation_heard == "latest raw"
+
+
+def test_post_dispatch_settle_does_not_block_next_capture_lock(monkeypatch):
+    import threading
+    engine = DictationEngine.__new__(DictationEngine)
+    engine.profile = None
+    engine.overlay = None
+    engine._listener = _Listener()
+    engine._user_paused = False
+    engine.on_state_changed = lambda state: None
+    engine.transcriber = object()
+    monkeypatch.setattr(engine_module.injector, "insert_text", lambda text: None)
+    monkeypatch.setattr(engine_module.injector, "restore_clipboard", lambda previous: None)
+    def settle(seconds):
+        acquired = []
+        def next_capture():
+            lock = engine._delivery_lock()
+            if lock.acquire(timeout=.1):
+                acquired.append(True)
+                lock.release()
+        thread = threading.Thread(target=next_capture)
+        thread.start()
+        thread.join(.2)
+        assert acquired == [True]
+    monkeypatch.setattr(engine_module.time, "sleep", settle)
+    engine._finalize_dictation("final", None)
+    engine._clear_last_dictation()

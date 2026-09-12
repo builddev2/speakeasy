@@ -33,6 +33,8 @@ from AppKit import (
     NSStatusBar,
     NSTextField,
     NSVariableStatusItemLength,
+    NSWorkspace,
+    NSWorkspaceDidWakeNotification,
 )
 from Foundation import NSMakeRect, NSMakeSize, NSObject, NSTimer
 
@@ -47,6 +49,8 @@ _STATE_TEXT = {
     State.RECORDING: "Recording…",
     State.TRANSCRIBING: "Transcribing…",
     State.PAUSED: "Training…",
+    State.MIC_RECOVERING: "Restarting microphone — please wait…",
+    State.MIC_FAILED: "Microphone unavailable — check input and permission, then try again",
     State.MEETING_RECORDING: "Recording meeting — dictation paused",
     State.MEETING_PROCESSING: "Processing meeting…",
 }
@@ -219,12 +223,15 @@ class StatusItemController(NSObject):
         )
         self._correct_item.setTarget_(self)
         menu.addItem_(self._correct_item)
+        self._recovery_items = []
         for title, action in (
             ("Copy Last Dictation", b"copyLastDictation:"),
             ("Paste Last Dictation (may duplicate)", b"pasteLastDictation:"),
         ):
             item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, "")
             item.setTarget_(self)
+            item.setEnabled_(False)
+            self._recovery_items.append(item)
             menu.addItem_(item)
         self._sync_train_item()
 
@@ -280,6 +287,11 @@ class StatusItemController(NSObject):
         return self
 
     def heartbeat_(self, timer):
+        available = bool(self.engine.last_dictation_text)
+        self._recovery_items[0].setEnabled_(available)
+        self._recovery_items[1].setEnabled_(
+            available and self.engine.state in {State.READY, State.MIC_FAILED}
+        )
         # Doubles as the meeting elapsed-time ticker; otherwise it exists
         # only so Python signal handlers run under the AppKit run loop.
         if self.engine.state is State.MEETING_RECORDING:
@@ -302,9 +314,14 @@ class StatusItemController(NSObject):
         if state is State.READY:
             text = f"Ready — {profile.name if profile else 'Guest'}"
             outcome = self.engine.last_insertion_outcome
-            if outcome in {"focus_changed", "permission_or_focus_unavailable",
+            if outcome in {"focus_changed", "clipboard_changed", "permission_or_focus_unavailable",
                            "secure_or_unknown_field", "delivery_unknown"}:
                 text = "Text retained for 60 seconds — use Copy Last Dictation"
+        elif state is State.MIC_FAILED:
+            if self.engine.recorder.state == "permission_blocked":
+                text = "Allow Microphone in System Settings, then try again"
+            elif self.engine.recorder.state == "device_unavailable":
+                text = "Connect a microphone or select an input, then try again"
         elif state is State.MEETING_RECORDING:
             text = _meeting_status_text(self.engine.meeting_recorder)
         self._status_line.setTitle_(text)
@@ -540,10 +557,17 @@ class AppDelegate(NSObject):
         self.main_window = None
         return self
 
+    def systemDidWake_(self, notification):
+        if self.engine is not None and not self.engine._shutting_down:
+            self.engine.control.submit(self.engine._after_system_wake)
+
     def applicationDidFinishLaunching_(self, notification):
         engine = DictationEngine()
         engine.set_profile(_initial_profile(self._preselected))
         self.engine = engine
+        NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
+            self, b"systemDidWake:", NSWorkspaceDidWakeNotification, None,
+        )
         self.controller = StatusItemController.alloc().initWithEngine_(engine)
 
         from .main_window import MainWindowController

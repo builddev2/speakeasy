@@ -88,6 +88,8 @@ class State(Enum):
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
     PAUSED = "paused"
+    MIC_RECOVERING = "mic_recovering"
+    MIC_FAILED = "mic_failed"
     MEETING_RECORDING = "meeting_recording"
     MEETING_PROCESSING = "meeting_processing"
 
@@ -159,7 +161,7 @@ class DictationEngine:
         self._ensure_model_submitted()
         # Open the mic stream (stopped) now so the first keypress doesn't pay
         # the ~100 ms CoreAudio open, which can clip the first syllable.
-        self.control.submit(self.recorder.prewarm)
+        self.control.submit(self._prewarm_microphone)
         # A crash or force-quit mid-meeting leaves its audio spool behind;
         # sweep it now — meeting audio is never persisted.
         self.control.submit(meeting_recorder.sweep_spool_dir)
@@ -180,7 +182,8 @@ class DictationEngine:
             self.transcriber is not None
             and self._diagnostic_cancel is None
             and self.profile is not None
-            and self.state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING)
+            and self.state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING,
+                                   State.MIC_RECOVERING, State.MIC_FAILED)
         )
 
     def pause(self) -> None:
@@ -208,7 +211,7 @@ class DictationEngine:
             self._diagnostic_cancel()
         self._listener.stop()
         self._cancel_dictation_stream()
-        self.recorder.force_close()
+        getattr(self.recorder, "shutdown", self.recorder.force_close)()
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
         self._meeting_cancel.set()
@@ -227,9 +230,15 @@ class DictationEngine:
 
     def _create_transcriber(self) -> None:
         self.transcriber = Transcriber()
-        self._set_state(State.READY)
+        self._set_state(self._idle_state())
 
     def _idle_state(self) -> State:
+        if getattr(getattr(self, "recorder", None), "state", None) == "restarting":
+            return State.MIC_RECOVERING
+        if getattr(getattr(self, "recorder", None), "state", None) in {
+            "failed", "permission_blocked", "device_unavailable",
+        }:
+            return State.MIC_FAILED
         return State.READY if self.transcriber is not None else State.LOADING
 
     def _set_state(self, state: State) -> None:
@@ -240,13 +249,24 @@ class DictationEngine:
 
     # Hotkey callbacks run on the event-tap thread and must return instantly.
     def _on_hold_start(self) -> None:
-        self.control.submit(self._start_recording)
+        self._hotkey_rejected = self.state is State.MIC_RECOVERING
+        if not self._hotkey_rejected:
+            self.control.submit(self._start_recording)
 
     def _on_hold_end(self) -> None:
+        if getattr(self, "_hotkey_rejected", False):
+            self._hotkey_rejected = False
+            return
         release_received = self._dictation_clock_ns()
         self.control.submit(self._stop_recording, release_received)
 
     def _start_recording(self) -> None:
+        if getattr(self, "_shutting_down", False):
+            return
+        pending = getattr(self, "_recorder_stop_pending", None)
+        if pending is not None and not pending.is_set():
+            self._set_state(State.MIC_FAILED)
+            return
         self._recorder_busy = False
         with self._dictation_stream_lock:
             streaming_enabled = not self._dictation_stream_disabled
@@ -275,14 +295,12 @@ class DictationEngine:
         except RecorderBusy:
             if session is not None:
                 session.cancel()
-            # A prior stop is still unwinding in CoreAudio; opening now would
-            # deadlock. Drop this take and stay idle — the hotkey stays live,
-            # and the next press works once the stop clears (or after relaunch
-            # if the mic is genuinely wedged).
-            print("  → (mic busy — a previous stop is still releasing; try again)")
+            # Recover on control before accepting another hold; never clear
+            # the main-process CoreAudio teardown guard to force an open.
+            print("  → (microphone unavailable — attempting recovery)")
             if self.overlay:
                 self.overlay.hide()
-            self._set_state(self._idle_state())
+            self._recover_microphone("launch_failure")
             self._recorder_busy = True
             return
         if session is not None:
@@ -545,16 +563,22 @@ class DictationEngine:
 
         stop() runs on a throwaway thread; if it hasn't returned within the
         timeout the audio device has hung, so the stream is abandoned — the mic
-        is released and the next recording rebuilds it — and this take is
-        dropped rather than blocking forever.
+        is released and recovery prewarms a replacement after stop ownership
+        clears. This take is dropped rather than blocking forever.
         """
+        pending = getattr(self, "_recorder_stop_pending", None)
+        if pending is not None and not pending.is_set():
+            self._set_state(State.MIC_FAILED)
+            return _RecorderStopResult(np.empty(0, dtype=np.float32), "error")
+        recorder = self.recorder
         result: list[np.ndarray] = []
         errors: list[Exception] = []
         done = threading.Event()
+        self._recorder_stop_pending = done
 
         def run() -> None:
             try:
-                result.append(self.recorder.stop())
+                result.append(recorder.stop())
             except Exception as error:
                 errors.append(error)
             finally:
@@ -568,15 +592,49 @@ class DictationEngine:
                 return _RecorderStopResult(result[0], "normal")
             if errors:
                 print("  → (recorder stop failed; restarting microphone helper)")
-                self.recorder.force_close()
+                recorder.force_close()
+                self._recover_microphone(getattr(errors[0], "code", "helper_exit"))
                 return _RecorderStopResult(
                     np.empty(0, dtype=np.float32), "error"
                 )
         print("  → (recorder stop timed out; releasing the mic)")
-        self.recorder.force_close()
+        recorder.force_close()
+        if done.wait(.2):
+            self._recover_microphone("stop_timeout")
+        else:
+            if isinstance(recorder, Recorder):
+                recorder.state = "failed"
+            self._set_state(State.MIC_FAILED)
         if timing is not None:
             timing.mark("recorder_stop_finished")
         return _RecorderStopResult(np.empty(0, dtype=np.float32), "timeout")
+
+    def _after_system_wake(self):
+        if (self._shutting_down or self._meeting_active or self._user_paused
+                or self._diagnostic_cancel is not None):
+            return
+        self._cancel_dictation_stream()
+        with self._delivery_lock():
+            self._dictation_generation += 1
+        self._recover_microphone("sleep_wake")
+
+    def _prewarm_microphone(self):
+        if not self._shutting_down and not self.recorder.prewarm():
+            self._recover_microphone("launch_failure")
+
+    def _recover_microphone(self, reason):
+        if (self._shutting_down or self._meeting_active or self._user_paused
+                or self._diagnostic_cancel is not None):
+            return False
+        recover = getattr(self.recorder, "recover", None)
+        if recover is None:
+            self._set_state(State.MIC_FAILED)
+            return False
+        self._set_state(State.MIC_RECOVERING)
+        recovered = recover(reason)
+        if not self._shutting_down:
+            self._set_state(self._idle_state() if recovered else State.MIC_FAILED)
+        return recovered
 
     # -- meeting flow -------------------------------------------------------
 
@@ -1060,12 +1118,7 @@ class DictationEngine:
             if timing is not None:
                 timing.mark("clipboard_read_finished")
 
-    def _finalize_dictation(self, *args, **kwargs):
-        # Serialize generation/profile changes with final retention and dispatch.
-        with self._delivery_lock():
-            return self._finalize_dictation_locked(*args, **kwargs)
-
-    def _finalize_dictation_locked(
+    def _finalize_dictation(
         self,
         raw_text: str,
         previous,
@@ -1082,57 +1135,69 @@ class DictationEngine:
             return
         status = "pipeline_exception"
         try:
-            self.last_dictation_heard = raw_text
-            self._retain_last_dictation(None)
-            text = raw_text
-            if self.profile is not None:
-                if timing is not None:
-                    timing.profile_active = True
-                    timing.mark("profile_started")
-                try:
-                    text = self.profile.apply(text)
-                finally:
+            with self._delivery_lock():
+                if generation is not None and generation != self._dictation_generation:
+                    return
+                self.last_dictation_heard = raw_text
+                self._retain_last_dictation(None)
+                text = raw_text
+                if self.profile is not None:
                     if timing is not None:
-                        timing.mark("profile_finished")
-            elif timing is not None:
-                timing.profile_active = False
-            self._retain_last_dictation(text)
+                        timing.profile_active = True
+                        timing.mark("profile_started")
+                    try:
+                        text = self.profile.apply(text)
+                    finally:
+                        if timing is not None:
+                            timing.mark("profile_finished")
+                elif timing is not None:
+                    timing.profile_active = False
+                self._retain_last_dictation(text)
 
-            if not text:
-                print("  → (no speech detected)")
-                status = "empty_transcription"
-                return
-            if elapsed is None:
-                print("  → transcription complete")
-            else:
-                print(f"  → transcription complete ({elapsed:.2f}s)")
+                if not text:
+                    print("  → (no speech detected)")
+                    status = "empty_transcription"
+                    return
+                if elapsed is None:
+                    print("  → transcription complete")
+                else:
+                    print(f"  → transcription complete ({elapsed:.2f}s)")
 
-            # Deaf-en the hotkey tap only while synthesizing Cmd+V. The target
-            # consumes the paste after the listener is re-armed, while the
-            # dictated clipboard value remains in place through the settle.
-            self._listener.pause()
-            try:
-                if timing is not None:
-                    timing.mark("insertion_started")
+                # Deaf-en the hotkey tap only while synthesizing Cmd+V. The target
+                # consumes the paste after the listener is re-armed, while the
+                # dictated clipboard value remains in place through the settle.
+                self._listener.pause()
                 try:
-                    with self._delivery_lock():
+                    if timing is not None:
+                        timing.mark("insertion_started")
+                    try:
                         if generation is not None and generation != self._dictation_generation:
                             return
                         if hasattr(self, "_dictation_target"):
                             self.last_insertion_outcome = injector.deliver_final(
                                 text, self._dictation_target, timing=timing,
                             )
+                            if timing is not None:
+                                timing.insertion_outcome = self.last_insertion_outcome
+                            if self.last_insertion_outcome == "delivery_unknown":
+                                status = "insertion_ambiguous"
+                                return
+                            if self.last_insertion_outcome not in {
+                                "ax_acknowledged", "dispatched_unconfirmed",
+                            }:
+                                status = "insertion_blocked"
+                                return
                         elif timing is None:
                             injector.insert_text(text)
                         else:
                             injector.insert_text(text, timing=timing)
-                except Exception:
-                    status = "insertion_exception"
-                    raise
-            finally:
-                if not self._user_paused:
-                    self._dictation_repeat_ready = True
-                    self._listener.resume()
+                    except Exception:
+                        status = "insertion_exception"
+                        raise
+                finally:
+                    if not self._user_paused and not getattr(self, "_shutting_down", False):
+                        self._dictation_repeat_ready = True
+                        self._listener.resume()
             time.sleep(config.PASTE_SETTLE_SECONDS)
             if timing is not None:
                 timing.mark("paste_settle_finished")
@@ -1211,6 +1276,8 @@ class DictationEngine:
 
     def paste_last_dictation(self):
         # Explicit recovery shares the model worker's serialized insertion path.
+        if self.state not in {State.READY, State.MIC_FAILED}:
+            return
         target = injector.focused_target()
         generation = self._dictation_generation
         self.worker.submit(self._paste_last_dictation, target, generation)

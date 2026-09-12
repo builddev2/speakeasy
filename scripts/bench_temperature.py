@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -41,12 +42,19 @@ def main():
     if len(audio) < config.SAMPLE_RATE * config.MIN_DURATION_SECONDS:
         parser.error("fixture is empty or shorter than the minimum take duration")
     reference = args.reference.read_text()
+    if not reference.strip():
+        parser.error("a fixed nonempty reference is required")
     duration = len(audio) / config.SAMPLE_RATE
     group = "short" if duration < 5 else "medium" if duration < 15 else "long"
     started = time.perf_counter()
     with contextlib.redirect_stdout(io.StringIO()):
         transcriber = Transcriber()
-    load_ms = (time.perf_counter() - started) * 1000
+    warmup_finished = time.perf_counter()
+    load_ms = (warmup_finished - started) * 1000
+    source_tree_dirty = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD"],
+        cwd=Path(__file__).resolve().parent.parent, check=False,
+    ).returncode != 0
     last_finished = None
     fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as output:
@@ -78,10 +86,11 @@ def main():
                 parity = session.integrity_matches()
                 status = result.status.value
             finished = time.perf_counter()
-            row = dict(build_commit=settings.build_commit(), attempt=attempt + 1,
+            row = dict(build_commit=settings.build_commit(), source_tree_dirty=source_tree_dirty,
+                       attempt=attempt + 1,
                        mode=args.mode, temperature=temperature, duration_group=group,
                        capture_seconds=duration, idle_requested_seconds=args.idle_seconds,
-                       since_last_inference_seconds=None if last_finished is None else now-last_finished,
+                       since_last_inference_seconds=now-(warmup_finished if last_finished is None else last_finished),
                        model_load_warmup_complete=True, model_load_warmup_ms=load_ms,
                        elapsed_ms=(finished-now)*1000, wer=word_error_rate(reference, text),
                        empty_result=not bool(text), integrity_matches=parity, status=status,

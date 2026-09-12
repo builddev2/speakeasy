@@ -94,10 +94,8 @@ def main() -> None:
         print_latency_summary()
         return
     from . import config
-    from .latency_protocol import streaming_canary_enabled
-
-    config.DICTATION_STREAMING_ENABLED = streaming_canary_enabled(
-        canary=args.dictation_streaming_canary, batch=args.dictation_batch_mode,
+    config.DICTATION_STREAMING_ENABLED = (
+        args.dictation_streaming_canary and not args.dictation_batch_mode
     )
     if args.enroll_voice or args.delete_voice or args.list_voices:
         from .voice_profiles import VoiceProfileStore

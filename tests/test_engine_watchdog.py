@@ -139,7 +139,7 @@ def test_start_recording_stays_idle_when_mic_is_busy():
     engine.recorder = BusyRecorder()
     engine._start_recording()
 
-    assert engine.state is State.READY  # stayed idle, never entered RECORDING
+    assert engine.state is State.MIC_FAILED  # explicit failure, never RECORDING
 
 
 def test_guarded_dual_track_stop_times_out_without_blocking_control(
@@ -171,3 +171,99 @@ def test_guarded_dual_track_stop_times_out_without_blocking_control(
     assert recording.mic_path == tmp_path / "mic.wav"
     assert recorder.force_closed is True
     recorder.release.set()
+
+
+def test_stop_error_prewarms_on_control_before_next_take():
+    class Recoverable:
+        def __init__(self):
+            self.reasons = []
+        def stop(self):
+            raise MicrophoneHelperError()
+        def force_close(self):
+            pass
+        def recover(self, reason):
+            self.reasons.append(reason)
+            return True
+    engine = DictationEngine()
+    engine.recorder = Recoverable()
+    assert engine._stop_recorder_guarded().outcome == "error"
+    assert engine.recorder.reasons == ["helper_exit"]
+
+
+def test_1000_control_recovery_cycles_have_no_busy_cascade():
+    import json
+    import time
+    import numpy as np
+    from speakeasy.dictation_benchmark import _percentile
+    helpers = []
+    class Helper:
+        level = 0
+        stream_dropped_frames = 0
+        stream_delivery_complete = True
+        def __init__(self):
+            self.terminated = False
+            self.fail = False
+        def launch(self):
+            pass
+        def start(self, chunk_queue=None):
+            pass
+        def stop(self):
+            if self.fail:
+                raise MicrophoneHelperError()
+            return np.ones(8, dtype=np.float32)
+        def terminate(self):
+            self.terminated = True
+    engine = DictationEngine()
+    def create():
+        helper = Helper()
+        helpers.append(helper)
+        return helper
+    engine.recorder._new_helper = create
+    latencies = []
+    initial_threads = threading.active_count()
+    def cycle(index):
+        engine.recorder.start()
+        helpers[-1].fail = index % 10 == 0
+        started = time.perf_counter()
+        result = engine._stop_recorder_guarded()
+        latencies.append((time.perf_counter() - started) * 1000)
+        assert result.outcome == ("error" if index % 10 == 0 else "normal")
+        assert engine.recorder.state == "ready"
+        assert sum(not helper.terminated for helper in helpers) == 1
+    for index in range(1000):
+        engine.control.submit(cycle, index).result(timeout=2)
+    engine.recorder.shutdown()
+    engine.control.shutdown(wait=True)
+    engine.worker.shutdown(wait=True)
+    assert all(helper.terminated for helper in helpers)
+    assert threading.active_count() <= initial_threads
+    print("RECOVERY_SOAK " + json.dumps(dict(
+        cycles=1000, injected_failures=100, leaked_helpers=0,
+        p50_ms=round(_percentile(latencies, .5), 2),
+        p95_ms=round(_percentile(latencies, .95), 2), max_ms=round(max(latencies), 2))))
+
+
+def test_wake_recovery_runs_without_relaunch_and_respects_shutdown(monkeypatch):
+    engine = DictationEngine()
+    calls = []
+    monkeypatch.setattr(engine, "_recover_microphone", lambda reason: calls.append(reason))
+    engine._after_system_wake()
+    assert calls == ["sleep_wake"]
+    engine._shutting_down = True
+    engine._after_system_wake()
+    assert calls == ["sleep_wake"]
+
+
+def test_rapid_holds_during_recovery_are_rejected_as_pairs():
+    from types import SimpleNamespace
+    engine = DictationEngine()
+    submitted = []
+    engine.control.shutdown(wait=True)
+    engine.control = SimpleNamespace(submit=lambda *args: submitted.append(args))
+    for _ in range(1000):
+        engine.state = State.MIC_RECOVERING
+        engine._on_hold_start()
+        engine.state = State.READY
+        engine._on_hold_end()
+    assert submitted == []
+    engine.worker.shutdown(wait=True)

@@ -20,8 +20,32 @@ def test_summary_never_pools_builds_or_underfilled_groups():
     assert result[1]["sufficient"] is False
 
 
-def test_canary_requires_explicit_opt_in_and_batch_override_wins():
-    from speakeasy.latency_protocol import streaming_canary_enabled
-    assert not streaming_canary_enabled(canary=False, batch=False)
-    assert streaming_canary_enabled(canary=True, batch=False)
-    assert not streaming_canary_enabled(canary=True, batch=True)
+def test_canary_requires_explicit_launch_opt_in_and_batch_override_wins(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from speakeasy import config, dictation_diagnostic
+    from speakeasy.__main__ import main
+    observed = []
+    monkeypatch.setattr(config, "DICTATION_STREAMING_ENABLED", False)
+    monkeypatch.setattr(dictation_diagnostic, "sweep_temporary_audio", lambda: None)
+    monkeypatch.setitem(sys.modules, "speakeasy.ui.menubar", SimpleNamespace(
+        run_app=lambda profile: observed.append(config.DICTATION_STREAMING_ENABLED)))
+    for flags in ([], ["--dictation-streaming-canary"],
+                  ["--dictation-streaming-canary", "--dictation-batch-mode"], []):
+        monkeypatch.setattr(sys, "argv", ["speakeasy", *flags])
+        main()
+    assert observed == [False, True, False, False]
+
+
+def test_formal_session_preserves_original_100_prompt_coverage():
+    import json
+    from collections import Counter
+    from pathlib import Path
+    corpus = Path(__file__).resolve().parents[1] / 'docs/real-mic-formal-100-corpus.json'
+    rows = json.loads(corpus.read_text())
+    assert len(rows) == 100
+    assert len({row['id'] for row in rows}) == 100
+    assert Counter(row['expected_duration_group'] for row in rows) == {
+        'short': 34, 'medium': 34, 'long': 32}
+    assert Counter(row['condition'] for row in rows) == {'quiet': 50, 'moderate_noise': 50}
+    assert Counter(row['vocabulary'] for row in rows) == {'ordinary': 50, 'technical': 50}

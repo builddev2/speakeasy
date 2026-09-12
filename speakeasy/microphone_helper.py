@@ -36,6 +36,12 @@ _STREAM_BLOCK_FRAMES = round(
 class MicrophoneHelperError(Exception):
     """The helper failed or did not answer a bounded control request."""
 
+    def __init__(self, message="", *, code="helper_exit"):
+        super().__init__(message)
+        self.code = code if code in {
+            "helper_exit", "launch_failure", "device_unavailable", "overflow",
+        } else "helper_exit"
+
 
 class _CaptureBuffer:
     """Drain realtime callback copies away from the callback thread."""
@@ -141,6 +147,11 @@ class _CaptureBuffer:
         return audio, self.capture_dropped_frames, self.stream_dropped_frames
 
 
+def _default_input():
+    # Transient numeric identity only, never emitted across IPC or to logs.
+    return sd.default.device[0]
+
+
 def _open_stream(capture: _CaptureBuffer):
     return sd.InputStream(
         samplerate=config.SAMPLE_RATE,
@@ -155,6 +166,11 @@ def run_microphone_helper(connection: Connection, level, stream_queue) -> None:
     """Own the PortAudio stream until the parent terminates this process."""
     capture = _CaptureBuffer(level, stream_queue)
     try:
+        input_device = _default_input()
+        if input_device < 0:
+            connection.send(("error", "device_unavailable"))
+            connection.close()
+            return
         stream = _open_stream(capture)
     except Exception:
         connection.send(("error", "open_failed"))
@@ -167,6 +183,18 @@ def run_microphone_helper(connection: Connection, level, stream_queue) -> None:
             command = connection.recv()
             if isinstance(command, tuple) and command[0] == "start":
                 deliver_chunks = bool(command[1])
+                current_input = _default_input()
+                if current_input != input_device:
+                    if current_input < 0:
+                        connection.send(("error", "device_unavailable"))
+                        return
+                    try:
+                        stream.close(ignore_errors=False)
+                        stream = _open_stream(capture)
+                        input_device = current_input
+                    except Exception:
+                        connection.send(("error", "open_failed"))
+                        return
                 capture.start(deliver_chunks)
                 try:
                     stream.start()
@@ -253,7 +281,8 @@ class MicrophoneHelper:
             self._child_connection_closed = True
             response = self._receive(_COMMAND_TIMEOUT_SECONDS)
             if response != ("ready",):
-                raise MicrophoneHelperError("helper failed to prewarm")
+                code = "device_unavailable" if response == ("error", "device_unavailable") else "launch_failure"
+                raise MicrophoneHelperError("helper failed to prewarm", code=code)
         except MicrophoneHelperError:
             self.terminate()
             raise
@@ -265,8 +294,10 @@ class MicrophoneHelper:
         if self._chunk_reader is not None and self._chunk_reader.is_alive():
             raise MicrophoneHelperError("previous chunk delivery did not finish")
         self._send(("start", chunk_queue is not None))
-        if self._receive(_COMMAND_TIMEOUT_SECONDS) != ("started",):
-            raise MicrophoneHelperError("helper failed to start")
+        response = self._receive(_COMMAND_TIMEOUT_SECONDS)
+        if response != ("started",):
+            code = "device_unavailable" if response == ("error", "device_unavailable") else "helper_exit"
+            raise MicrophoneHelperError("helper failed to start", code=code)
         self._chunk_queue = chunk_queue
         self._chunk_reader_stop = threading.Event()
         self._chunk_reader = None
@@ -293,7 +324,7 @@ class MicrophoneHelper:
         self.capture_dropped_frames = int(response[2])
         self.stream_dropped_frames = int(response[3]) + self._forwarder_dropped_frames
         if self.capture_dropped_frames:
-            raise MicrophoneHelperError("capture queue overflowed")
+            raise MicrophoneHelperError("capture queue overflowed", code="overflow")
         return response[1]
 
     def _forward_chunks(self, stop_event, destination) -> None:

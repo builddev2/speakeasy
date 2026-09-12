@@ -11,7 +11,7 @@ import styles from './App.module.css';
 
 type EngineMode =
   | 'loading' | 'ready' | 'recording' | 'transcribing' | 'paused'
-  | 'meeting_recording' | 'meeting_processing';
+  | 'meeting_recording' | 'meeting_processing' | 'mic_recovering' | 'mic_failed';
 
 interface AppState {
   mode: EngineMode;
@@ -52,6 +52,8 @@ const STATUS: Record<Exclude<EngineMode, 'meeting_recording'>, { text: string; d
   transcribing: { text: 'Transcribing…', dot: 'amber' },
   paused: { text: 'Paused', dot: 'amber' },
   meeting_processing: { text: 'Processing meeting…', dot: 'amber' },
+  mic_recovering: { text: 'Restarting microphone — please wait…', dot: 'amber' },
+  mic_failed: { text: 'Check microphone input and permission, then try again', dot: 'amber' },
 };
 
 function formatTimer(totalSeconds: number): string {

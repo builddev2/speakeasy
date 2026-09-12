@@ -107,7 +107,7 @@ def _post_cmd_v() -> None:
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
-def insert_text(text: str, *, timing: DictationTiming | None = None) -> None:
+def insert_text(text: str, *, timing: DictationTiming | None = None, target=None):
     if not text:
         return
     # Snapshot at delivery time so a copy during inference is preserved.
@@ -118,6 +118,10 @@ def insert_text(text: str, *, timing: DictationTiming | None = None) -> None:
     finally:
         saved.restore_count = _pasteboard().changeCount()
     time.sleep(config.CLIPBOARD_SETTLE_SECONDS)  # let the app observe the new pasteboard
+    if target is not None and focused_target() != target:
+        return "focus_changed"
+    if _pasteboard().changeCount() != saved.restore_count:
+        return "clipboard_changed"
     _post_cmd_v()
     if timing is not None:
         timing.mark("paste_dispatched")
@@ -126,9 +130,14 @@ def insert_text(text: str, *, timing: DictationTiming | None = None) -> None:
 def focused_target():
     """Only AX element identity/role metadata; never fetch value or selection."""
     import ApplicationServices as ax
+    system = ax.AXUIElementCreateSystemWide()
+    ax.AXUIElementSetMessagingTimeout(system, .1)
     error, element = ax.AXUIElementCopyAttributeValue(
-        ax.AXUIElementCreateSystemWide(), "AXFocusedUIElement", None)
-    return element if error == 0 else None
+        system, "AXFocusedUIElement", None)
+    if error != 0:
+        return None
+    ax.AXUIElementSetMessagingTimeout(element, .1)
+    return element
 
 
 def _attribute(element, name):
@@ -159,5 +168,5 @@ def deliver_final(text, target, *, timing=None):
         if timing is not None and result == 0:
             timing.mark("paste_dispatched")
         return "ax_acknowledged" if result == 0 else "delivery_unknown"
-    insert_text(text, timing=timing)
-    return "dispatched_unconfirmed"
+    outcome = insert_text(text, timing=timing, target=target)
+    return outcome if isinstance(outcome, str) else "dispatched_unconfirmed"

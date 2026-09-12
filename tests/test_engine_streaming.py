@@ -238,7 +238,7 @@ def test_streaming_result_maps_privacy_safe_success_status_and_timing(
     )
     monkeypatch.setattr(
         "speakeasy.engine.injector.insert_text",
-        lambda text, timing: timing.mark("paste_dispatched"),
+        lambda text, timing, **kwargs: timing.mark("paste_dispatched"),
     )
     engine._start_recording()
     audio = np.ones(20_000, dtype=np.float32)

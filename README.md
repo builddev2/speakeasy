@@ -125,6 +125,8 @@ Click the menu-bar item for:
 - **Profile** — switch the active profile, pick **Guest (no corrections)**, or
   create a **New Profile…**
 - **Train Profile…** — open the training window (see below)
+- **Copy Last Dictation** / **Paste Last Dictation (may duplicate)** — recover
+  the latest final text for 60 seconds; it is cleared on profile change or quit
 - **Begin Meeting** / **End Meeting** — record and transcribe a meeting (see
   [Meeting transcription](#meeting-transcription))
 - **Meetings…** — browse, copy, export, rename, or delete saved transcripts
@@ -384,7 +386,10 @@ After collecting dictations, summarize the local records fully offline:
 Normal dictation currently publishes authoritative batch results for every duration.
 Streaming has not passed real-microphone acceptance and is disabled by default.
 The legacy `--dictation-batch-mode` flag remains accepted; a normal launch is
-also batch mode. Latency logs alone cannot establish recognition correctness.
+also batch mode. `--dictation-streaming-canary` explicitly opts in for one
+launch; `--dictation-batch-mode` overrides it. Diagnostics never enable it.
+Latency logs alone cannot establish recognition correctness. See
+[reliability evidence and remaining checks](docs/reliability-improvements.md).
 
 ### Consented microphone correctness checks
 
@@ -483,12 +488,15 @@ the private report. Streaming replay timings measure total inference;
 `live.release_to_result_ms` includes stop/finalization but excludes clipboard
 insertion. Do not compare those as equivalent latency measures.
 
-Retry Last Failed Dictation is not implemented in this change. The existing
-insertion path posts a keyboard event without confirmation from the target app;
-it cannot tell a failed insertion from a delayed successful one. Audio also has
-no retention owner spanning asynchronous insertion completion. A retry would
-need an explicit bounded retention lifecycle and a user decision about possible
-duplicate paste. This change retains no failed-take audio in normal use.
+Copy Last Dictation and Paste Last Dictation recover only the latest finalized
+text, held in memory for 60 seconds. No audio or persistent history is retained.
+AX-writable standard controls receive a direct selected-text write. Other
+accessible targets use one clipboard/Quartz dispatch; that dispatch has no
+application acknowledgement and an explicit second paste may duplicate text.
+Changed focus, secure fields and inaccessible targets block automatic delivery.
+The clipboard is restored only if it still belongs to this insertion, preserving
+materializable text and non-text representations. Promised data and very delayed
+paste handlers remain compatibility limitations. See the linked evidence report.
 
 The summary reports release-to-paste and phase percentiles by recording length.
 It withholds bottleneck conclusions until there are at least 20 successful
@@ -544,7 +552,9 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   two-second blocks before process/worker queue boundaries. Queue capacities
   are derived from seconds of audio, while complete batch audio is retained
   independently for fallback. If teardown wedges, the watchdog kills the
-  helper and the next take creates a fresh one without restarting Speakeasy
+  helper and control prewarms a replacement after abandoned stop ownership clears.
+  Recovery is bounded and reports permission/device failures. Wake triggers recovery;
+  changed default input is checked before capture, without logging device identity
 - **`coreaudio.py`** — guards main-process meeting teardown. Dictation checks
   it before launching its helper so a meeting stop still unwinding in the HAL
   cannot race a new microphone open
@@ -624,11 +634,11 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   non-activating AppKit panel animated at 30 fps only while visible
 - **`ui/permissions.py`** — first-run permissions guidance and the
   Accessibility / Input Monitoring status checks (via `AXIsProcessTrusted`)
-- **`injector.py`** — clipboard save → set text → ⌘V → restore, all via
-  NSPasteboard in-process (no pbcopy/pbpaste subprocesses), with ⌘V posted as
-  raw Quartz keyboard events. The clipboard is saved while transcription runs,
-  and restored after. The hotkey's event tap is disabled for the moment of the
-  ⌘V and re-enabled right after, so the listener can't duplicate the paste
+- **`injector.py`** — guarded AX selected-text insertion for compatible editable
+  controls, with one NSPasteboard/Quartz fallback. The fallback snapshots available
+  clipboard representations at dispatch and restores only while ownership is
+  unchanged. The hotkey tap is paused for dispatch and resumed before settling.
+  Outcomes are content-free; ambiguous delivery is never automatically retried
 - **`cli.py`** — the terminal front end (`--cli` / `--train`): the profile
   picker and guided training as a text UI
 - **`__main__.py`** — the entry point; the menu-bar app is the default and the
@@ -642,8 +652,9 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
 
 ## Notes
 
-- Text is inserted via clipboard + simulated ⌘V; your previous clipboard **text**
-  is restored afterwards (non-text contents like images are not).
+- Insertion prefers a direct AX write, then uses a guarded clipboard fallback.
+  Available clipboard representations, including images and empty text, are
+  restored unless another copy has changed the clipboard in the meantime.
 - Recordings shorter than 0.3 s are ignored as accidental taps.
 - The global hotkey is briefly inactive (a few hundredths of a second) while
   the ⌘V is synthesized, so the text pastes exactly once; a hotkey press in

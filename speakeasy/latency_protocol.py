@@ -22,7 +22,3 @@ def summarize(records):
                  p50_ms=round(_percentile(values, .5), 2),
                  p95_ms=round(_percentile(values, .95), 2))
             for key, values in sorted(groups.items())]
-
-
-def streaming_canary_enabled(*, canary, batch):
-    return bool(canary and not batch)

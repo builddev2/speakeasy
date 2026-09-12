@@ -11,6 +11,11 @@ from speakeasy import microphone_helper
 from speakeasy.microphone_helper import MicrophoneHelper, MicrophoneHelperError
 
 
+@pytest.fixture(autouse=True)
+def default_input(monkeypatch):
+    monkeypatch.setattr(microphone_helper, "_default_input", lambda: 0)
+
+
 class Level:
     value = 0.0
 
@@ -237,3 +242,35 @@ def test_portaudio_input_overflow_invalidates_capture():
     audio, dropped, _ = capture.finish()
     assert len(audio) == 512
     assert dropped > 0
+
+
+def test_default_input_change_reopens_stream_before_capture(monkeypatch):
+    streams = []
+    device = [0]
+    monkeypatch.setattr(microphone_helper, "_default_input", lambda: device[0], raising=False)
+    def open_stream(capture):
+        stream = FakeStream(capture.callback)
+        streams.append(stream)
+        return stream
+    monkeypatch.setattr(microphone_helper, "_open_stream", open_stream)
+    parent, child = multiprocessing.Pipe()
+    thread = threading.Thread(target=microphone_helper.run_microphone_helper,
+                              args=(child, Level(), queue.Queue()))
+    thread.start()
+    try:
+        assert parent.poll(1) and parent.recv() == ("ready",)
+        device[0] = 1
+        parent.send(("start", False))
+        assert parent.poll(1) and parent.recv() == ("started",)
+        assert len(streams) == 2
+        assert streams[-1].started
+    finally:
+        parent.send("quit")
+        thread.join(1)
+
+
+def test_missing_device_failure_is_a_safe_code():
+    helper = _bare_helper(FakeConnection([("error", "device_unavailable")]))
+    with pytest.raises(MicrophoneHelperError) as raised:
+        helper.launch()
+    assert raised.value.code == "device_unavailable"

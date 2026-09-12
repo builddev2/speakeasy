@@ -17,6 +17,7 @@ _FIELDS = (
     "take",
     "status",
     "recorder_stop_outcome",
+    "insertion_outcome",
     "release_to_control_ms",
     "control_to_recorder_stop_ms",
     "recorder_stop_ms",
@@ -79,6 +80,8 @@ _DURATIONS = {
 _COMPLETION_STATUSES = {
     "empty_transcription",
     "insertion_exception",
+    "insertion_blocked",
+    "insertion_ambiguous",
     "pipeline_exception",
     "recorder_busy",
     "recorder_stop_timeout",
@@ -95,6 +98,11 @@ _SUCCESS_STATUSES = {
     "success_fallback_queue_overflow",
     "success_fallback_stream_error",
     "success_streaming",
+}
+_INSERTION_OUTCOMES = {
+    "ax_acknowledged", "dispatched_unconfirmed", "delivery_unknown",
+    "focus_changed", "clipboard_changed", "permission_or_focus_unavailable",
+    "secure_or_unknown_field",
 }
 _RECORDER_STOP_OUTCOMES = {"error", "normal", "timeout"}
 _SUMMARY_PHASES = (
@@ -169,6 +177,7 @@ def _duration_bucket(samples_before: int) -> str:
 def _valid_record(value: object) -> dict | None:
     legacy_fields = set(_FIELDS) - {
         "build_commit",
+        "insertion_outcome",
         *_STREAM_DURATION_FIELDS,
         "stream_queue_high_water",
         "stream_queue_capacity",
@@ -194,6 +203,10 @@ def _valid_record(value: object) -> dict | None:
     if outcome is not None and outcome not in _RECORDER_STOP_OUTCOMES:
         return None
     record["recorder_stop_outcome"] = outcome
+    insertion_outcome = value.get("insertion_outcome")
+    if insertion_outcome is not None and insertion_outcome not in _INSERTION_OUTCOMES:
+        return None
+    record["insertion_outcome"] = insertion_outcome
     profile_active = value.get("profile_active")
     if profile_active is not None and not isinstance(profile_active, bool):
         return None
@@ -590,6 +603,7 @@ class DictationTiming:
     clock_ns: Callable[[], int] = time.perf_counter_ns
     events: dict[str, int] = field(default_factory=dict)
     recorder_stop_outcome: str | None = None
+    insertion_outcome: str | None = None
     profile_active: bool | None = None
     samples_before: int | None = None
     samples_after: int | None = None
@@ -633,6 +647,7 @@ class DictationTiming:
             "take": self.take,
             "status": safe_status,
             "recorder_stop_outcome": outcome,
+            "insertion_outcome": self.insertion_outcome if self.insertion_outcome in _INSERTION_OUTCOMES else None,
             "profile_active": self.profile_active,
             "samples_before": self.samples_before,
             "samples_after": self.samples_after,
@@ -655,6 +670,7 @@ class DictationTiming:
             "take": str(self.take),
             "status": status,
             "recorder_stop_outcome": self.recorder_stop_outcome or "na",
+            "insertion_outcome": self.insertion_outcome if self.insertion_outcome in _INSERTION_OUTCOMES else "na",
             "profile_active": (
                 "na"
                 if self.profile_active is None

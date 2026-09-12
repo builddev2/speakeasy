@@ -203,6 +203,7 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
         "take",
         "status",
         "recorder_stop_outcome",
+        "insertion_outcome",
         "release_to_control_ms",
         "control_to_recorder_stop_ms",
         "recorder_stop_ms",
@@ -253,6 +254,7 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
         "take",
         "status",
         "recorder_stop_outcome",
+        "insertion_outcome",
         "release_to_control_ms",
         "control_to_recorder_stop_ms",
         "recorder_stop_ms",
@@ -699,3 +701,12 @@ def test_injector_marks_dispatch_only_after_post(monkeypatch):
 
     assert order == ["set", "settle", "post"]
     assert timing.events["paste_dispatched"] == 0
+
+
+def test_insertion_outcome_is_an_enum_not_arbitrary_content():
+    timing = DictationTiming(1)
+    timing.insertion_outcome = "private content"
+    assert timing.record("success")["insertion_outcome"] is None
+    assert "private content" not in timing.format_summary("success")
+    timing.insertion_outcome = "focus_changed"
+    assert timing.record("insertion_blocked")["insertion_outcome"] == "focus_changed"

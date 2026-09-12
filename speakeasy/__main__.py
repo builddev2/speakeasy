@@ -50,6 +50,10 @@ def main() -> None:
         action="store_true",
         help="use authoritative batch dictation (currently the safe default)",
     )
+    parser.add_argument(
+        "--dictation-streaming-canary", action="store_true",
+        help="opt into experimental streaming for this launch only; batch mode overrides",
+    )
     parser.add_argument("--dictation-diagnostic", metavar="REPORT_JSON",
                         help="consented one-shot microphone comparison; requires a terminal")
     parser.add_argument("--diagnostic-corpus", metavar="CORPUS_JSON")
@@ -89,10 +93,12 @@ def main() -> None:
 
         print_latency_summary()
         return
-    if args.dictation_batch_mode:
-        from . import config
+    from . import config
+    from .latency_protocol import streaming_canary_enabled
 
-        config.DICTATION_STREAMING_ENABLED = False
+    config.DICTATION_STREAMING_ENABLED = streaming_canary_enabled(
+        canary=args.dictation_streaming_canary, batch=args.dictation_batch_mode,
+    )
     if args.enroll_voice or args.delete_voice or args.list_voices:
         from .voice_profiles import VoiceProfileStore
 

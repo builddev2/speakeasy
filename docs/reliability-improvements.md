@@ -1,0 +1,43 @@
+# Reliability work and evidence
+
+Baseline: master/origin/master/HEAD matched 18c2a62 before edits. Baseline host
+suite: 339 passed in 6.73s. Sandbox collection cannot access Metal.
+
+## Latency protocol and canary
+
+`--dictation-streaming-canary` opts in for one launch. The default remains batch;
+`--dictation-batch-mode` overrides the canary. Diagnostic results cannot enable
+it. Existing frame parity, bounded queues, same-worker fallback, long-take
+handoff, and stream-error circuit breaker remain in use.
+
+Run `.venv/bin/python scripts/bench_temperature.py WAV REFERENCE --output JSONL`.
+Use `--mode streaming` for depth-two replay, `--after diagnostic` or `--after
+meeting` for model transitions, and `--idle-seconds 1800` for actual idle. This
+script uses one sequential model owner and never records or inserts. The meeting
+transition exercises ASR, not the complete diarization/engine pipeline. Every
+cold sample requires a fresh process. Use at least 30 attempts per build,
+duration, mode and temperature group; do not pool cold with warm. No accelerated
+idle equivalent is asserted. References and audio are input-only; output contains
+numeric metrics and safe enums. Streaming replay deliberately bypasses the long
+take cutoff for comparison, as diagnostics do; production does not.
+
+Initial synthetic host-Metal probe (single 2.9-second synthesized sentence,
+unchanged 18c2a62 inference implementation with uncommitted benchmark additions):
+
+| Mode | Warm n | Total inference p50 ms | p95 ms | WER |
+|---|---:|---:|---:|---:|
+| Batch | 30 | 85.80 | 90.13 | 0% |
+| Depth-two replay | 30 | 572.90 | 587.41 | 0% |
+
+First-take observations: batch 114.31 ms; replay 564.77 ms (one each, insufficient
+for conclusions). These are NOT release-to-paste measurements and cannot meet
+that acceptance criterion. No real microphone or installed app validation was
+performed. The initial sandbox-generated WAV had zero frames; its model error
+was excluded and the benchmark now rejects too-short fixtures before model load.
+
+The 6.4-second occurrence was not reproduced. Shape compilation, residency,
+idle wake and worker contention remain hypotheses. No speculative warmup,
+padding or keep-warm change was made. Medium/long, 30 independent cold starts,
+30-minute idle, complete meeting/diagnostic transitions, end-to-end delivery,
+and the formal 100-real-microphone gate remain unvalidated. The 37-take release
+evidence is historical and does not satisfy that gate.

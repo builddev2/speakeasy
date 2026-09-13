@@ -1,0 +1,97 @@
+{
+  "source": "consented_real_microphone",
+  "source_sha256": "c7058cd8d0e7ca6e38922349f37dc846cc08d236b4c8e9430e545298edc337db",
+  "build_commit": "a65466b0a4b995f63a25fe34300520cb257e1556",
+  "failed_attempt": null,
+  "takes": [
+    {
+      "take": 1,
+      "seconds": 9.664,
+      "duration_group": "medium",
+      "batch_wer": 0.0,
+      "batch_ms": 166.39633290469646,
+      "untrimmed_wer": 0.0,
+      "replay_depth_2_wer": 0.0,
+      "live_wer": 0.0,
+      "live_outcome": "complete",
+      "release_to_live_outcome_ms": 545.5050410237163,
+      "integrity_matches": true,
+      "dropped_frames": 0
+    },
+    {
+      "take": 2,
+      "seconds": 5.344,
+      "duration_group": "medium",
+      "batch_wer": 0.0,
+      "batch_ms": 111.6877079475671,
+      "untrimmed_wer": 0.0,
+      "replay_depth_2_wer": 0.0,
+      "live_wer": 0.0,
+      "live_outcome": "complete",
+      "release_to_live_outcome_ms": 461.6272090934217,
+      "integrity_matches": true,
+      "dropped_frames": 0
+    },
+    {
+      "take": 3,
+      "seconds": 9.312,
+      "duration_group": "medium",
+      "batch_wer": 0.0,
+      "batch_ms": 435.52675005048513,
+      "untrimmed_wer": 0.0,
+      "replay_depth_2_wer": 0.0,
+      "live_wer": 0.0,
+      "live_outcome": "complete",
+      "release_to_live_outcome_ms": 537.0919168926775,
+      "integrity_matches": true,
+      "dropped_frames": 0
+    },
+    {
+      "take": 4,
+      "seconds": 12.384,
+      "duration_group": "medium",
+      "batch_wer": 0.1111111111111111,
+      "batch_ms": 227.4949171114713,
+      "untrimmed_wer": 0.05555555555555555,
+      "replay_depth_2_wer": 0.05555555555555555,
+      "live_wer": 0.05555555555555555,
+      "live_outcome": "complete",
+      "release_to_live_outcome_ms": 606.5462499391288,
+      "integrity_matches": true,
+      "dropped_frames": 0
+    },
+    {
+      "take": 5,
+      "seconds": 27.328,
+      "duration_group": "long",
+      "batch_wer": 0.0,
+      "batch_ms": 446.9337500631809,
+      "untrimmed_wer": 0.0,
+      "replay_depth_2_wer": 0.0,
+      "live_wer": null,
+      "live_outcome": "batch_handoff",
+      "release_to_live_outcome_ms": 157.13204187341034,
+      "integrity_matches": true,
+      "dropped_frames": 0
+    },
+    {
+      "take": 6,
+      "seconds": 36.16,
+      "duration_group": "long",
+      "batch_wer": 0.0,
+      "batch_ms": 599.3315419182181,
+      "untrimmed_wer": 0.0,
+      "replay_depth_2_wer": 0.0,
+      "live_wer": null,
+      "live_outcome": "batch_handoff",
+      "release_to_live_outcome_ms": 155.15225008130074,
+      "integrity_matches": true,
+      "dropped_frames": 0
+    }
+  ],
+  "weighted_wer": {
+    "batch": 0.011695906432748537,
+    "stream_depth_1": 0.005847953216374269,
+    "stream_depth_2": 0.005847953216374269
+  }
+}

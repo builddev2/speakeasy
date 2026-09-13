@@ -7,9 +7,9 @@ The fresh worktree, master, origin/master and installed release all matched
 `codex/latency-paste-mic-recovery`. No merge, push, installation, branch/worktree
 deletion, microphone recording, or system permission change was performed.
 
-Production streaming remains off. **The next step is now a six-recording diagnostic**
-([instructions and prompts](real-mic-quick-6-reading-sheet.md)), replacing the
-100-recording request. The historical formal gate remains unmet; neither this
+Production streaming remains off. **The six-recording diagnostic is complete**
+([device review](real-mic-quick-6-results.md)). The next step is a targeted
+application insertion check without more recordings. The historical formal gate remains unmet; neither this
 small check nor the existing 30-prompt screen establishes production acceptance.
 
 ## Demonstrated causes and changes
@@ -203,8 +203,9 @@ TCC reset, microphone recording, or installed-app modification was used.
 - `npm --prefix frontend run build`: TypeScript check passed; Vite built **59 modules in 448 ms**.
 - Sandbox MLX collection failed because Metal was unavailable; host results above are the product test evidence.
 
-Next human step: six quiet-room recordings, followed by individual review. Do not
-request another bulk session before investigating those results.
+The six recordings are complete: see the [13 September device review](real-mic-quick-6-results.md).
+Next step: a disposable-document insertion check in the primary dictation app,
+using fixed text without additional recordings. No repeat bulk session is requested.
 
 Outstanding evidence for the original production acceptance criteria: real end-to-end latency including
 30-minute idle, the complete meeting/diagnostic-to-dictation transitions, the real

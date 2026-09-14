@@ -142,10 +142,37 @@ def focused_target():
     error, element = ax.AXUIElementCopyAttributeValue(
         owner, "AXFocusedUIElement", None)
     current = workspace.frontmostApplication()
+    if current is None or current.processIdentifier() != pid:
+        return None
+    if (error != 0 or element is None) and _enable_accessibility(owner):
+        # Web accessibility trees may be initialized asynchronously. Retry once;
+        # never substitute an application/window for an unidentified text field.
+        time.sleep(.05)
+        error, element = ax.AXUIElementCopyAttributeValue(
+            owner, "AXFocusedUIElement", None)
+        current = workspace.frontmostApplication()
     if error != 0 or element is None or current is None or current.processIdentifier() != pid:
         return None
     ax.AXUIElementSetMessagingTimeout(element, .1)
     return element
+
+
+def _enable_accessibility(owner):
+    import ApplicationServices as ax
+    enabled = False
+    for name in ("AXManualAccessibility", "AXEnhancedUserInterface"):
+        error, writable = ax.AXUIElementIsAttributeSettable(owner, name, None)
+        if error == 0 and writable:
+            enabled = ax.AXUIElementSetAttributeValue(owner, name, True) == 0 or enabled
+    return enabled
+
+
+def _web_text_field(element):
+    import ApplicationServices as ax
+    error, names = ax.AXUIElementCopyAttributeNames(element, None)
+    # AX writes can acknowledge a DOM change without notifying the editor.
+    # Use the normal paste event for web fields (and unknown implementations).
+    return error != 0 or names is None or "AXDOMIdentifier" in names
 
 
 def _attribute(element, name):
@@ -171,7 +198,8 @@ def deliver_final(text, target, *, timing=None):
     if role is None or subrole == "AXSecureTextField":
         return "secure_or_unknown_field"
     error, writable = ax.AXUIElementIsAttributeSettable(current, "AXSelectedText", None)
-    if role in {"AXTextField", "AXTextArea"} and error == 0 and writable:
+    if (role in {"AXTextField", "AXTextArea"} and error == 0 and writable
+            and not _web_text_field(current)):
         result = ax.AXUIElementSetAttributeValue(current, "AXSelectedText", text)
         if timing is not None and result == 0:
             timing.mark("paste_dispatched")

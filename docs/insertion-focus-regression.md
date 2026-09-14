@@ -26,3 +26,48 @@ query failure, missing element and a frontmost-application change. Full suite:
 368 passed in 7.42 seconds. Live installed-app insertion remains to be confirmed
 by the user after this correction is installed. No additional recording corpus
 is required; one short ordinary dictation is sufficient for the immediate check.
+
+## Web-editor compatibility follow-up
+
+The user confirmed TextEdit insertion works on `0e7ca3d`, while Teams and Codex
+still fail. Seven records for that build contain five AX acknowledgements and
+two unavailable-focus blocks. Logs deliberately omit target app identity, so an
+individual record cannot be attributed to Teams or Codex from the log alone.
+
+After inspecting Teams with the UI tool, a read-only direct probe returned its
+AXTextArea, writable AXSelectedText, and AXEnhancedUserInterface=true. The field
+also advertises AXDOMIdentifier and AXDOMClassList. No prior flag measurement
+was captured immediately before inspection, so activation is a supported causal
+hypothesis, not a demonstrated before/after experiment. No Teams message was
+sent and no draft text was inserted. Codex UI automation remains restricted by
+the computer-use tool; no alternative route was used to control it.
+
+The follow-up change enables writable AXManualAccessibility and
+AXEnhancedUserInterface attributes only when the focused-element query fails.
+It waits 50 ms and retries the query once after successful activation, checking
+that the frontmost application is still the same. Unsupported attributes are
+not written. The existing 100-ms per-call messaging bound remains; multiple calls
+mean the whole lookup is not bounded to 100 ms. Accessibility initialization can
+add latency to the first take. No field/window identity is fabricated and there
+is no paste when focus remains unavailable.
+
+This uses the activation mechanism described by
+[Electron's accessibility documentation](https://github.com/electron/electron/blob/main/docs/tutorial/accessibility.md)
+and [Chromium's accessibility design](https://www.chromium.org/developers/design-documents/accessibility/).
+These sources describe framework behavior, not verified Codex or Teams behavior.
+
+A field advertising AXDOMIdentifier now uses the existing single clipboard/Cmd+V
+path even when AXSelectedText claims to be writable. Direct AX writes may not
+notify a web editor's input handlers; the user's report and exposed metadata
+justify using its normal paste path, but silent AX failure was not reproduced
+with a controlled write. Unknown attribute metadata also uses the normal paste
+path, provided existing role/secure/focus checks pass. Native text controls retain
+direct AX writes. No selection, DOM attribute value or transcript is read to
+classify a field. Clipboard restoration and ambiguous-write no-retry behavior
+remain unchanged. Paste dispatch is still unconfirmed until visibly checked.
+
+Validation: 20 focused insertion/engine tests passed in 0.85 seconds; all 371
+tests passed in 7.55 seconds. New regressions cover lazy activation, exhausted
+retry, foreground switch during activation, unsupported flags, and web-editor
+single dispatch without an AX write. The final Teams/Codex end-to-end check is
+still pending after installation; do not report both apps as fixed yet.

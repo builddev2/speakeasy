@@ -155,3 +155,52 @@ def test_focus_query_fails_closed_on_switch_or_unavailable_field(monkeypatch):
         monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
         monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *args: (error, element))
         assert query_focused_target() is None
+
+
+def test_web_editor_uses_one_paste_despite_writable_selected_text(monkeypatch):
+    import ApplicationServices as ax
+    target = injector.focused_target()
+    monkeypatch.setattr(injector, "_attribute", lambda e, n: "AXTextArea" if n == "AXRole" else None)
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (0, True))
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *args: (0, ["AXDOMIdentifier"]))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *args: (_ for _ in ()).throw(AssertionError()))
+    pasted = []
+    monkeypatch.setattr(injector, "insert_text", lambda text, **kwargs: pasted.append(text))
+    assert injector.deliver_final("final", target) == "dispatched_unconfirmed"
+    assert pasted == ["final"]
+
+
+def test_lazy_accessibility_retry_is_bounded_and_checks_foreground(monkeypatch):
+    import ApplicationServices as ax
+    from types import SimpleNamespace
+    owner, target = object(), object()
+    app = SimpleNamespace(processIdentifier=lambda: 123)
+    other = SimpleNamespace(processIdentifier=lambda: 456)
+    monkeypatch.setattr(ax, "AXUIElementCreateApplication", lambda pid: owner)
+    monkeypatch.setattr(ax, "AXUIElementSetMessagingTimeout", lambda *args: 0)
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda e, name, _: (0, name == "AXEnhancedUserInterface"))
+    for retry_result, final_app, expected in [((0, target), app, target),
+                                            ((-25212, None), app, None),
+                                            ((0, target), other, None)]:
+        foreground = iter([app, app, final_app])
+        workspace = SimpleNamespace(frontmostApplication=lambda: next(foreground))
+        monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
+        replies = iter([(-25212, None), retry_result])
+        queries, writes, sleeps = [], [], []
+        def copy(element, name, _):
+            queries.append(name)
+            return next(replies)
+        monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", copy)
+        monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *args: writes.append(args) or 0)
+        monkeypatch.setattr(injector.time, "sleep", sleeps.append)
+        assert query_focused_target() is expected
+        assert queries == ["AXFocusedUIElement", "AXFocusedUIElement"]
+        assert writes == [(owner, "AXEnhancedUserInterface", True)]
+        assert sleeps == [.05]
+
+
+def test_unsupported_accessibility_activation_does_not_write_or_retry(monkeypatch):
+    import ApplicationServices as ax
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (-25205, False))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *args: (_ for _ in ()).throw(AssertionError()))
+    assert not injector._enable_accessibility(object())

@@ -1,4 +1,6 @@
 from speakeasy import injector
+# Keep the real function before the autouse fixture replaces host focus access.
+from speakeasy.injector import focused_target as query_focused_target
 
 
 class Item:
@@ -118,3 +120,38 @@ def test_focus_change_during_clipboard_settle_never_posts(monkeypatch):
     injector.restore_clipboard(None)
     assert posts == []
     assert pb.items[0].values == {"text": "previous"}
+
+
+def test_focus_queries_owning_application_not_system_proxy(monkeypatch):
+    import ApplicationServices as ax
+    from types import SimpleNamespace
+    target = object()
+    owner = object()
+    app = SimpleNamespace(processIdentifier=lambda: 123)
+    workspace = SimpleNamespace(frontmostApplication=lambda: app)
+    monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
+    monkeypatch.setattr(ax, "AXUIElementCreateSystemWide", lambda: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.setattr(ax, "AXUIElementCreateApplication", lambda pid: owner if pid == 123 else None)
+    monkeypatch.setattr(ax, "AXUIElementSetMessagingTimeout", lambda *args: 0)
+    calls = []
+    def copy(element, name, result):
+        calls.append((element, name))
+        return 0, target
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", copy)
+    assert query_focused_target() is target
+    assert calls == [(owner, "AXFocusedUIElement")]
+
+
+def test_focus_query_fails_closed_on_switch_or_unavailable_field(monkeypatch):
+    import ApplicationServices as ax
+    from types import SimpleNamespace
+    app = lambda pid: SimpleNamespace(processIdentifier=lambda: pid)
+    monkeypatch.setattr(ax, "AXUIElementCreateApplication", lambda pid: object())
+    monkeypatch.setattr(ax, "AXUIElementSetMessagingTimeout", lambda *args: 0)
+    for error, element, after in [(0, object(), app(456)), (-25204, None, app(123)),
+                                   (0, None, app(123)), (0, object(), None)]:
+        foreground = iter([app(123), after])
+        workspace = SimpleNamespace(frontmostApplication=lambda: next(foreground))
+        monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
+        monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *args: (error, element))
+        assert query_focused_target() is None

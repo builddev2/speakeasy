@@ -12,7 +12,7 @@ import threading
 from dataclasses import dataclass
 
 import Quartz
-from AppKit import NSPasteboard, NSPasteboardItem, NSPasteboardTypeString
+from AppKit import NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSWorkspace
 
 from . import config
 from .dictation_benchmark import DictationTiming
@@ -130,11 +130,19 @@ def insert_text(text: str, *, timing: DictationTiming | None = None, target=None
 def focused_target():
     """Only AX element identity/role metadata; never fetch value or selection."""
     import ApplicationServices as ax
-    system = ax.AXUIElementCreateSystemWide()
-    ax.AXUIElementSetMessagingTimeout(system, .1)
+    workspace = NSWorkspace.sharedWorkspace()
+    application = workspace.frontmostApplication()
+    if application is None:
+        return None
+    pid = application.processIdentifier()
+    # Query the owning application: the system-wide proxy can return
+    # kAXErrorCannotComplete even when an application's focused field is readable.
+    owner = ax.AXUIElementCreateApplication(pid)
+    ax.AXUIElementSetMessagingTimeout(owner, .1)
     error, element = ax.AXUIElementCopyAttributeValue(
-        system, "AXFocusedUIElement", None)
-    if error != 0:
+        owner, "AXFocusedUIElement", None)
+    current = workspace.frontmostApplication()
+    if error != 0 or element is None or current is None or current.processIdentifier() != pid:
         return None
     ax.AXUIElementSetMessagingTimeout(element, .1)
     return element

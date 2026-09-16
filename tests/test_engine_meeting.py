@@ -24,6 +24,10 @@ from speakeasy.transcriber import MeetingCancelled
 
 @pytest.fixture(autouse=True)
 def isolate_meeting_latency_log(monkeypatch, tmp_path):
+    from speakeasy import dictation_benchmark
+    append = dictation_benchmark._append_record
+    monkeypatch.setattr(dictation_benchmark, "_append_record",
+                        lambda record, path: append(record, tmp_path / "meeting-start.jsonl"))
     path = tmp_path / "meeting-latency.jsonl"
     monkeypatch.setattr(meeting_benchmark, "log_path", lambda: path)
     return path
@@ -718,3 +722,46 @@ def test_switching_profile_clears_last_dictation(spool_dir, make_profile):
     assert engine.last_dictation_heard is None
     assert engine.last_dictation_text is None
     engine.shutdown()
+
+
+def test_meeting_setup_failure_does_not_latch_active_or_discard_error(spool_dir, tmp_path, monkeypatch):
+    from speakeasy import dictation_benchmark
+    records = []
+    monkeypatch.setattr(dictation_benchmark, '_append_record', lambda record, path: records.append(record))
+    engine = _engine(spool_dir)
+    def fail(session):
+        raise RuntimeError('private error text')
+    engine.meeting_recorder.configure_pretranscription = fail
+    engine.transcriber.transcribe_meeting_stream = lambda session: None
+    try:
+        engine._begin_meeting(MeetingOptions())
+        assert engine.state is State.READY
+        assert not engine._meeting_active
+        assert engine._listener.running
+        assert engine.meeting_start_error == 'setup_failed'
+        assert records[-1]['reason'] == 'setup_failed'
+        assert 'private error text' not in str(records)
+    finally:
+        engine.control.shutdown(wait=True)
+        engine.worker.shutdown(wait=True)
+
+
+def test_meeting_start_failure_is_visible_and_next_attempt_can_start(spool_dir, monkeypatch):
+    from speakeasy import dictation_benchmark
+    monkeypatch.setattr(dictation_benchmark, '_append_record', lambda *args: None)
+    engine = _engine(spool_dir)
+    def fail(**kwargs):
+        raise RecorderBusy()
+    engine.meeting_recorder.start = fail
+    try:
+        engine._begin_meeting(MeetingOptions())
+        assert not engine._meeting_active
+        assert engine.meeting_start_error == 'microphone_busy'
+        engine.meeting_recorder = FakeMeetingRecorder(spool_dir)
+        engine._begin_meeting(MeetingOptions())
+        assert engine.state is State.MEETING_RECORDING
+        assert engine.meeting_start_error is None
+        engine.meeting_recorder.stop()
+    finally:
+        engine.control.shutdown(wait=True)
+        engine.worker.shutdown(wait=True)

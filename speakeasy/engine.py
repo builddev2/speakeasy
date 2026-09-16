@@ -33,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config, injector, meeting_recorder, meetings
+from . import config, injector, meeting_recorder, meetings, settings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
@@ -124,6 +124,7 @@ class DictationEngine:
         self._model_future: Future | None = None
         self._user_paused = False
         self._meeting_active = False
+        self.meeting_start_error = None
         self._meeting_cancel = threading.Event()
         self._meeting_options = MeetingOptions()
         self._meeting_asr_session: MeetingASRSession | None = None
@@ -664,6 +665,21 @@ class DictationEngine:
         executor hop is needed (worker is busy processing anyway)."""
         self._meeting_cancel.set()
 
+    def _meeting_start_failed(self, reason):
+        from .dictation_benchmark import _append_record
+        self.meeting_start_error = reason
+        self._cancel_meeting_pretranscription()
+        self._meeting_active = False
+        if not self._user_paused and not self._shutting_down:
+            self._listener.resume()
+        try:
+            _append_record({"build_commit": settings.build_commit(),
+                            "timestamp_seconds": round(time.time(), 3), "reason": reason},
+                           Path.home() / "Library/Logs/Speakeasy-meeting-start.jsonl")
+        except OSError:
+            pass
+        self._set_state(self._idle_state())
+
     def _begin_meeting(self, options: MeetingOptions) -> None:
         if self.state is not State.READY or self._meeting_active:
             return
@@ -671,43 +687,40 @@ class DictationEngine:
             if self._dictation_stream is not None:
                 return
         self._meeting_active = True
+        self.meeting_start_error = None
         self._meeting_options = options
         # Dictation off for the duration: tear the tap down entirely (the
         # meeting recorder owns the session) and discard any hold in flight —
         # its release will never arrive.
-        self._listener.stop()
-        self._stop_recorder_guarded()
-        configure = getattr(
-            self.meeting_recorder, "configure_pretranscription", None
-        )
-        transcribe_live = getattr(
-            self.transcriber, "transcribe_meeting_stream", None
-        )
-        if callable(configure) and callable(transcribe_live):
-            session = MeetingASRSession()
-            configure(session)
-            self._meeting_asr_session = session
-            self._meeting_asr_future = self.worker.submit(
-                transcribe_live, session
-            )
+        stage = "setup_failed"
         try:
+            self._listener.stop()
+            self._stop_recorder_guarded()
+            configure = getattr(
+                self.meeting_recorder, "configure_pretranscription", None
+            )
+            transcribe_live = getattr(
+                self.transcriber, "transcribe_meeting_stream", None
+            )
+            if callable(configure) and callable(transcribe_live):
+                session = MeetingASRSession()
+                configure(session)
+                self._meeting_asr_session = session
+                self._meeting_asr_future = self.worker.submit(
+                    transcribe_live, session
+                )
+            stage = "microphone_start_failed"
             self.meeting_recorder.start(system_audio_pid=options.system_audio_pid)
         except RecorderBusy:
             # A previous meeting teardown is still unwinding in the HAL.
             # Opening another stream would deadlock against it and freeze the
             # control thread. Refuse the meeting until the stop returns.
             print("  → (mic busy — a previous stop is still releasing; try again)")
-            self._cancel_meeting_pretranscription()
-            self._meeting_active = False
-            self._listener.resume()
-            self._set_state(self._idle_state())
+            self._meeting_start_failed("microphone_busy")
             return
         except Exception:
             traceback.print_exc()
-            self._cancel_meeting_pretranscription()
-            self._meeting_active = False
-            self._listener.resume()
-            self._set_state(self._idle_state())
+            self._meeting_start_failed(stage)
             return
         # Do not inject our own start chime into the global system track.
         # Mic-only fallback keeps the existing audible cue.

@@ -16,6 +16,7 @@ type EngineMode =
 interface AppState {
   mode: EngineMode;
   micFailure?: string | null;
+  meetingStartError?: string | null;
   profileName: string;
   elapsedSeconds: number;
   progressText: string | null;
@@ -130,6 +131,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     captureHealth: {},
   });
   const [expectedSpeakerCount, setExpectedSpeakerCount] = useState('');
+  const [meetingActionError, setMeetingActionError] = useState<string | null>(null);
   const [useVoiceProfiles, setUseVoiceProfiles] = useState(false);
   const [captureApps, setCaptureApps] = useState<CaptureApplication[]>([]);
   const [captureSelection, setCaptureSelection] = useState('global');
@@ -188,12 +190,18 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     : Math.max(0, Math.floor((Date.now() - baselineRef.current) / 1000));
 
   function onPrimary() {
+    setMeetingActionError(null);
+    if (!isRecording && expectedSpeakerCount !== '' &&
+        (!Number.isInteger(Number(expectedSpeakerCount)) || Number(expectedSpeakerCount) < 1 || Number(expectedSpeakerCount) > 20)) {
+      setMeetingActionError('Use 1–20 remote speakers, or leave blank for Auto.');
+      return;
+    }
     if (bridge.embedded) {
       void bridge.call(isRecording ? 'app.endMeeting' : 'app.beginMeeting', isRecording ? {} : {
         expectedSpeakerCount: expectedSpeakerCount === '' ? null : Number(expectedSpeakerCount),
         expectedVoiceProfileNames: useVoiceProfiles ? app.voiceProfiles : [],
         systemAudioPid: captureSelection === 'global' ? null : Number(captureSelection),
-      });
+      }).catch(() => setMeetingActionError('Meeting request failed. Check the options and try again.'));
     } else {
       setApp((current) => {
         const recording = current.mode === 'meeting_recording';
@@ -235,7 +243,11 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             ) : (
               <>
                 <StatusDot variant={idleInfo!.dot} />{' '}
-                {app.mode === 'ready' ? (
+                {app.mode === 'ready' && (meetingActionError || app.meetingStartError) ? (
+                  meetingActionError || (app.meetingStartError === 'microphone_busy'
+                    ? 'Microphone is still being released. Wait, then try again.'
+                    : 'Meeting could not start. Restart Speakeasy, then try again.')
+                ) : app.mode === 'ready' ? (
                   <>
                     {bridge.embedded ? 'Ready' : readyMessage} —{' '}
                     <span className={styles.name}>{name}</span>

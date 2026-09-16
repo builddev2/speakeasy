@@ -15,6 +15,7 @@ type EngineMode =
 
 interface AppState {
   mode: EngineMode;
+  micFailure?: string | null;
   profileName: string;
   elapsedSeconds: number;
   progressText: string | null;
@@ -53,13 +54,21 @@ const STATUS: Record<Exclude<EngineMode, 'meeting_recording'>, { text: string; d
   paused: { text: 'Paused', dot: 'amber' },
   meeting_processing: { text: 'Processing meeting…', dot: 'amber' },
   mic_recovering: { text: 'Restarting microphone — please wait…', dot: 'amber' },
-  mic_failed: { text: 'Check microphone input and permission, then try again', dot: 'amber' },
+  mic_failed: { text: 'Microphone unavailable — select Retry Microphone', dot: 'amber' },
 };
 
 function formatTimer(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
   const seconds = (totalSeconds % 60).toString().padStart(2, '0');
   return `${minutes}:${seconds}`;
+}
+
+function microphoneFailureText(reason?: string | null): string {
+  if (reason === 'permission_blocked') return 'Allow Microphone in System Settings, then retry';
+  if (reason === 'device_unavailable') return 'Connect a microphone or select an input, then retry';
+  if (reason === 'teardown_pending') return 'Audio shutdown is still pending — restart Speakeasy';
+  if (reason === 'helper_timeout') return 'Microphone did not respond — select Retry Microphone';
+  return STATUS.mic_failed.text;
 }
 
 function captureStatusText(status: string): string {
@@ -234,7 +243,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
                 ) : app.mode === 'meeting_processing' ? (
                   <span className={styles.progress}>{app.progressText ?? idleInfo!.text}</span>
                 ) : (
-                  idleInfo!.text
+                  app.mode === 'mic_failed' ? microphoneFailureText(app.micFailure) : idleInfo!.text
                 )}
               </>
             )
@@ -299,9 +308,11 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
         <PrimaryButton
           danger={isRecording}
           className={isRecording ? styles.primaryRecording : styles.primaryIdle}
-          onClick={primaryDisabled ? undefined : onPrimary}
+          onClick={app.mode === 'mic_failed'
+            ? () => { void bridge.call('app.retryMicrophone'); }
+            : primaryDisabled ? undefined : onPrimary}
         >
-          {isRecording ? 'End Meeting' : 'Begin Meeting'}
+          {app.mode === 'mic_failed' ? 'Retry Microphone' : isRecording ? 'End Meeting' : 'Begin Meeting'}
         </PrimaryButton>
 
         <div className={isRecording ? `${styles.row} ${styles.rowDisabled}` : styles.row}>

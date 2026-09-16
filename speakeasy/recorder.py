@@ -9,6 +9,7 @@ import threading
 import time
 import json
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -17,6 +18,16 @@ from .coreaudio import RecorderBusy, teardown
 from .microphone_helper import MicrophoneHelper, MicrophoneHelperError
 
 __all__ = ["Recorder", "RecorderBusy"]
+
+
+def _log_recovery(record):
+    # Finder launches discard stdout; retain only this content-free schema.
+    from .dictation_benchmark import _append_record
+    try:
+        _append_record(record, Path.home() / "Library/Logs/Speakeasy-microphone-recovery.jsonl")
+    except OSError:
+        pass  # A full/unwritable log must not prevent microphone recovery.
+    print("MIC_RECOVERY " + json.dumps(record))
 
 
 @lru_cache(maxsize=1)
@@ -40,6 +51,7 @@ class Recorder:
         self._recording = False
         self._closed = False
         self.state = "ready"
+        self.last_failure = None
         self.stream_dropped_frames = 0
         self.stream_delivery_complete = True
 
@@ -66,10 +78,12 @@ class Recorder:
     def _prewarm_locked(self) -> bool:
         """Open a stopped helper stream before the next keypress."""
         if teardown.in_flight or self._closed:
+            self.last_failure = "closed" if self._closed else "teardown_pending"
             return False
         if _permission_blocked():
             self.force_close()
             self.state = "permission_blocked"
+            self.last_failure = "permission_blocked"
             return False
         with self._helper_lock:
             if self._closed:
@@ -81,6 +95,7 @@ class Recorder:
         try:
             helper.launch()
         except MicrophoneHelperError as error:
+            self.last_failure = error.code
             self._discard_helper(helper)
             if error.code == "device_unavailable":
                 self.state = "device_unavailable"
@@ -88,23 +103,27 @@ class Recorder:
         if self._closed:
             self._discard_helper(helper)
             return False
+        self.last_failure = None
         return True
 
     def recover(self, reason):
         """Called only by control; at most two launches, never reset HAL guards."""
         if self._closed:
             return False
-        safe_reasons = {"helper_exit", "launch_failure", "stop_timeout", "overflow", "sleep_wake"}
+        safe_reasons = {"helper_exit", "launch_failure", "stop_timeout", "overflow",
+                        "sleep_wake", "manual_retry", "helper_timeout", "device_unavailable"}
         reason = reason if reason in safe_reasons else "helper_exit"
         started = time.monotonic()
         states = {"ready", "recording", "stopping", "restarting", "failed",
                   "permission_blocked", "device_unavailable"}
         previous_state = self.state if self.state in states else "failed"
+        trigger_code = self.last_failure
         self.state = "restarting"
         self.force_close()
         attempts = 0
         for attempt in range(2):
             if self._closed or teardown.in_flight:
+                self.last_failure = "closed" if self._closed else "teardown_pending"
                 break
             attempts = attempt + 1
             if self.prewarm():
@@ -118,12 +137,14 @@ class Recorder:
             self.state = "failed"
         if self.state == "restarting":
             self.state = "failed"
-        print("MIC_RECOVERY " + json.dumps(dict(
+        _log_recovery(dict(
             build_commit=settings.build_commit(), reason=reason,
+            timestamp_seconds=round(time.time(), 3), failure_code=self.last_failure,
+            trigger_code=trigger_code,
             duration_ms=round((time.monotonic() - started) * 1000, 1),
             attempts=attempts, outcome=self.state,
             from_state=previous_state, via_state="restarting", to_state=self.state,
-        )))
+        ))
         return self.state == "ready" and not self._closed
 
     def shutdown(self):
@@ -147,6 +168,7 @@ class Recorder:
         try:
             helper.start(chunk_queue=chunk_queue)
         except MicrophoneHelperError as exc:
+            self.last_failure = exc.code
             self._discard_helper(helper)
             raise RecorderBusy() from exc
         self.stream_dropped_frames = 0
@@ -172,7 +194,8 @@ class Recorder:
                 self._discard_helper(helper)
             self.state = "ready"
             return audio
-        except MicrophoneHelperError:
+        except MicrophoneHelperError as exc:
+            self.last_failure = exc.code
             self.stream_dropped_frames = helper.stream_dropped_frames
             self.stream_delivery_complete = helper.stream_delivery_complete
             self._discard_helper(helper)

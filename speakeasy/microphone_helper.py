@@ -39,7 +39,7 @@ class MicrophoneHelperError(Exception):
     def __init__(self, message="", *, code="helper_exit"):
         super().__init__(message)
         self.code = code if code in {
-            "helper_exit", "launch_failure", "device_unavailable", "overflow",
+            "helper_exit", "launch_failure", "device_unavailable", "overflow", "helper_timeout",
         } else "helper_exit"
 
 
@@ -362,7 +362,7 @@ class MicrophoneHelper:
     def _receive(self, timeout: float | None):
         try:
             if timeout is not None and not self._connection.poll(timeout):
-                raise MicrophoneHelperError("helper timed out")
+                raise MicrophoneHelperError("helper timed out", code="helper_timeout")
             return self._connection.recv()
         except (EOFError, BrokenPipeError, OSError) as exc:
             raise MicrophoneHelperError("helper exited") from exc

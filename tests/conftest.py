@@ -67,3 +67,4 @@ def insertion_target(monkeypatch):
 def microphone_authorization(monkeypatch):
     from speakeasy import recorder
     monkeypatch.setattr(recorder, "_permission_blocked", lambda: False)
+    monkeypatch.setattr(recorder, "_log_recovery", lambda record: None)

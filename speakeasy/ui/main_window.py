@@ -42,6 +42,7 @@ class MainWindowController(NSObject):
         dispatcher.register("app.endMeeting", self._end_meeting)
         dispatcher.register("app.openWindow", self._open_window)
         dispatcher.register("app.quit", self._quit)
+        dispatcher.register("app.retryMicrophone", self._retry_microphone)
         self._web = WebWindow("Speakeasy", 360, 430, "dock", dispatcher)
         self._web.window.setDelegate_(self)
         return self
@@ -89,6 +90,7 @@ class MainWindowController(NSObject):
         health = getattr(meeting_recorder, "health", None)
         return {
             "mode": state.value,
+            "micFailure": getattr(self.engine.recorder, "last_failure", None),
             "profileName": profile.name if profile else "Guest",
             "elapsedSeconds": elapsed,
             "progressText": self._progress_text,
@@ -195,6 +197,10 @@ class MainWindowController(NSObject):
                     )
                 self.training_window.showForProfile_(self.engine.profile)
         respond(True)
+
+    @objc.python_method
+    def _retry_microphone(self, params, respond):
+        respond(self.engine.retry_microphone())
 
     @objc.python_method
     def _quit(self, params, respond):

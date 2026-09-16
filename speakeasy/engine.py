@@ -622,9 +622,21 @@ class DictationEngine:
         if not self._shutting_down and not self.recorder.prewarm():
             self._recover_microphone("launch_failure")
 
+    def retry_microphone(self):
+        if (self.state is not State.MIC_FAILED or self._shutting_down
+                or self._meeting_active or self._user_paused or self._diagnostic_cancel is not None):
+            return False
+        self._set_state(State.MIC_RECOVERING)
+        self.control.submit(self._recover_microphone, "manual_retry")
+        return True
+
     def _recover_microphone(self, reason):
         if (self._shutting_down or self._meeting_active or self._user_paused
                 or self._diagnostic_cancel is not None):
+            return False
+        pending = getattr(self, "_recorder_stop_pending", None)
+        if pending is not None and not pending.is_set():
+            self._set_state(State.MIC_FAILED)
             return False
         recover = getattr(self.recorder, "recover", None)
         if recover is None:

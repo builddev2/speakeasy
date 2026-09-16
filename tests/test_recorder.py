@@ -314,3 +314,33 @@ def test_permission_denial_stops_recovery_without_launch(monkeypatch):
     assert not recorder.recover("launch_failure")
     assert recorder.state == "permission_blocked"
     assert not helper.launched
+
+
+def test_recovery_retains_safe_timeout_cause_and_can_retry(monkeypatch):
+    from speakeasy import recorder as module
+    records = []
+    monkeypatch.setattr(module, "_log_recovery", records.append)
+    class TimeoutHelper(FakeHelper):
+        def launch(self):
+            raise MicrophoneHelperError('private driver message', code='helper_timeout')
+    rec = _recorder_with(TimeoutHelper(), TimeoutHelper(), FakeHelper())
+    assert not rec.recover('sleep_wake')
+    assert records[-1]['failure_code'] == 'helper_timeout'
+    assert records[-1]['attempts'] == 2
+    assert 'private driver message' not in str(records)
+    assert rec.recover('manual_retry')
+    assert records[-1]['failure_code'] is None
+    assert records[-1]['reason'] == 'manual_retry'
+
+
+from speakeasy.recorder import _log_recovery as write_recovery_log
+
+
+def test_recovery_log_persists_when_stdout_is_discarded(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: tmp_path))
+    record = {'reason': 'sleep_wake', 'outcome': 'failed', 'failure_code': 'helper_timeout'}
+    write_recovery_log(record)
+    saved = tmp_path / 'Library/Logs/Speakeasy-microphone-recovery.jsonl'
+    assert json.loads(saved.read_text()) == record

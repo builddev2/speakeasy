@@ -267,3 +267,35 @@ def test_rapid_holds_during_recovery_are_rejected_as_pairs():
         engine._on_hold_end()
     assert submitted == []
     engine.worker.shutdown(wait=True)
+
+
+def test_manual_recovery_is_serialized_and_repeated_clicks_do_not_queue():
+    from types import SimpleNamespace
+    engine = DictationEngine()
+    engine.state = State.MIC_FAILED
+    submitted = []
+    old_control = engine.control
+    engine.control = SimpleNamespace(submit=lambda *args: submitted.append(args))
+    try:
+        assert engine.retry_microphone()
+        assert engine.state is State.MIC_RECOVERING
+        assert not engine.retry_microphone()
+        assert submitted == [(engine._recover_microphone, 'manual_retry')]
+    finally:
+        old_control.shutdown(wait=True)
+        engine.worker.shutdown(wait=True)
+
+
+def test_manual_recovery_does_not_reopen_while_previous_stop_owns_recorder():
+    from types import SimpleNamespace
+    engine = DictationEngine()
+    calls = []
+    engine.recorder = SimpleNamespace(recover=lambda reason: calls.append(reason))
+    engine._recorder_stop_pending = threading.Event()
+    try:
+        assert not engine._recover_microphone('manual_retry')
+        assert engine.state is State.MIC_FAILED
+        assert not calls
+    finally:
+        engine.control.shutdown(wait=True)
+        engine.worker.shutdown(wait=True)

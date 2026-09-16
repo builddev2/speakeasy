@@ -27,3 +27,10 @@ Separately, new microphone-recovery telemetry establishes that an earlier failed
 recovery followed sleep/wake and exhausted two helper-timeout attempts (4018.8 ms).
 A later manual retry reached Ready in 414.9 ms. That identifies the failing stage,
 not why the helper timed out or proof that wake reliability has been fixed.
+
+Diagnostic provenance: the first focused test run used the real startup-log path
+before its fixture was redirected to a temporary directory. Consequently, entries
+from the development run stamped `21eb7f3` must not be used as live meeting-start
+evidence. Automatic approval review rejected deleting that file because it could
+contain real diagnostics; it was left intact. Use installed `40dbd21` or later
+records for follow-up, and preserve uncertainty for any mixed earlier entries.

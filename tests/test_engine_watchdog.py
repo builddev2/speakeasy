@@ -300,3 +300,23 @@ def test_manual_recovery_does_not_reopen_while_previous_stop_owns_recorder():
     finally:
         engine.control.shutdown(wait=True)
         engine.worker.shutdown(wait=True)
+
+
+def test_queued_wake_rejects_holds_and_coalesces_notifications(monkeypatch):
+    engine = DictationEngine()
+    queued = []
+    monkeypatch.setattr(engine.control, "submit", lambda *args: queued.append(args))
+    try:
+        engine.system_woke()
+        engine.system_woke()
+        engine._on_hold_start()
+        engine._on_hold_end()
+        assert engine.state is State.MIC_RECOVERING
+        assert len(queued) == 1
+        engine._shutting_down = True
+        queued[0][0]()
+        assert not engine._wake_recovery_pending
+        assert engine.recorder._helper is None
+    finally:
+        engine.control.shutdown(wait=True)
+        engine.worker.shutdown(wait=True)

@@ -229,7 +229,7 @@ def test_supported_and_unsupported_subroles_on_native_and_web_fields(monkeypatch
     monkeypatch.setattr(injector, "insert_text", lambda *a, **k: pastes.append(1))
     for web in (False, True):
         monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *a: (0, ["AXDOMIdentifier"] if web else []))
-        for subrole in ((-25205, None), (0, "AXStandardWindow"), (0, "")):
+        for subrole in ((-25205, None), (0, "AXSearchField"), (0, "")):
             monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda e, n, out: (0, "AXTextArea") if n == "AXRole" else subrole)
             assert injector.deliver_final("final", target) == ("dispatched_unconfirmed" if web else "ax_acknowledged")
     assert len(writes) == len(pastes) == 3

@@ -642,6 +642,23 @@ class DictationEngine:
             timing.mark("recorder_stop_finished")
         return _RecorderStopResult(np.empty(0, dtype=np.float32), "timeout")
 
+    def system_woke(self):
+        if (self._shutting_down or self._meeting_active or self._user_paused
+                or self._diagnostic_cancel is not None
+                or getattr(self, "_wake_recovery_pending", False)):
+            return
+        # Reject holds while recovery is queued, not only after control starts
+        # it. Repeated OS notifications share this one finite recovery job.
+        self._wake_recovery_pending = True
+        self._set_state(State.MIC_RECOVERING)
+        self.control.submit(self._run_wake_recovery)
+
+    def _run_wake_recovery(self):
+        try:
+            self._after_system_wake()
+        finally:
+            self._wake_recovery_pending = False
+
     def _after_system_wake(self):
         if (self._shutting_down or self._meeting_active or self._user_paused
                 or self._diagnostic_cancel is not None):

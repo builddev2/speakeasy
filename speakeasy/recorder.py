@@ -19,6 +19,9 @@ from .microphone_helper import MicrophoneHelper, MicrophoneHelperError
 
 __all__ = ["Recorder", "RecorderBusy"]
 
+_FAILURE_CODES = {"helper_exit", "launch_failure", "device_unavailable", "overflow",
+                  "helper_timeout", "closed", "teardown_pending", "permission_blocked"}
+
 
 def _log_recovery(record):
     # Finder launches discard stdout; retain only this content-free schema.
@@ -140,8 +143,9 @@ class Recorder:
             self.state = "failed"
         _log_recovery(dict(
             build_commit=settings.build_commit(), reason=reason,
-            timestamp_seconds=round(time.time(), 3), failure_code=self.last_failure,
-            trigger_code=trigger_code,
+            timestamp_seconds=round(time.time(), 3),
+            failure_code=self.last_failure if self.last_failure in _FAILURE_CODES else None,
+            trigger_code=trigger_code if trigger_code in _FAILURE_CODES else None,
             duration_ms=round((time.monotonic() - started) * 1000, 1),
             attempts=attempts, outcome=self.state,
             from_state=previous_state, via_state="restarting", to_state=self.state,

@@ -559,7 +559,7 @@ class AppDelegate(NSObject):
 
     def systemDidWake_(self, notification):
         if self.engine is not None and not self.engine._shutting_down:
-            self.engine.control.submit(self.engine._after_system_wake)
+            self.engine.system_woke()
 
     def applicationDidFinishLaunching_(self, notification):
         engine = DictationEngine()

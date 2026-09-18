@@ -345,3 +345,15 @@ def test_recovery_log_persists_when_stdout_is_discarded(tmp_path, monkeypatch):
     write_recovery_log(record)
     saved = tmp_path / 'Library/Logs/Speakeasy-microphone-recovery.jsonl'
     assert json.loads(saved.read_text()) == record
+
+
+def test_recovery_drops_unrecognized_trigger_metadata(monkeypatch):
+    from speakeasy import recorder as module
+    records = []
+    monkeypatch.setattr(module, "_log_recovery", records.append)
+    rec = _recorder_with(FakeHelper())
+    rec.last_failure = "private device exception"
+    assert rec.recover("private reason")
+    assert records[0]["trigger_code"] is None
+    assert records[0]["reason"] == "helper_exit"
+    assert "private" not in str(records)

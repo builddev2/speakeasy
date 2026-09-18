@@ -522,14 +522,14 @@ def test_summary_states_when_samples_are_insufficient():
 
     summary = benchmark_module.format_latency_summary([timing.record("success")])
 
-    assert "collect at least 20 before drawing a bottleneck conclusion" in summary
-    assert "dominant phase: insufficient data (1/5 successful takes)" in summary
+    assert "collect at least 30 before drawing a bottleneck conclusion" in summary
+    assert "dominant phase: insufficient data (1/30 successful takes)" in summary
     assert "dominant measured pre-paste phase" not in summary
 
 
 def test_summary_names_dominant_phase_with_enough_group_records():
     records = []
-    for take in range(1, 6):
+    for take in range(1, 31):
         record = DictationTiming(take, clock_ns=lambda: 0).record("success")
         record.update(
             samples_before=5 * 16_000,
@@ -752,3 +752,18 @@ def test_model_context_measures_actual_elapsed_idle_and_previous_operation(monke
     assert idle.model_context["temperature"] == "idle"
     assert idle.model_context["idle_seconds"] == 1800
     assert idle.model_context["previous_operation"] == "dictation"
+
+
+def test_summary_never_pools_builds_or_invents_small_sample_percentiles():
+    rows = []
+    for build in ("a", "b"):
+        for _ in range(20):
+            row = DictationTiming(1, build_commit=build).record("success")
+            row.update(release_to_paste_ms=100, samples_before=16000, mode="batch")
+            rows.append(row)
+    summary = benchmark_module.format_latency_summary(rows)
+    assert "Build=a mode=batch" in summary
+    assert "Build=b mode=batch" in summary
+    assert "n=40" not in summary
+    assert "p95=" not in summary
+    assert "not visible delivery" in summary

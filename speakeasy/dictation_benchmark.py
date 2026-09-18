@@ -4,7 +4,7 @@ import json
 import math
 import threading
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -135,8 +135,8 @@ _SUMMARY_PHASES = (
     "insertion_to_dispatch_ms",
 )
 _LOG_MAX_BYTES = 5 * 1024 * 1024
-_MIN_CONCLUSION_RECORDS = 20
-_MIN_GROUP_RECORDS = 5
+_MIN_CONCLUSION_RECORDS = 30
+_MIN_GROUP_RECORDS = 30
 _WRITE_LOCK = threading.Lock()
 _LOG_PATH_OVERRIDE: Path | None = None
 
@@ -316,6 +316,9 @@ def _format_ms(value: float) -> str:
 def _metric_line(label: str, values: list[float], *, include_max: bool = False) -> str:
     if not values:
         return f"  {label}: no measurements"
+    if len(values) < 30:
+        return (f"  {label}: n={len(values)}, range={min(values):.1f}–{max(values):.1f} ms; "
+                "insufficient for a distribution (need 30)")
     summary = (
         f"n={len(values)}, p50={_format_ms(_percentile(values, 0.50))}, "
         f"p95={_format_ms(_percentile(values, 0.95))}"
@@ -326,6 +329,22 @@ def _metric_line(label: str, values: list[float], *, include_max: bool = False) 
 
 
 def format_latency_summary(records: list[dict]) -> str:
+    groups = defaultdict(list)
+    for record in records:
+        key = tuple(record.get(name) or "unknown" for name in
+                    ("build_commit", "mode", "temperature", "previous_operation"))
+        duration = (_duration_bucket(record["samples_before"])
+                    if record.get("samples_before") is not None else "unknown")
+        groups[(*key, duration)].append(record)
+    if not groups:
+        return _format_latency_group([])
+    return "\n\n".join(
+        f"Build={key[0]} mode={key[1]} temperature={key[2]} previous={key[3]} duration={key[4]}\n"
+        + _format_latency_group(group) for key, group in sorted(groups.items())
+    )
+
+
+def _format_latency_group(records: list[dict]) -> str:
     lines = [f"Valid timing records: {len(records)}"]
     statuses = Counter(record["status"] for record in records)
     if statuses:
@@ -342,7 +361,7 @@ def format_latency_summary(records: list[dict]) -> str:
         if record["status"] in _SUCCESS_STATUSES
         and record.get("release_to_paste_ms") is not None
     ]
-    lines.append("Release to paste (successful takes):")
+    lines.append("Release to dispatch/API acknowledgement (not visible delivery; legacy release_to_paste_ms):")
     lines.append(
         _metric_line(
             "release_to_paste_ms",
@@ -400,13 +419,13 @@ def format_latency_summary(records: list[dict]) -> str:
 
     if len(successful) < _MIN_CONCLUSION_RECORDS:
         lines.append(
-            f"Caveat: only {len(successful)} successful release-to-paste records; "
+            f"Caveat: only {len(successful)} successful release-to-dispatch records; "
             f"collect at least {_MIN_CONCLUSION_RECORDS} before drawing a bottleneck "
             "conclusion."
         )
     else:
         lines.append(
-            f"Evidence check: {len(successful)} successful release-to-paste records "
+            f"Evidence check: {len(successful)} successful release-to-dispatch records "
             "are available; review duration-group coverage before drawing a conclusion."
         )
     return "\n".join(lines)

@@ -41,6 +41,23 @@ def main():
     with contextlib.redirect_stdout(io.StringIO()):
         model = module.Transcriber()
     original = module.get_logmel
+    model_class = type(model._model)
+    original_generate, original_decode = model_class.generate, model_class.decode
+    phase_events = {}
+
+    def generate(instance, *a, **k):
+        phase_events["generate_started"] = time.perf_counter()
+        return original_generate(instance, *a, **k)
+
+    def decode(instance, *a, **k):
+        # Pinned Parakeet evaluates encoder outputs before entering decode.
+        phase_events["decode_started"] = time.perf_counter()
+        try:
+            return original_decode(instance, *a, **k)
+        finally:
+            phase_events["decode_finished"] = time.perf_counter()
+
+    model_class.generate, model_class.decode = generate, decode
     dirty = subprocess.run(["git", "diff", "--quiet", "HEAD"], check=False).returncode != 0
     output_fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -60,6 +77,7 @@ def main():
                     idle = time.perf_counter() - before_idle
                     timing = DictationTiming(pair + 1)
                     timing.mode = "batch"
+                    phase_events.clear()
                     load = os.getloadavg()
                     started = time.perf_counter()
                     text = model.transcribe(audio, timing=timing)
@@ -70,12 +88,15 @@ def main():
                         capture_seconds=len(audio) / 16000, actual_idle_seconds=idle,
                         elapsed_ms=elapsed, wer=word_error_rate(reference, text),
                         empty=not bool(text), phases=timing.record("success"),
+                        encoder_and_deferred_mel_ms=(phase_events["decode_started"] - phase_events["generate_started"]) * 1000,
+                        decoder_wall_ms=(phase_events["decode_finished"] - phase_events["decode_started"]) * 1000,
                         load_average=list(load), process_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                         mlx_active_bytes=mx.get_active_memory(), mlx_peak_bytes=mx.get_peak_memory(),
                     )) + "\n")
                     output.flush()
     finally:
         module.get_logmel = original
+        model_class.generate, model_class.decode = original_generate, original_decode
 
 
 if __name__ == "__main__":

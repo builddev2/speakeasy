@@ -198,6 +198,7 @@ def test_1000_control_recovery_cycles_have_no_busy_cascade():
     helpers = []
     class Helper:
         level = 0
+        first_buffer_ns = 123
         stream_dropped_frames = 0
         stream_delivery_complete = True
         def __init__(self):

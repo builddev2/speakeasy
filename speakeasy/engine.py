@@ -221,6 +221,9 @@ class DictationEngine:
         if self._meeting_active:
             self.meeting_recorder.force_close()
             self.meeting_recorder.discard()
+        target_future = getattr(self, "_target_future", None)
+        if target_future is not None:
+            target_future.cancel()
         self.worker.shutdown(wait=False)
         self.control.shutdown(wait=False)
 
@@ -250,6 +253,7 @@ class DictationEngine:
 
     # Hotkey callbacks run on the event-tap thread and must return instantly.
     def _on_hold_start(self) -> None:
+        self._hold_started_ns = self._dictation_clock_ns()
         self._hotkey_rejected = self.state is State.MIC_RECOVERING
         if not self._hotkey_rejected:
             self.control.submit(self._start_recording)
@@ -278,7 +282,11 @@ class DictationEngine:
             self._dictation_generation += 1
             generation = self._dictation_generation
             self._recording_generation = generation
-            self._dictation_target = injector.focused_target()
+            self._dictation_target = None
+            previous_target = getattr(self, "_target_future", None)
+            if previous_target is not None:
+                previous_target.cancel()
+            self._target_future = self.worker.submit(self._resolve_dictation_target, generation)
         session = (
             StreamingSession(
                 clock_ns=self._dictation_clock_ns,
@@ -326,6 +334,12 @@ class DictationEngine:
         play_sound(config.SOUND_START)
         self._set_state(State.RECORDING)
         print("● recording...")
+
+    def _resolve_dictation_target(self, generation):
+        if self._shutting_down or generation != self._dictation_generation:
+            return None, self._dictation_clock_ns()
+        target = injector.focused_target()
+        return target, self._dictation_clock_ns()
 
     def _transcribe_stream_with_fallback(
         self, session: StreamingSession
@@ -392,6 +406,7 @@ class DictationEngine:
             if release_received is None
             else release_received,
         )
+        timing.mode = "streaming" if self._dictation_stream is not None else "batch"
         timing.mark("control_stop_started")
         timing.mark("recorder_stop_started")
         try:
@@ -402,6 +417,22 @@ class DictationEngine:
             self._finish_dictation(timing, "pipeline_exception", generation)
             return
         timing.recorder_stop_outcome = stopped.outcome
+        first_buffer = getattr(self.recorder, "first_buffer_ns", None)
+        hold_started = getattr(self, "_hold_started_ns", None)
+        if hold_started is not None:
+            timing.mark("hold_started", hold_started)
+        if first_buffer is not None:
+            timing.mark("first_buffer", first_buffer)
+        target_future = getattr(self, "_target_future", None)
+        if target_future is not None and target_future.done() and not target_future.cancelled():
+            try:
+                target, resolved = target_future.result()
+                # A busy worker or slow AX lookup must not bind to a field
+                # selected later during speech. Keep the final for recovery.
+                if first_buffer is not None and resolved <= first_buffer:
+                    self._dictation_target = target
+            except Exception:
+                pass
         recorder_busy, self._recorder_busy = self._recorder_busy, False
         try:
             too_short = (
@@ -446,6 +477,7 @@ class DictationEngine:
             # pre-release compute is intentionally excluded from post-release
             # queue and inference phases.
             timing.mark("worker_started", worker_already_started)
+            timing.model_context = getattr(session, "model_context", {})
             timing.samples_before = len(stopped.audio)
             timing.samples_after = len(stopped.audio)
             with self._dictation_stream_lock:
@@ -1086,6 +1118,8 @@ class DictationEngine:
                 if self.overlay:
                     self.overlay.hide()
                 self._set_state(self._idle_state())
+                if self.state is State.READY:
+                    timing.mark("ready")
         except Exception:
             traceback.print_exc()
             if status.startswith("success"):

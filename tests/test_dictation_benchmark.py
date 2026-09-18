@@ -199,6 +199,9 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
     line = benchmark_lines(capsys)[0]
     names = [part.split("=", 1)[0] for part in line.split()[1:]]
     assert names == [
+        "mode", "temperature", "previous_operation", "duration_group",
+        "idle_seconds", "model_load_ms", "model_warmup_ms", "warmup_complete",
+        "key_down_to_first_buffer_ms", "release_to_dispatch_ms", "release_to_ready_ms",
         "build_commit",
         "take",
         "status",
@@ -250,6 +253,9 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
 
     record = json.loads(isolate_latency_log.read_text(encoding="utf-8"))
     assert list(record) == [
+        "mode", "temperature", "previous_operation", "duration_group",
+        "idle_seconds", "model_load_ms", "model_warmup_ms", "warmup_complete",
+        "key_down_to_first_buffer_ms", "release_to_dispatch_ms", "release_to_ready_ms",
         "build_commit",
         "take",
         "status",
@@ -404,7 +410,7 @@ def test_comparison_reader_keeps_exact_privacy_allowlist(tmp_path):
 
     assert len(loaded) == 1
     assert tuple(loaded[0]) == benchmark_module._FIELDS
-    assert not {"transcript", "mode", "timestamp", "device", "pid"} & set(loaded[0])
+    assert not {"transcript", "timestamp", "device", "pid"} & set(loaded[0])
 
 
 def test_logging_failure_does_not_affect_restore_or_cleanup(monkeypatch, capsys):
@@ -710,3 +716,39 @@ def test_insertion_outcome_is_an_enum_not_arbitrary_content():
     assert "private content" not in timing.format_summary("success")
     timing.insertion_outcome = "focus_changed"
     assert timing.record("insertion_blocked")["insertion_outcome"] == "focus_changed"
+
+
+def test_context_allowlist_and_legacy_records():
+    timing = DictationTiming(1)
+    timing.model_context = dict(temperature="private", previous_operation="meeting",
+                                idle_seconds=float("nan"), warmup_complete=True,
+                                model_load_ms=123, transcript="secret")
+    record = timing.record("success")
+    assert record["temperature"] is None
+    assert record["idle_seconds"] is None
+    assert record["previous_operation"] == "meeting"
+    assert "secret" not in json.dumps(record)
+    legacy = {k: v for k, v in record.items() if k not in benchmark_module._NEW_FIELDS}
+    assert benchmark_module._valid_record(legacy) is not None
+    record["previous_operation"] = "private"
+    assert benchmark_module._valid_record(record) is None
+
+
+def test_model_context_measures_actual_elapsed_idle_and_previous_operation(monkeypatch):
+    from types import SimpleNamespace
+    clock = Clock()
+    monkeypatch.setattr(transcriber_module.time, "perf_counter_ns", clock)
+    model = SimpleNamespace(_previous_operation="warmup", _last_operation_finished_ns=0,
+                            _warmup_complete=True, _model_load_ms=10, _model_warmup_ms=20)
+    @transcriber_module._model_operation("dictation")
+    def operation(self, *, timing):
+        clock.advance(5)
+    first = DictationTiming(1)
+    operation(model, timing=first)
+    assert first.model_context["temperature"] == "first_after_load"
+    clock.advance(1_800_000)
+    idle = DictationTiming(2)
+    operation(model, timing=idle)
+    assert idle.model_context["temperature"] == "idle"
+    assert idle.model_context["idle_seconds"] == 1800
+    assert idle.model_context["previous_operation"] == "dictation"

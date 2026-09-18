@@ -14,6 +14,7 @@ class Recorder:
     level = 0.0
 
     def __init__(self):
+        self.first_buffer_ns = 1
         self.chunk_queue = None
         self.stream_dropped_frames = 0
         self.stream_delivery_complete = True
@@ -49,6 +50,11 @@ class Worker:
         self.shutdown_called = False
 
     def submit(self, function, *args):
+        if function.__name__ == "_resolve_dictation_target":
+            from speakeasy import injector
+            future = Future()
+            future.set_result((injector.focused_target(), 0))
+            return future
         self.submissions.append((function, args))
         return self.future
 
@@ -362,3 +368,41 @@ def test_pause_and_shutdown_cancel_active_session_without_using_model(engine):
 @pytest.fixture(autouse=True)
 def enable_streaming_for_stream_path_tests(monkeypatch):
     monkeypatch.setattr("speakeasy.config.DICTATION_STREAMING_ENABLED", True)
+
+
+def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from speakeasy import injector
+    entered, release = threading.Event(), threading.Event()
+    def delayed():
+        entered.set()
+        assert release.wait(2)
+        return object()
+    monkeypatch.setattr(injector, "focused_target", delayed)
+    engine._dictation_stream_disabled = True
+    original = engine.worker
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        engine.worker = worker
+        try:
+            engine._start_recording()
+            assert entered.wait(1)
+            assert engine.state is State.RECORDING
+            # Capture is already active while the AX call remains blocked.
+            assert not engine._target_future.done()
+            release.set()
+            engine._target_future.result(timeout=1)
+            monkeypatch.setattr(engine, "_transcribe_and_paste", lambda *a: None)
+            engine._stop_recording()
+            assert engine._dictation_target is None
+        finally:
+            release.set()
+            engine.worker = original
+
+
+def test_target_resolved_before_first_buffer_is_retained(engine, monkeypatch):
+    from speakeasy import injector
+    engine._dictation_stream_disabled = True
+    engine._start_recording()
+    engine._stop_recording()
+    assert engine._dictation_target is injector.focused_target()

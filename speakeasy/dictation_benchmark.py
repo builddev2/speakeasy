@@ -12,7 +12,23 @@ from pathlib import Path
 from . import config, settings
 
 
+_CONTEXT_ENUMS = {
+    "mode": {"batch", "streaming"},
+    "temperature": {"first_after_load", "warm", "idle"},
+    "previous_operation": {"warmup", "dictation", "diagnostic", "meeting"},
+    "duration_group": {"short", "medium", "long"},
+}
+_CONTEXT_NUMBERS = {"idle_seconds", "model_load_ms", "model_warmup_ms"}
+_NEW_FIELDS = {*_CONTEXT_ENUMS, *_CONTEXT_NUMBERS, "warmup_complete",
+               "key_down_to_first_buffer_ms", "release_to_dispatch_ms", "release_to_ready_ms"}
+
 _FIELDS = (
+    *_CONTEXT_ENUMS,
+    *sorted(_CONTEXT_NUMBERS),
+    "warmup_complete",
+    "key_down_to_first_buffer_ms",
+    "release_to_dispatch_ms",
+    "release_to_ready_ms",
     "build_commit",
     "take",
     "status",
@@ -57,6 +73,9 @@ _STREAM_DURATION_FIELDS = {
 _FALLBACK_REASONS = {"stream_error", "stream_overflow"}
 
 _DURATIONS = {
+    "key_down_to_first_buffer_ms": ("hold_started", "first_buffer"),
+    "release_to_dispatch_ms": ("release_received", "paste_dispatched"),
+    "release_to_ready_ms": ("release_received", "ready"),
     "release_to_control_ms": ("release_received", "control_stop_started"),
     "control_to_recorder_stop_ms": (
         "control_stop_started",
@@ -175,7 +194,7 @@ def _duration_bucket(samples_before: int) -> str:
 
 
 def _valid_record(value: object) -> dict | None:
-    legacy_fields = set(_FIELDS) - {
+    legacy_fields = set(_FIELDS) - _NEW_FIELDS - {
         "build_commit",
         "insertion_outcome",
         *_STREAM_DURATION_FIELDS,
@@ -255,6 +274,20 @@ def _valid_record(value: object) -> dict | None:
         ):
             return None
         record[name] = float(duration) if duration is not None else None
+    for name, allowed in _CONTEXT_ENUMS.items():
+        item = value.get(name)
+        if item is not None and (not isinstance(item, str) or item not in allowed):
+            return None
+        record[name] = item
+    for name in _CONTEXT_NUMBERS:
+        item = value.get(name)
+        if item is not None and (isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) or item < 0):
+            return None
+        record[name] = item
+    complete = value.get("warmup_complete")
+    if complete is not None and not isinstance(complete, bool):
+        return None
+    record["warmup_complete"] = complete
     return {name: record[name] for name in _FIELDS}
 
 
@@ -616,6 +649,8 @@ class DictationTiming:
     stream_queue_capacity: int | None = None
     stream_overflowed: bool | None = None
     fallback_reason: str | None = None
+    model_context: dict = field(default_factory=dict)
+    mode: str | None = None
     _emitted: bool = False
 
     def mark(self, event: str, timestamp_ns: int | None = None) -> None:
@@ -661,6 +696,12 @@ class DictationTiming:
             "stream_overflowed": self.stream_overflowed,
             "fallback_reason": self.fallback_reason,
         }
+        context = self.model_context
+        values.update({name: context.get(name) if isinstance(context.get(name), str) and context[name] in allowed else None for name, allowed in _CONTEXT_ENUMS.items()})
+        values["mode"] = self.mode if self.mode in {"batch", "streaming"} else None
+        values["duration_group"] = _duration_bucket(self.samples_before) if self.samples_before is not None else None
+        values.update({name: context.get(name) if isinstance(context.get(name), (int, float)) and not isinstance(context.get(name), bool) and math.isfinite(context[name]) and context[name] >= 0 else None for name in _CONTEXT_NUMBERS})
+        values["warmup_complete"] = context.get("warmup_complete") if isinstance(context.get("warmup_complete"), bool) else None
         values.update({name: self._duration_value(name) for name in _DURATIONS})
         return {name: values[name] for name in _FIELDS}
 
@@ -696,6 +737,8 @@ class DictationTiming:
             ),
             "fallback_reason": self.fallback_reason or "na",
         }
+        record = self.record(status)
+        values.update({name: self._safe_metric(record[name]) for name in _NEW_FIELDS})
         values.update({name: self._duration(name) for name in _DURATIONS})
         return "DICTATION_BENCH " + " ".join(
             f"{name}={values[name]}" for name in _FIELDS

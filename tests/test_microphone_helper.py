@@ -68,7 +68,8 @@ def test_helper_protocol_retains_complete_batch_and_streams_optional_chunks(
     assert response[0] == "stopped"
     assert np.array_equal(response[1][:40_000], np.ones(40_000))
     assert np.array_equal(response[1][40_000:], np.full(45_000, 2.0))
-    assert response[2:] == (0, 0)
+    assert response[2:4] == (0, 0)
+    assert isinstance(response[4], int)
     assert streamed.get().shape == (32_000, 1)
     assert streamed.get().shape == (32_000, 1)
     assert streamed.get().shape == (21_000, 1)
@@ -177,7 +178,7 @@ def test_launch_timeout_terminates_process_and_closes_ipc_resources():
 
 def test_stop_reports_stream_overflow_without_losing_batch_audio():
     audio = np.ones(5, dtype=np.float32)
-    connection = FakeConnection([("stopped", audio, 0, 7)])
+    connection = FakeConnection([("stopped", audio, 0, 7, 123)])
     helper = _bare_helper(connection)
 
     result = helper.stop()
@@ -204,7 +205,7 @@ def test_capture_buffer_coalesces_before_stream_queue_boundary():
 
 
 def test_stop_rejects_callback_overflow_as_authoritative_batch():
-    connection = FakeConnection([("stopped", np.ones(5), 4, 0)])
+    connection = FakeConnection([("stopped", np.ones(5), 4, 0, 123)])
     helper = _bare_helper(connection)
 
     with pytest.raises(MicrophoneHelperError, match="overflow"):

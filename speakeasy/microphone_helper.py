@@ -11,6 +11,7 @@ import math
 import multiprocessing
 import queue
 import threading
+import time as clock
 from multiprocessing.connection import Connection
 
 import numpy as np
@@ -51,10 +52,12 @@ class _CaptureBuffer:
         self._stream_queue = stream_queue
         self._session_lock = threading.Lock()
         self._session: tuple[queue.Queue, list[np.ndarray], threading.Thread] | None = None
+        self.first_buffer_ns = None
         self.capture_dropped_frames = 0
         self.stream_dropped_frames = 0
 
     def start(self, deliver_chunks: bool = False) -> None:
+        self.first_buffer_ns = None
         self.capture_dropped_frames = 0
         self.stream_dropped_frames = 0
         chunks: list[np.ndarray] = []
@@ -114,6 +117,10 @@ class _CaptureBuffer:
             session = self._session
             if session is None:
                 return
+            if self.first_buffer_ns is None:
+                observed = clock.perf_counter_ns()
+                age = max(0.0, time.currentTime - time.inputBufferAdcTime) if time is not None else frames / config.SAMPLE_RATE
+                self.first_buffer_ns = observed - round(age * 1_000_000_000)
             try:
                 session[0].put_nowait(indata.copy())
             except queue.Full:
@@ -226,7 +233,7 @@ def run_microphone_helper(connection: Connection, level, stream_queue) -> None:
                 if deliver_chunks:
                     stream_queue.put(None)
                 connection.send(
-                    ("stopped", audio, capture_dropped, stream_dropped)
+                    ("stopped", audio, capture_dropped, stream_dropped, capture.first_buffer_ns)
                 )
                 if stream is None:
                     try:
@@ -260,6 +267,7 @@ class MicrophoneHelper:
             name="speakeasy-microphone",
             daemon=True,
         )
+        self.first_buffer_ns = None
         self.capture_dropped_frames = 0
         self.stream_dropped_frames = 0
         self._forwarder_dropped_frames = 0
@@ -301,6 +309,7 @@ class MicrophoneHelper:
         self._chunk_queue = chunk_queue
         self._chunk_reader_stop = threading.Event()
         self._chunk_reader = None
+        self.first_buffer_ns = None
         self.capture_dropped_frames = 0
         self.stream_dropped_frames = 0
         self._forwarder_dropped_frames = 0
@@ -319,8 +328,9 @@ class MicrophoneHelper:
         self._send("stop")
         response = self._receive(None)
         self._finish_chunk_reader()
-        if len(response) != 4 or response[0] != "stopped":
+        if len(response) != 5 or response[0] != "stopped":
             raise MicrophoneHelperError("helper failed to stop")
+        self.first_buffer_ns = response[4]
         self.capture_dropped_frames = int(response[2])
         self.stream_dropped_frames = int(response[3]) + self._forwarder_dropped_frames
         if self.capture_dropped_frames:

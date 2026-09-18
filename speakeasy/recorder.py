@@ -52,6 +52,7 @@ class Recorder:
         self._closed = False
         self.state = "ready"
         self.last_failure = None
+        self.first_buffer_ns = None
         self.stream_dropped_frames = 0
         self.stream_delivery_complete = True
 
@@ -171,6 +172,7 @@ class Recorder:
             self.last_failure = exc.code
             self._discard_helper(helper)
             raise RecorderBusy() from exc
+        self.first_buffer_ns = None
         self.stream_dropped_frames = 0
         self.stream_delivery_complete = chunk_queue is None
         self._recording = True
@@ -188,6 +190,7 @@ class Recorder:
             return np.empty(0, dtype=np.float32)
         try:
             audio = helper.stop()
+            self.first_buffer_ns = helper.first_buffer_ns
             self.stream_dropped_frames = helper.stream_dropped_frames
             self.stream_delivery_complete = helper.stream_delivery_complete
             if not self.stream_delivery_complete:

@@ -28,6 +28,7 @@ class FakeHelper:
         self.terminated = False
         self.chunk_queue = None
         self.audio = np.ones(8, dtype=np.float32)
+        self.first_buffer_ns = 123
         self.level = 0.25
         self.stream_dropped_frames = 0
         self.stream_delivery_complete = True

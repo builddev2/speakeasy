@@ -5,6 +5,8 @@ import queue
 import sys
 import threading
 import wave
+import time
+from functools import wraps
 from collections.abc import Callable
 from pathlib import Path
 
@@ -100,6 +102,37 @@ def read_wav_mono_f32(path: Path) -> np.ndarray:
     return np.interp(target_positions, source_positions, audio).astype(np.float32)
 
 
+def _model_operation(operation):
+    def decorate(function):
+        @wraps(function)
+        def measured(self, *args, **kwargs):
+            timing = kwargs.get("timing")
+            started = time.perf_counter_ns()
+            previous = getattr(self, "_last_operation_finished_ns", None)
+            session = args[0] if function.__name__ == "transcribe_stream" else None
+            if timing is not None or session is not None:
+                idle = (started - previous) / 1e9 if previous is not None else None
+                context = dict(
+                    temperature="first_after_load" if getattr(self, "_previous_operation", None) == "warmup" else ("idle" if idle is not None and idle >= 1800 else "warm"),
+                    previous_operation=getattr(self, "_previous_operation", None),
+                    idle_seconds=idle,
+                    warmup_complete=getattr(self, "_warmup_complete", False),
+                    model_load_ms=getattr(self, "_model_load_ms", None),
+                    model_warmup_ms=getattr(self, "_model_warmup_ms", None),
+                )
+                if timing is not None:
+                    timing.model_context = context
+                if session is not None:
+                    session.model_context = context
+            try:
+                return function(self, *args, **kwargs)
+            finally:
+                self._last_operation_finished_ns = time.perf_counter_ns()
+                self._previous_operation = operation if timing is not None or (session is not None and session.timing is not None) or operation != "dictation" else "diagnostic"
+        return measured
+    return decorate
+
+
 class Transcriber:
     """Wraps the Parakeet MLX model.
 
@@ -111,9 +144,12 @@ class Transcriber:
     def __init__(self) -> None:
         source = settings.model_path()
         print(f"Loading speech model from {source}")
+        started = time.perf_counter_ns()
         self._model = from_pretrained(source)
-        # First call triggers MLX graph compilation (~1s); pay it now with
-        # a second of silence rather than on the user's first dictation.
+        loaded = time.perf_counter_ns()
+        self._model_load_ms = (loaded - started) / 1e6
+        self._warmup_complete = False
+        # Exercise lazy model work before the first user dictation.
         self.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
         warm_session = StreamingSession()
         silence = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
@@ -122,7 +158,12 @@ class Transcriber:
         warmed = self.transcribe_stream(warm_session)
         if warmed.status is not StreamStatus.COMPLETE:
             raise RuntimeError("streaming model warmup failed")
+        self._last_operation_finished_ns = time.perf_counter_ns()
+        self._model_warmup_ms = (self._last_operation_finished_ns - loaded) / 1e6
+        self._warmup_complete = True
+        self._previous_operation = "warmup"
 
+    @_model_operation("dictation")
     def transcribe(
         self, audio: np.ndarray, *, timing: DictationTiming | None = None
     ) -> str:
@@ -158,6 +199,7 @@ class Transcriber:
                 timing.mark("inference_finished")
         return result.text.strip()
 
+    @_model_operation("dictation")
     def transcribe_stream(self, session: StreamingSession) -> StreamResult:
         """Consume a live dictation on the model's existing worker thread.
 
@@ -221,6 +263,7 @@ class Transcriber:
                 cancel=cancel,
             )
 
+    @_model_operation("meeting")
     def transcribe_meeting_stream(
         self, session: MeetingASRSession
     ) -> MeetingASRResult:
@@ -280,6 +323,7 @@ class Transcriber:
                 overlap_duration=config.MEETING_OVERLAP_SECONDS,
             )
 
+    @_model_operation("meeting")
     def _transcribe_long_source(
         self,
         total: int,

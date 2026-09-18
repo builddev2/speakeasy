@@ -237,8 +237,9 @@ def test_circuit_breaker_sends_next_take_through_existing_batch_path(monkeypatch
     engine._stop_recording()
 
     assert engine.recorder.chunk_queue is None
-    assert len(submissions) == 1
-    assert submissions[0][0] == engine._transcribe_and_paste
+    assert len(submissions) == 2
+    assert submissions[0][0] == engine._resolve_dictation_target
+    assert submissions[1][0] == engine._transcribe_and_paste
 
 
 def test_fallback_result_reaches_shared_finalizer_once(monkeypatch):

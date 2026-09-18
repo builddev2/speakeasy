@@ -91,6 +91,8 @@ def compare(transcriber, audio, reference, stage=lambda name: None):
             "received_frames": session.received_frames,
             "integrity_matches": session.integrity_matches(),
         }
+    transcriber._previous_operation = "diagnostic"
+    transcriber._last_operation_finished_ns = time.perf_counter_ns()
     return report
 
 

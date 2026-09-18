@@ -58,7 +58,7 @@ def insertion_target(monkeypatch):
     monkeypatch.setattr(injector._transaction, "snapshot", None, raising=False)
     target = object()
     monkeypatch.setattr(injector, "focused_target", lambda: target)
-    monkeypatch.setattr(injector, "_attribute", lambda element, name: "AXGroup")
+    monkeypatch.setattr(injector, "_attribute", lambda element, name: (0, "AXGroup"))
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (0, False))
     monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *args: (0, []))
 

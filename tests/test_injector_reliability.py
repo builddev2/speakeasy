@@ -1,6 +1,7 @@
 from speakeasy import injector
 # Keep the real function before the autouse fixture replaces host focus access.
 from speakeasy.injector import focused_target as query_focused_target
+from speakeasy.injector import _attribute as query_attribute
 
 
 class Item:
@@ -66,8 +67,8 @@ def test_delivery_matrix_and_1000_attempt_soak(monkeypatch):
     for attempt in range(1000):
         case = attempt % 5
         role = "AXTextField" if case in (0, 1, 4) else "AXGroup"
-        monkeypatch.setattr(injector, "_attribute", lambda e, n: role if n == "AXRole" else
-                            ("AXSecureTextField" if case == 1 else None))
+        monkeypatch.setattr(injector, "_attribute", lambda e, n: (0, role) if n == "AXRole" else
+                            ((0, "AXSecureTextField") if case == 1 else (-25205, None)))
         monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *a: (0, case == 0))
         outcome = injector.deliver_final("final", object() if case == 3 else target)
         assert outcome == ["ax_acknowledged", "secure_or_unknown_field",
@@ -80,7 +81,7 @@ def test_delivery_matrix_and_1000_attempt_soak(monkeypatch):
 def test_ambiguous_ax_write_never_falls_back(monkeypatch):
     import ApplicationServices as ax
     target = injector.focused_target()
-    monkeypatch.setattr(injector, "_attribute", lambda e, n: "AXTextArea" if n == "AXRole" else None)
+    monkeypatch.setattr(injector, "_attribute", lambda e, n: (0, "AXTextArea") if n == "AXRole" else (-25205, None))
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *a: (0, True))
     monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: -25202)
     monkeypatch.setattr(injector, "insert_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
@@ -160,7 +161,7 @@ def test_focus_query_fails_closed_on_switch_or_unavailable_field(monkeypatch):
 def test_web_editor_uses_one_paste_despite_writable_selected_text(monkeypatch):
     import ApplicationServices as ax
     target = injector.focused_target()
-    monkeypatch.setattr(injector, "_attribute", lambda e, n: "AXTextArea" if n == "AXRole" else None)
+    monkeypatch.setattr(injector, "_attribute", lambda e, n: (0, "AXTextArea") if n == "AXRole" else (-25205, None))
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (0, True))
     monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *args: (0, ["AXDOMIdentifier"]))
     monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *args: (_ for _ in ()).throw(AssertionError()))
@@ -204,3 +205,31 @@ def test_unsupported_accessibility_activation_does_not_write_or_retry(monkeypatc
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (-25205, False))
     monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *args: (_ for _ in ()).throw(AssertionError()))
     assert not injector._enable_accessibility(object())
+
+
+def test_security_inspection_errors_block_before_clipboard(monkeypatch):
+    import ApplicationServices as ax
+    # Exercise the real status-preserving query, not the shared metadata fake.
+    monkeypatch.setattr(injector, "_attribute", query_attribute)
+    target = injector.focused_target()
+    monkeypatch.setattr(injector, "insert_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
+    for error in (-25204, -25211, -25202, -25212):
+        monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue",
+                            lambda e, n, out: (0, "AXTextArea") if n == "AXRole" else (error, None))
+        assert injector.deliver_final("final", target) == "secure_or_unknown_field"
+
+
+def test_supported_and_unsupported_subroles_on_native_and_web_fields(monkeypatch):
+    import ApplicationServices as ax
+    monkeypatch.setattr(injector, "_attribute", query_attribute)
+    target = injector.focused_target()
+    writes, pastes = [], []
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *a: (0, True))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: writes.append(1) or 0)
+    monkeypatch.setattr(injector, "insert_text", lambda *a, **k: pastes.append(1))
+    for web in (False, True):
+        monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *a: (0, ["AXDOMIdentifier"] if web else []))
+        for subrole in ((-25205, None), (0, "AXStandardWindow"), (0, "")):
+            monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda e, n, out: (0, "AXTextArea") if n == "AXRole" else subrole)
+            assert injector.deliver_final("final", target) == ("dispatched_unconfirmed" if web else "ax_acknowledged")
+    assert len(writes) == len(pastes) == 3

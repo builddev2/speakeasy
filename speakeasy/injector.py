@@ -177,8 +177,7 @@ def _web_text_field(element):
 
 def _attribute(element, name):
     import ApplicationServices as ax
-    error, value = ax.AXUIElementCopyAttributeValue(element, name, None)
-    return value if error == 0 else None
+    return ax.AXUIElementCopyAttributeValue(element, name, None)
 
 
 def deliver_final(text, target, *, timing=None):
@@ -193,9 +192,14 @@ def deliver_final(text, target, *, timing=None):
         return "permission_or_focus_unavailable"
     if current != target:
         return "focus_changed"
-    role = _attribute(current, "AXRole")
-    subrole = _attribute(current, "AXSubrole")
-    if role is None or subrole == "AXSecureTextField":
+    role_error, role = _attribute(current, "AXRole")
+    subrole_error, subrole = _attribute(current, "AXSubrole")
+    # Unsupported is normal for controls without a subrole. A timeout,
+    # permission error, or missing advertised value cannot establish security.
+    if (role_error != 0 or role is None
+            or subrole_error not in (0, ax.kAXErrorAttributeUnsupported)
+            or (subrole_error == 0 and subrole is None)
+            or subrole == "AXSecureTextField"):
         return "secure_or_unknown_field"
     error, writable = ax.AXUIElementIsAttributeSettable(current, "AXSelectedText", None)
     if (role in {"AXTextField", "AXTextArea"} and error == 0 and writable

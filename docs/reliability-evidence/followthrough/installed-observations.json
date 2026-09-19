@@ -1,0 +1,86 @@
+{
+  "installed_build": "40dbd215519232351a69986d4be4a271f4f5d874",
+  "dictation_records": [
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "status": "success",
+      "samples_before": 29696,
+      "samples_after": 25040,
+      "recorder_stop_ms": 111.6,
+      "worker_queue_ms": 2.3,
+      "inference_ms": 5068.2,
+      "insertion_to_dispatch_ms": 66.4,
+      "release_to_paste_ms": 5281.4,
+      "insertion_outcome": "dispatched_unconfirmed"
+    }
+  ],
+  "recovery_records": [
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "launch_failure",
+      "attempts": 2,
+      "outcome": "ready",
+      "duration_ms": 2018.3,
+      "failure_code": null
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "sleep_wake",
+      "attempts": 2,
+      "outcome": "failed",
+      "duration_ms": 4176.3,
+      "failure_code": "helper_timeout"
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "manual_retry",
+      "attempts": 1,
+      "outcome": "ready",
+      "duration_ms": 501.7,
+      "failure_code": null
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "sleep_wake",
+      "attempts": 2,
+      "outcome": "failed",
+      "duration_ms": 3310.1,
+      "failure_code": "helper_timeout"
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "sleep_wake",
+      "attempts": 2,
+      "outcome": "failed",
+      "duration_ms": 4124.9,
+      "failure_code": "helper_timeout"
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "manual_retry",
+      "attempts": 1,
+      "outcome": "ready",
+      "duration_ms": 398.0,
+      "failure_code": null
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "sleep_wake",
+      "attempts": 2,
+      "outcome": "failed",
+      "duration_ms": 4369.3,
+      "failure_code": "helper_timeout"
+    },
+    {
+      "build_commit": "40dbd215519232351a69986d4be4a271f4f5d874",
+      "reason": "sleep_wake",
+      "attempts": 1,
+      "outcome": "ready",
+      "duration_ms": 1055.6,
+      "failure_code": null
+    }
+  ],
+  "fixture_sha256": "f0c1f0cc0a57622506c586254455711b19da71f8c77f22f4f4e880a505b91785",
+  "fixture_type": "one_synthesized_short_utterance",
+  "audio_persisted_in_repository": false
+}

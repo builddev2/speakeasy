@@ -71,3 +71,15 @@ tests passed in 7.55 seconds. New regressions cover lazy activation, exhausted
 retry, foreground switch during activation, unsupported flags, and web-editor
 single dispatch without an AX write. The final Teams/Codex end-to-end check is
 still pending after installation; do not report both apps as fixed yet.
+
+## Follow-through — 19 September 2026
+
+`6044daf` now distinguishes unsupported subrole from failed or indeterminate
+security inspection, blocking the latter before clipboard access. `f2378aa`
+starts capture independently of AX resolution and accepts a target only if it
+resolved before the first audio buffer; late resolution retains text for explicit
+recovery. This can conservatively block cold/lazy or rapid-take insertion.
+The full host suite now passes 386 tests; application-visible delivery on the
+new local build remains unverified. A guarded TextEdit probe aborted because it
+could not observe the disposable target as frontmost. See the
+[full evidence and remaining checks](reliability-followthrough.md).

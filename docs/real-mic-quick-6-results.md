@@ -59,3 +59,11 @@ check. Keep batch default and the historical accuracy gate unchanged. If the
 application check exposes a problem, investigate that problem before requesting
 more speech. Real OS wake/device recovery and short-duration coverage remain
 separate, unverified checks.
+
+## Follow-through boundary — 19 September 2026
+
+These six-take results remain the completed accuracy evidence and have not been
+rewritten or pooled with synthetic inference runs. No repeat bulk reading session
+is requested. The later brief helper-recovery capture has no reference/WER and
+is not another accuracy take. See [current implementation and open application
+checks](reliability-followthrough.md).

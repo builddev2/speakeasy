@@ -1,0 +1,27 @@
+{
+  "build_commit": "1d0d92fdf5df63ffe576b6594f4719473a0cb148",
+  "scenario": "isolated_helper_exit",
+  "prewarm_ok": true,
+  "prewarm_ms": 288.0579996854067,
+  "exit_detected": true,
+  "recovered": true,
+  "rearm_ms": 272.3027500323951,
+  "recovery_records": [
+    {
+      "build_commit": "1d0d92fdf5df63ffe576b6594f4719473a0cb148",
+      "reason": "helper_exit",
+      "timestamp_seconds": 1789752031.9,
+      "failure_code": null,
+      "trigger_code": "helper_exit",
+      "duration_ms": 272.3,
+      "attempts": 1,
+      "outcome": "ready",
+      "from_state": "ready",
+      "via_state": "restarting",
+      "to_state": "ready"
+    }
+  ],
+  "next_take_frames": 3072,
+  "first_buffer_after_start_ms": 29.139959,
+  "live_test_helpers_after_shutdown": 0
+}

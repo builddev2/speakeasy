@@ -372,7 +372,11 @@ Speakeasy writes one privacy-safe JSON record per completed dictation take to
 `~/Library/Logs/Speakeasy-dictation-latency.jsonl`. The size-bounded log
 contains only build revision, take/status identifiers, recorder/fallback
 outcomes, queue capacity/high-water counts, a profile-active boolean, sample
-counts, and phase durations. It contains no audio, transcript, clipboard,
+counts, model warmup/previous-operation/actual-idle metadata, and phase durations.
+Key-down-to-first-buffer, release-to-dispatch and release-to-ready are separate.
+Dispatch or AX acknowledgement is not visibly verified delivery. The summary
+separates build/mode/temperature/previous-operation/duration cohorts and withholds
+percentiles below 30 comparable records. It contains no audio, transcript, clipboard,
 profile, application, device, PID, or window content. Streaming phase fields
 separate context creation, first chunk, cumulative add-audio/provisional work,
 and final flush.
@@ -389,7 +393,14 @@ The legacy `--dictation-batch-mode` flag remains accepted; a normal launch is
 also batch mode. `--dictation-streaming-canary` explicitly opts in for one
 launch; `--dictation-batch-mode` overrides it. Diagnostics never enable it.
 Latency logs alone cannot establish recognition correctness. See
-[reliability evidence and remaining checks](docs/reliability-improvements.md).
+[reliability evidence and remaining checks](docs/reliability-improvements.md),
+including the [September follow-through](docs/reliability-followthrough.md).
+
+Capture starts without waiting for Accessibility. Target resolution runs on the
+existing worker; if it finishes after the first audio buffer, automatic insertion
+is blocked and the final remains available through Copy Last Dictation for
+60 seconds. This protects speech onset without trusting a field selected later
+in the take. Secure or indeterminate AX security metadata also blocks insertion.
 
 ### Consented microphone correctness checks
 

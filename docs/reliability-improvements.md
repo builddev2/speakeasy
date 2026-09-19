@@ -1,6 +1,17 @@
 # Speakeasy reliability changes and verification
 
-## Scope and provenance
+## Current status — 19 September 2026
+
+See [reliability follow-through](reliability-followthrough.md) for the latest
+source fixes, 386-test host result, clean `cf49a6a` local signed build, phase
+experiments, and one real helper-exit recovery check. Installed provenance is
+still `40dbd21`; these newest changes are not installed, merged, or pushed.
+Recurring inference stalls, OS wake/input-switch acceptance, and real-app visible
+insertion remain open. The original results below are historical and preserved;
+366 was an earlier test count, not the current suite. No bulk reading repeat is
+required, and streaming remains off by default.
+
+## Historical initial scope and provenance
 
 The fresh worktree, master, origin/master and installed release all matched
 `18c2a62dbe571dbd202b42cf96832f7210ec4f5d` before implementation. Work is on
@@ -196,7 +207,7 @@ TCC reset, microphone recording, or installed-app modification was used.
 ## Verification and acceptance boundaries
 
 - Baseline: `.venv/bin/python -m pytest -q` on host: **339 passed in 6.73s**.
-- Latest full suite: **366 passed in 6.01s**.
+- Historical full suite at this initial review: **366 passed in 6.01s**.
 - Focused insertion/stream/timing run: **63 passed in 0.64s**.
 - `tests/test_recorder.py tests/test_microphone_helper.py tests/test_dictation_diagnostic.py`: **34 passed in 1.16s**.
 - Control soak command: `.venv/bin/python -m pytest -q -s tests/test_engine_watchdog.py::test_1000_control_recovery_cycles_have_no_busy_cascade`.
@@ -217,8 +228,9 @@ that session is not required for the next step. Its 34 short,
 34 medium and 32 long prompts are evenly balanced across conditions/vocabulary.
 The current UI screen and legacy 30-prompt numerical summary remain unchanged;
 100-take acceptance requires separate manual review and never auto-enables
-streaming. The changes are not installed, so checks of the current installed app
-cannot validate the new insertion/recovery behavior.
+streaming. The initial uninstalled status recorded here is historical. The installed app
+subsequently reached `40dbd21`, including later insertion/recovery/meeting-start
+fixes; the new `cf49a6a` follow-through is local-only and remains uninstalled.
 
 Offline runtime, one MLX worker, one control executor, bounded audio queues,
 authoritative complete audio, same-worker fallback, final-only insertion and
@@ -231,7 +243,8 @@ pipeline, language, package-size, or cloud feature was changed.
 - `9f9e78e`: guarded final insertion and expiring explicit text recovery.
 - `13ae18d`: bounded microphone recovery and completed reliability guards.
 
-The clean benchmark and latest suite validate the third commit. Subsequent
-evidence-only changes do not alter executable source. The temporary dependency
+The original clean benchmark and then-current suite validate the third commit.
+Later executable changes and their distinct validation are recorded in the
+follow-through and focused recovery/insertion documents. The temporary dependency
 virtualenv link used for verification is removed after completion; configure a
 project environment before running the reproduction or microphone commands.

@@ -38,3 +38,17 @@ Validation: 375 tests passed in 6.46 seconds on the final source;
 41 focused recorder/helper/watchdog tests passed in 2.35 seconds. Frontend
 TypeScript and Vite build passed (59 modules). Automated recovery uses fake
 helpers; actual wake/input-change reliability remains unverified.
+
+## Follow-through — 19 September 2026
+
+Installed `40dbd21` logs still contain intermittent wake failures: four of five
+wake records exhausted helper timeouts (3310.1–4369.3 ms); one reached Ready in
+1055.6 ms. Manual retries reached Ready in 398.0 and 501.7 ms. These are separated
+from old builds and from the development experiment.
+
+`1d0d92f` rejects holds as soon as wake recovery is queued and coalesces repeated
+wake notifications. It also explicitly allowlists failure metadata. One isolated
+real helper-exit experiment on that source recovered in 272.3 ms, captured the
+next short take, and left zero test helpers after shutdown. This is not a wake
+fix or general two-second acceptance result. No deadlines or OS services were
+changed. See [the full evidence](reliability-followthrough.md).

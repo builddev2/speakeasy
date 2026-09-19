@@ -4,8 +4,9 @@
 
 See [reliability follow-through](reliability-followthrough.md) for the latest
 source fixes, 386-test host result, clean `cf49a6a` local signed build, phase
-experiments, and one real helper-exit recovery check. Installed provenance is
-still `40dbd21`; these newest changes are not installed, merged, or pushed.
+experiments, and one real helper-exit recovery check. After explicit installation authorization, installed provenance is `cf49a6a`;
+the in-place update passed signature verification and relaunched to Ready.
+These changes are not merged or pushed.
 Recurring inference stalls, OS wake/input-switch acceptance, and real-app visible
 insertion remain open. The original results below are historical and preserved;
 366 was an earlier test count, not the current suite. No bulk reading repeat is
@@ -230,7 +231,8 @@ The current UI screen and legacy 30-prompt numerical summary remain unchanged;
 100-take acceptance requires separate manual review and never auto-enables
 streaming. The initial uninstalled status recorded here is historical. The installed app
 subsequently reached `40dbd21`, including later insertion/recovery/meeting-start
-fixes; the new `cf49a6a` follow-through is local-only and remains uninstalled.
+fixes; the new `cf49a6a` follow-through was later installed with explicit authorization,
+passed signature verification, and relaunched to Ready.
 
 Offline runtime, one MLX worker, one control executor, bounded audio queues,
 authoritative complete audio, same-worker fallback, final-only insertion and

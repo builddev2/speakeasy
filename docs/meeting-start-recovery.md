@@ -39,6 +39,6 @@ records for follow-up, and preserve uncertainty for any mixed earlier entries.
 
 The preparation/start failure fixes and their provenance caveat above are
 preserved in the new worktree. Its full host suite passes 386 tests, including
-post-meeting-start failure regressions. Installed provenance remains `40dbd21`.
-The local `cf49a6a` build is not installed; a full real meeting-to-dictation
+post-meeting-start failure regressions. Installed provenance subsequently reached `cf49a6a` after an authorized in-place
+update and verified startup to Ready; a full real meeting-to-dictation
 transition remains unverified. See [follow-through](reliability-followthrough.md).

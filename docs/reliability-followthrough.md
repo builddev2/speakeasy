@@ -8,9 +8,12 @@ OS wake timeouts remain unexplained. The application delivery matrix is open.
 
 Work is on `codex/reliability-followthrough`, based on verified `6b5144e`,
 including the newer microphone-retry and meeting-start fixes. No older worktree
-was edited. The installed app still identifies `40dbd21`; local master and
-origin/master remain `18c2a62`. No install, merge, push, TCC reset, service restart,
-or input-device change was performed.
+was edited. At the pre-install evidence snapshot, the installed app identified `40dbd21`;
+local master and origin/master remain `18c2a62`. After explicit authorization,
+the tested `cf49a6a` bundle was installed in place and relaunched to Ready.
+Deep/strict signature verification passed and installed provenance matches the
+local bundle. No permission prompt was observed. No merge, push, TCC reset,
+service restart, or input-device change was performed.
 
 Executable source and final local signed bundle: `cf49a6a`.
 `dist/Speakeasy.app` passed the build script's bundle checks and deep/strict
@@ -186,9 +189,10 @@ still exceed two seconds; those limits were not speculatively shortened.
 
 ## Minimal remaining validation
 
-Installation requires a later release instruction; the concrete tested local
-bundle is ready for that decision. No merge/push is required to perform it.
-After installation, check one short dictation in each unresolved disposable
+Installation was subsequently authorized and completed in place for `cf49a6a`.
+Startup to Ready is verified; this is not insertion or accuracy acceptance.
+A single TextEdit check has been requested before expanding the app matrix.
+Check one short dictation in each unresolved disposable
 app surface, confirming exactly one copy at the cursor. In Teams/Codex use an
 empty composer and **do not send**. In Terminal use an editor buffer, never a
 shell prompt or Return. A blocked take should leave Copy Last Dictation available;

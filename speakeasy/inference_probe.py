@@ -118,6 +118,7 @@ def main(argv=None):
                         model.transcribe(np.zeros(config.SAMPLE_RATE, dtype=np.float32))
                         refresh_ms = (time.perf_counter() - start) * 1000
                     timing = DictationTiming(pair * 2 + int(treatment) + 1)
+                    timing.mode = "batch"
                     events.clear()
                     start = time.perf_counter()
                     text = model.transcribe(audio, timing=timing)

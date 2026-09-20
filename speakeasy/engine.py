@@ -932,6 +932,11 @@ class DictationEngine:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
         no matter how this exits — audio is never persisted."""
+        def report_progress(text):
+            if self._meeting_cancel.is_set():
+                text = "Cancelling… waiting for the current stage"
+            self.on_meeting_progress(text)
+
         status = "error"
         if timing is not None:
             timing.finish("backlog")
@@ -963,14 +968,14 @@ class DictationEngine:
             if dual_track:
                 mic_sentences = []
                 if mic_frames:
-                    self.on_meeting_progress("Transcribing your track… 0%")
+                    report_progress("Transcribing your track… 0%")
                     if timing is not None:
                         timing.start("mic_asr")
                     try:
                         mic_result = self._transcribe_meeting_track(
                             recording.mic_path,
                             precomputed=precomputed_mic,
-                            progress=lambda f: self.on_meeting_progress(
+                            progress=lambda f: report_progress(
                                 f"Transcribing your track… {int(f * 100)}% of track"
                             ),
                         )
@@ -980,13 +985,13 @@ class DictationEngine:
                     mic_sentences = mic_result.sentences
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                self.on_meeting_progress("Transcribing system audio… 0%")
+                report_progress("Transcribing system audio… 0%")
                 if timing is not None:
                     timing.start("system_asr")
                 try:
                     system_result = self._transcribe_meeting_track(
                         recording.system_path,
-                        progress=lambda f: self.on_meeting_progress(
+                        progress=lambda f: report_progress(
                             f"Transcribing system audio… {int(f * 100)}% of track"
                         ),
                     )
@@ -1002,7 +1007,7 @@ class DictationEngine:
                     )
                 turns = self._diarize_track(
                     system_audio,
-                    lambda f: self.on_meeting_progress(
+                    lambda f: report_progress(
                         f"Identifying remote speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
@@ -1034,7 +1039,7 @@ class DictationEngine:
                 audio_path = (
                     recording.mic_path if mic_frames else recording.system_path
                 )
-                self.on_meeting_progress("Transcribing meeting… 0%")
+                report_progress("Transcribing meeting… 0%")
                 if timing is not None:
                     timing.start("mic_asr")
                 try:
@@ -1045,7 +1050,7 @@ class DictationEngine:
                             if audio_path == recording.mic_path
                             else None
                         ),
-                        progress=lambda f: self.on_meeting_progress(
+                        progress=lambda f: report_progress(
                             f"Transcribing meeting… {int(f * 100)}% of track"
                         ),
                     )
@@ -1061,7 +1066,7 @@ class DictationEngine:
                     )
                 turns = self._diarize_track(
                     audio,
-                    lambda f: self.on_meeting_progress(
+                    lambda f: report_progress(
                         f"Identifying speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
@@ -1105,7 +1110,7 @@ class DictationEngine:
             )
             if self._meeting_cancel.is_set():
                 raise MeetingCancelled
-            self.on_meeting_progress("Saving transcript…")
+            report_progress("Saving transcript…")
             if timing is not None:
                 timing.start("save")
             try:

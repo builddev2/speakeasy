@@ -215,7 +215,7 @@ the menu discards it. When it finishes, the transcript appears under
 - **Rename…** or **Delete** it.
 
 While a meeting records, hold-to-talk dictation is off (both would fight over
-the mic and the model); it re-arms the moment processing starts. The active
+the mic and the model); it re-arms when meeting processing finishes. The active
 profile's corrections are applied to both tracks. The optional speaker count
 means **remote speakers** with dual-track capture; in microphone-only fallback
 it necessarily applies to every voice audible on the mixed mic track.
@@ -310,7 +310,8 @@ helper embeds its own usage description for source runs.
 
 ### Release candidates
 
-See [repeatable release checks](docs/release-checks.md) for clean signed builds,
+See [current performance and acceptance evidence](docs/performance-release-current.md)
+and [repeatable release checks](docs/release-checks.md) for clean signed builds,
 private source/package inference comparisons and the required visible-app matrix.
 A verified bundle is not accepted while OS checks remain pending.
 

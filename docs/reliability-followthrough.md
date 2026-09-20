@@ -1,5 +1,8 @@
 # Reliability follow-through — 18–19 September 2026
 
+Current follow-up: [20 September performance and release evidence](performance-release-current.md).
+This document preserves the earlier build-specific history.
+
 ## Status and provenance
 
 **Partial completion; not a production acceptance claim.** Capture/insertion

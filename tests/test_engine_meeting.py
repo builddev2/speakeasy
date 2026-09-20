@@ -807,3 +807,25 @@ def test_cleanup_failure_does_not_skip_other_track_or_rearm(meetings_dir, spool_
         monkeypatch.setattr(Path, 'unlink', original)
         mic.unlink()
         engine.shutdown()
+
+
+def test_progress_after_cancel_keeps_cancellation_visible(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    messages = []
+    engine.on_meeting_progress = messages.append
+    class Cancelling(FakeTranscriber):
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            engine.cancel_meeting_processing()
+            progress(0.5)
+            return super().transcribe_long(audio, progress=progress, cancel=cancel)
+    engine.transcriber = Cancelling()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    try:
+        assert messages[-1].startswith('Cancelling')
+        assert not meetings.list_meetings()
+        assert not list(spool_dir.iterdir())
+    finally:
+        engine.shutdown()

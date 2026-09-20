@@ -21,3 +21,16 @@ and [cause, resolution and evidence](docs/insertion-focus-regression.md).
 Do not treat an absent optional AXSubrole as a failed security inspection; keep
 real failures and password fields blocked. Preserve normal paste for web fields
 and require actual Codex/Teams checks alongside TextEdit before claiming success.
+
+## Wake recovery release status — 19 September 2026
+
+The installed mitigation passed the user's approximately ten-second sleep/wake
+check. Two logged recovery events reached Ready in 2393.2 ms and 667.0 ms, each
+on its first attempt without errors. These are not two independently confirmed
+test cycles. The full suite passed 388 tests. Longer-sleep reliability and an
+explicit post-wake dictation check remain unverified; the two-second target was
+not met by both events. See [cause, mitigation and retained evidence](docs/microphone-recovery-recurrence.md).
+Historical failures and earlier build-specific acceptance statements remain
+unchanged. Do not restore the shared cold-start/warm-command timeout: helper
+launch has one absolute four-second budget, warm commands retain 1.5 seconds,
+and a launch timeout does not trigger an immediate second cold launch.

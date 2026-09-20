@@ -20,6 +20,8 @@ import sounddevice as sd
 from . import config
 
 _COMMAND_TIMEOUT_SECONDS = 1.5
+# Spawn/import and opening CoreAudio are cold-start work, not a warm command.
+_LAUNCH_TIMEOUT_SECONDS = 4.0
 _TERMINATE_TIMEOUT_SECONDS = 0.5
 _CAPTURE_QUEUE_MAX = math.ceil(
     config.DICTATION_CAPTURE_BUFFER_SECONDS
@@ -37,8 +39,9 @@ _STREAM_BLOCK_FRAMES = round(
 class MicrophoneHelperError(Exception):
     """The helper failed or did not answer a bounded control request."""
 
-    def __init__(self, message="", *, code="helper_exit"):
+    def __init__(self, message="", *, code="helper_exit", stage=None):
         super().__init__(message)
+        self.stage = stage if stage in {"process_start", "device_query", "stream_open"} else None
         self.code = code if code in {
             "helper_exit", "launch_failure", "device_unavailable", "overflow", "helper_timeout",
         } else "helper_exit"
@@ -172,12 +175,14 @@ def _open_stream(capture: _CaptureBuffer):
 def run_microphone_helper(connection: Connection, level, stream_queue) -> None:
     """Own the PortAudio stream until the parent terminates this process."""
     capture = _CaptureBuffer(level, stream_queue)
+    connection.send(("launch_stage", "device_query"))
     try:
         input_device = _default_input()
         if input_device < 0:
             connection.send(("error", "device_unavailable"))
             connection.close()
             return
+        connection.send(("launch_stage", "stream_open"))
         stream = _open_stream(capture)
     except Exception:
         connection.send(("error", "open_failed"))
@@ -283,15 +288,27 @@ class MicrophoneHelper:
         return float(self._level.value)
 
     def launch(self) -> None:
+        stage = "process_start"
+        deadline = clock.monotonic() + _LAUNCH_TIMEOUT_SECONDS
         try:
             self._process.start()
             self._child_connection.close()
             self._child_connection_closed = True
-            response = self._receive(_COMMAND_TIMEOUT_SECONDS)
+            while True:
+                remaining = deadline - clock.monotonic()
+                if remaining <= 0:
+                    raise MicrophoneHelperError(code="helper_timeout")
+                response = self._receive(remaining)
+                if response in (("launch_stage", "device_query"),
+                                ("launch_stage", "stream_open")):
+                    stage = response[1]
+                    continue
+                break
             if response != ("ready",):
                 code = "device_unavailable" if response == ("error", "device_unavailable") else "launch_failure"
                 raise MicrophoneHelperError("helper failed to prewarm", code=code)
-        except MicrophoneHelperError:
+        except MicrophoneHelperError as error:
+            error.stage = stage
             self.terminate()
             raise
         except OSError as exc:

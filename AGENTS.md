@@ -230,3 +230,16 @@ editor compatibility from native TextEdit or mocked AX acknowledgement alone.
 
 The user confirmed the corrected installed build works after this recurrence.
 That confirmation does not close the separate wake-recovery or accuracy gates.
+
+## Wake recovery release status — 19 September 2026
+
+The installed mitigation passed the user's approximately ten-second sleep/wake
+check. Two logged recovery events reached Ready in 2393.2 ms and 667.0 ms, each
+on its first attempt without errors. These are not two independently confirmed
+test cycles. The full suite passed 388 tests. Longer-sleep reliability and an
+explicit post-wake dictation check remain unverified; the two-second target was
+not met by both events. See [cause, mitigation and retained evidence](docs/microphone-recovery-recurrence.md).
+Historical failures and earlier build-specific acceptance statements remain
+unchanged. Do not restore the shared cold-start/warm-command timeout: helper
+launch has one absolute four-second budget, warm commands retain 1.5 seconds,
+and a launch timeout does not trigger an immediate second cold launch.

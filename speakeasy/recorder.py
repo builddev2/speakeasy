@@ -55,6 +55,7 @@ class Recorder:
         self._closed = False
         self.state = "ready"
         self.last_failure = None
+        self.last_failure_stage = None
         self.first_buffer_ns = None
         self.stream_dropped_frames = 0
         self.stream_delivery_complete = True
@@ -100,6 +101,7 @@ class Recorder:
             helper.launch()
         except MicrophoneHelperError as error:
             self.last_failure = error.code
+            self.last_failure_stage = error.stage
             self._discard_helper(helper)
             if error.code == "device_unavailable":
                 self.state = "device_unavailable"
@@ -108,6 +110,7 @@ class Recorder:
             self._discard_helper(helper)
             return False
         self.last_failure = None
+        self.last_failure_stage = None
         return True
 
     def recover(self, reason):
@@ -125,6 +128,7 @@ class Recorder:
         self.state = "restarting"
         self.force_close()
         attempts = 0
+        self.last_failure_stage = None
         for attempt in range(2):
             if self._closed or teardown.in_flight:
                 self.last_failure = "closed" if self._closed else "teardown_pending"
@@ -132,6 +136,10 @@ class Recorder:
             attempts = attempt + 1
             if self.prewarm():
                 self.state = "ready"
+                break
+            # A timeout has already spent the cold-start budget. Killing and
+            # immediately spawning again repeats the same wake contention.
+            if self.last_failure == "helper_timeout":
                 break
             if self.state in {"permission_blocked", "device_unavailable"}:
                 break
@@ -146,6 +154,8 @@ class Recorder:
             timestamp_seconds=round(time.time(), 3),
             failure_code=self.last_failure if self.last_failure in _FAILURE_CODES else None,
             trigger_code=trigger_code if trigger_code in _FAILURE_CODES else None,
+            failure_stage=self.last_failure_stage if self.last_failure_stage in
+                {"process_start", "device_query", "stream_open"} else None,
             duration_ms=round((time.monotonic() - started) * 1000, 1),
             attempts=attempts, outcome=self.state,
             from_state=previous_state, via_state="restarting", to_state=self.state,

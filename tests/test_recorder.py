@@ -323,15 +323,17 @@ def test_recovery_retains_safe_timeout_cause_and_can_retry(monkeypatch):
     monkeypatch.setattr(module, "_log_recovery", records.append)
     class TimeoutHelper(FakeHelper):
         def launch(self):
-            raise MicrophoneHelperError('private driver message', code='helper_timeout')
-    rec = _recorder_with(TimeoutHelper(), TimeoutHelper(), FakeHelper())
+            raise MicrophoneHelperError('private driver message', code='helper_timeout', stage='stream_open')
+    rec = _recorder_with(TimeoutHelper(), FakeHelper())
     assert not rec.recover('sleep_wake')
     assert records[-1]['failure_code'] == 'helper_timeout'
-    assert records[-1]['attempts'] == 2
+    assert records[-1]['failure_stage'] == 'stream_open'
+    assert records[-1]['attempts'] == 1
     assert 'private driver message' not in str(records)
     assert rec.recover('manual_retry')
     assert records[-1]['failure_code'] is None
     assert records[-1]['reason'] == 'manual_retry'
+    assert records[-1]['failure_stage'] is None
 
 
 from speakeasy.recorder import _log_recovery as write_recovery_log

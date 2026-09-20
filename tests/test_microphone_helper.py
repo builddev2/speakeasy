@@ -54,6 +54,8 @@ def test_helper_protocol_retains_complete_batch_and_streams_optional_chunks(
         args=(child, Level(), streamed),
     )
     thread.start()
+    assert parent.recv() == ("launch_stage", "device_query")
+    assert parent.recv() == ("launch_stage", "stream_open")
     assert parent.recv() == ("ready",)
     parent.send(("start", True))
     assert parent.recv() == ("started",)
@@ -259,7 +261,9 @@ def test_default_input_change_reopens_stream_before_capture(monkeypatch):
                               args=(child, Level(), queue.Queue()))
     thread.start()
     try:
-        assert parent.poll(1) and parent.recv() == ("ready",)
+        assert parent.poll(1) and parent.recv() == ("launch_stage", "device_query")
+        assert parent.recv() == ("launch_stage", "stream_open")
+        assert parent.recv() == ("ready",)
         device[0] = 1
         parent.send(("start", False))
         assert parent.poll(1) and parent.recv() == ("started",)
@@ -275,3 +279,41 @@ def test_missing_device_failure_is_a_safe_code():
     with pytest.raises(MicrophoneHelperError) as raised:
         helper.launch()
     assert raised.value.code == "device_unavailable"
+
+
+def test_cold_launch_has_one_deadline_without_changing_warm_commands(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(microphone_helper.clock, 'monotonic', lambda: now[0])
+    connection = FakeConnection([('launch_stage', 'device_query'),
+                                 ('launch_stage', 'stream_open'), ('ready',), ('started',)])
+    waits = []
+    def poll(timeout):
+        waits.append(timeout)
+        now[0] += 0.8
+        return True
+    connection.poll = poll
+    helper = _bare_helper(connection)
+    helper.launch()
+    assert not helper._process.terminated
+    assert now[0] > microphone_helper._COMMAND_TIMEOUT_SECONDS
+    assert waits == pytest.approx([4.0, 3.2, 2.4])
+    helper.start()
+    assert waits[-1] == microphone_helper._COMMAND_TIMEOUT_SECONDS
+    helper.terminate()
+
+
+def test_launch_progress_cannot_extend_deadline_and_records_last_stage(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(microphone_helper.clock, 'monotonic', lambda: now[0])
+    connection = FakeConnection([('launch_stage', 'stream_open')] * 5)
+    def poll(timeout):
+        now[0] += 1.0
+        return True
+    connection.poll = poll
+    helper = _bare_helper(connection)
+    with pytest.raises(MicrophoneHelperError) as failure:
+        helper.launch()
+    assert failure.value.code == 'helper_timeout'
+    assert failure.value.stage == 'stream_open'
+    assert now[0] == 4.0
+    assert helper._process.terminated == 1

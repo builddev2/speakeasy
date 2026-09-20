@@ -134,3 +134,16 @@ Future enhancements must follow the mandatory section in [AGENTS.md](../AGENTS.m
 Keep this incident visible from CLAUDE.md; do not replace the live three-app gate
 with TextEdit-only testing or an AX acknowledgement. Preserve the separate
 microphone timeout evidence and historical acceptance limits.
+
+## Wake recovery release status — 19 September 2026
+
+The installed mitigation passed the user's approximately ten-second sleep/wake
+check. Two logged recovery events reached Ready in 2393.2 ms and 667.0 ms, each
+on its first attempt without errors. These are not two independently confirmed
+test cycles. The full suite passed 388 tests. Longer-sleep reliability and an
+explicit post-wake dictation check remain unverified; the two-second target was
+not met by both events. See [cause, mitigation and retained evidence](microphone-recovery-recurrence.md).
+Historical failures and earlier build-specific acceptance statements remain
+unchanged. Do not restore the shared cold-start/warm-command timeout: helper
+launch has one absolute four-second budget, warm commands retain 1.5 seconds,
+and a launch timeout does not trigger an immediate second cold launch.

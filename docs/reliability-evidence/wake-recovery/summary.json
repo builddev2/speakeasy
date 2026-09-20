@@ -1,0 +1,18 @@
+{
+  "installed_build": "ba9f0c11787b062bdf7194b5c7484f995d691715-dirty",
+  "user_observation": "Approximately ten seconds asleep; appears to work after waking",
+  "successful_recovery_events": 2,
+  "successful_recovery_ms": [
+    2393.2,
+    667.0
+  ],
+  "distinct_user_test_cycles_confirmed": 1,
+  "tests_passed": 388,
+  "unverified": [
+    "long-sleep reliability",
+    "explicit post-wake dictation"
+  ],
+  "two_second_target_met_for_all_events": false,
+  "root_cause": "Not proven; cold helper startup previously shared a 1.5-second warm-command timeout",
+  "mitigation": "One absolute four-second launch budget; no immediate second launch after timeout; allowlisted failure stages"
+}

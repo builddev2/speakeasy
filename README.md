@@ -308,6 +308,12 @@ Terminal, dictation permissions attach to **Terminal** (or iTerm), not to the
 `.app` — grant them there too if you develop from source. The system-audio
 helper embeds its own usage description for source runs.
 
+### Release candidates
+
+See [repeatable release checks](docs/release-checks.md) for clean signed builds,
+private source/package inference comparisons and the required visible-app matrix.
+A verified bundle is not accepted while OS checks remain pending.
+
 ### Tests
 
 ```bash

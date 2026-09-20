@@ -317,6 +317,8 @@ class StatusItemController(NSObject):
             if outcome in {"focus_changed", "clipboard_changed", "permission_or_focus_unavailable",
                            "secure_or_unknown_field", "delivery_unknown"}:
                 text = "Text retained for 60 seconds — use Copy Last Dictation"
+            if self.engine.meeting_processing_error:
+                text = "Meeting could not finish — check saved meetings"
         elif state is State.MIC_FAILED:
             if self.engine.recorder.state == "permission_blocked":
                 text = "Allow Microphone in System Settings, then try again"

@@ -92,6 +92,7 @@ class MainWindowController(NSObject):
             "mode": state.value,
             "micFailure": getattr(self.engine.recorder, "last_failure", None),
             "meetingStartError": self.engine.meeting_start_error,
+            "meetingProcessingError": self.engine.meeting_processing_error,
             "profileName": profile.name if profile else "Guest",
             "elapsedSeconds": elapsed,
             "progressText": self._progress_text,

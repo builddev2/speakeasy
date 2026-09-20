@@ -17,6 +17,7 @@ interface AppState {
   mode: EngineMode;
   micFailure?: string | null;
   meetingStartError?: string | null;
+  meetingProcessingError?: string | null;
   profileName: string;
   elapsedSeconds: number;
   progressText: string | null;
@@ -243,7 +244,9 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             ) : (
               <>
                 <StatusDot variant={idleInfo!.dot} />{' '}
-                {app.mode === 'ready' && (meetingActionError || app.meetingStartError) ? (
+                {app.mode === 'ready' && app.meetingProcessingError ? (
+                  'Meeting could not finish normally. Check saved meetings before trying again.'
+                ) : app.mode === 'ready' && (meetingActionError || app.meetingStartError) ? (
                   meetingActionError || (app.meetingStartError === 'microphone_busy'
                     ? 'Microphone is still being released. Wait, then try again.'
                     : 'Meeting could not start. Restart Speakeasy, then try again.')

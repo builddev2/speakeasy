@@ -24,12 +24,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 INSTALL=0
+RELEASE=0
 for arg in "$@"; do
     case "$arg" in
         --install) INSTALL=1 ;;
+        --release) RELEASE=1 ;;
         *) echo "error: unknown option '$arg' (usage: $0 [--install])" >&2; exit 2 ;;
     esac
 done
+
+if [ "$RELEASE" = 1 ] && [ -n "$(git status --porcelain)" ]; then
+    echo "error: release requires a clean commit (including untracked files)" >&2
+    exit 1
+fi
+BUILD_REVISION=$(git rev-parse HEAD)
 
 VENV=.venv/bin
 MODEL_ID="mlx-community/parakeet-tdt-0.6b-v2"
@@ -97,10 +105,16 @@ mkdir -p "$APP/Contents/Resources/native"
 rsync -a build/native/SpeakeasySystemAudioCapture "$APP/Contents/Resources/native/"
 
 BUILD_COMMIT=$(git rev-parse HEAD)
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [ -n "$(git status --porcelain)" ]; then
     BUILD_COMMIT="${BUILD_COMMIT}-dirty"
 fi
 printf '%s\n' "$BUILD_COMMIT" > "$APP/Contents/Resources/build-commit.txt"
+
+if [ "$RELEASE" = 1 ] && { [ "$BUILD_COMMIT" != "$BUILD_REVISION" ] || [ -n "$(git status --porcelain)" ]; }; then
+    echo "error: source changed during release build" >&2
+    exit 1
+fi
+"$VENV/python" scripts/write_build_manifest.py "$APP" "$RELEASE"
 
 echo "==> Sanity checks"
 METALLIB=$(find "$APP" -path "*mlx/lib/mlx.metallib" | head -1)
@@ -126,6 +140,7 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; th
     codesign --force --deep --sign "$SIGN_ID" "$APP"
     echo "signed with identity: $SIGN_ID"
 else
+    [ "$RELEASE" = 0 ] || { echo "error: release signing identity unavailable"; exit 1; }
     codesign --force --deep --sign - "$APP"
     echo "WARNING: identity '$SIGN_ID' not in keychain — ad-hoc signed."
     echo "  macOS will ask for Microphone/Accessibility/Input Monitoring again"

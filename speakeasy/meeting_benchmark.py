@@ -17,6 +17,7 @@ FIELDS = (
     "mic_frames",
     "system_frames",
     "stop_ms",
+    "backlog_ms",
     "mic_asr_ms",
     "system_asr_ms",
     "diarization_ms",
@@ -29,6 +30,7 @@ _STATUSES = {"success", "cancelled", "error", "no_audio"}
 _CAPTURE_MODES = {"mic_only", "mic_and_system"}
 _PHASES = {
     "stop",
+    "backlog",
     "mic_asr",
     "system_asr",
     "diarization",
@@ -108,6 +110,8 @@ class MeetingTiming:
 
 
 def _valid(value: object) -> dict | None:
+    if isinstance(value, dict) and set(value) == set(FIELDS) - {"backlog_ms"}:
+        value = dict(value, backlog_ms=None)
     if not isinstance(value, dict) or set(value) != set(FIELDS):
         return None
     if (

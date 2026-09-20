@@ -5,6 +5,12 @@ from pathlib import Path
 
 
 def main() -> None:
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--inference-probe":
+        from .inference_probe import main as probe_main
+        probe_main(sys.argv[2:])
+        return
+
     parser = argparse.ArgumentParser(prog="speakeasy", description=__doc__)
     parser.add_argument(
         "--cli",

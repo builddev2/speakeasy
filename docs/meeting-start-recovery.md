@@ -42,3 +42,12 @@ preserved in the new worktree. Its full host suite passes 386 tests, including
 post-meeting-start failure regressions. Installed provenance subsequently reached `cf49a6a` after an authorized in-place
 update and verified startup to Ready; a full real meeting-to-dictation
 transition remains unverified. See [follow-through](reliability-followthrough.md).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

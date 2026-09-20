@@ -2124,3 +2124,12 @@ Then bundle: `scripts/build_app.sh` — build completes, sanity checks pass. (Do
 git add requirements.txt packaging/Speakeasy.spec scripts/build_app.sh CLAUDE.md README.md
 git commit -m "Package web frontend into the app bundle"
 ```
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](../../insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

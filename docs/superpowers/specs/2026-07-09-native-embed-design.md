@@ -201,3 +201,12 @@ No changes to the model in CLAUDE.md. New rules the bridge must obey:
 - **Old window code removal**: `main_window.py`, `meetings_window.py`,
   `training_window.py` are replaced wholesale; `glass.py` remains (menu-bar
   adjacent UI and shared window styling still use it).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](../../insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

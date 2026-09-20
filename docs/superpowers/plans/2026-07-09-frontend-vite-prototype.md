@@ -1904,3 +1904,12 @@ Run: `cd frontend && npm run dev`
 Open each of `http://localhost:5173/dock.html`, `/meetings.html`, `/training.html` side by side with `~/Downloads/speakeasy-reference.html`'s corresponding frame (open the reference file directly in a browser tab). Confirm for each: panel dimensions match (360×300 / 720×480 / 640×440), glass blur/gradient/border/shadow read the same, button styles (primary coral/red gradient, secondary glass, small action buttons) match, and the colorful backdrop is visible behind each panel. Toggle the dock panel to recording state (press `R`) and confirm the rainbow waveform animates and the timer ticks.
 
 - [ ] **Step 4: No commit needed** (verification-only task; if any visual mismatch is found, fix it in the relevant component file from the earlier tasks and commit that fix separately).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](../../insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

@@ -677,3 +677,12 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   transcript is kept (see [Meeting transcription](#meeting-transcription)).
 - Everything runs in user space — no kernel extensions, no injection into other
   apps. If Speakeasy crashes, nothing else is affected.
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](docs/insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

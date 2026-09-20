@@ -191,7 +191,8 @@ still exceed two seconds; those limits were not speculatively shortened.
 
 Installation was subsequently authorized and completed in place for `cf49a6a`.
 Startup to Ready is verified; this is not insertion or accuracy acceptance.
-A single TextEdit check has been requested before expanding the app matrix.
+TextEdit was confirmed, followed by user confirmation of the installed
+optional-subrole correction in response to the Codex/Teams check request.
 Check one short dictation in each unresolved disposable
 app surface, confirming exactly one copy at the cursor. In Teams/Codex use an
 empty composer and **do not send**. In Terminal use an editor buffer, never a
@@ -202,3 +203,12 @@ Coordinate one sleep/wake and one default-input switch when no meeting is active
 then verify Ready and the next short take. Reuse the completed six-take accuracy
 evidence; no new bulk reading session is requested. Historical 100-take accuracy
 acceptance remains unmet, and streaming stays off by default.
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

@@ -52,3 +52,12 @@ real helper-exit experiment on that source recovered in 272.3 ms, captured the
 next short take, and left zero test helpers after shutdown. This is not a wake
 fix or general two-second acceptance result. No deadlines or OS services were
 changed. See [the full evidence](reliability-followthrough.md).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

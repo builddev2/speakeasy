@@ -202,3 +202,31 @@ Planned batch handoffs have null live WER. Failure reports retain only operation
 safe category/code, and source locations; never add exception messages or locals.
 Failed attempts survive retries and keep acceptance unmet. See
 `docs/real-mic-correctness.md` for current device evidence and limitations.
+
+## Recurring insertion regression: mandatory enhancement check
+
+Read [the incident history](docs/insertion-focus-regression.md) before modifying
+dictation, focus, AX security checks or insertion. This regression recurred after
+an enhancement: TextEdit worked while Teams and Codex failed. Do not infer web
+editor compatibility from native TextEdit or mocked AX acknowledgement alone.
+
+- AXSubrole is optional. Accept successful nil, kAXErrorNoValue (-25212), and
+  kAXErrorAttributeUnsupported (-25205) as absence of a subrole. Chromium normal
+  editors can return nil. Do not restore the overly strict missing-value check.
+- Still reject AXSecureTextField and genuine role/subrole inspection failures
+  (including timeout, permission failure and invalid element). Missing AXRole
+  remains a failure. Optional absence is not an authorization failure.
+- Preserve app-owned focus lookup, bounded lazy accessibility activation, and
+  foreground/field identity checks. Never bind to a later arbitrary focus to
+  hide an unavailable-target outcome or delay microphone onset waiting for AX.
+- DOM/web editors use the existing single clipboard/Cmd+V path even if
+  AXSelectedText advertises writability. Preserve clipboard ownership and do
+  not retry ambiguous delivery. Native AX acknowledgement is not visible proof.
+- Run native/web missing-subrole and security-failure regressions in
+  tests/test_injector_reliability.py, then the full suite. Before declaring an
+  insertion-affecting enhancement validated, obtain visible single-insertion
+  checks in TextEdit, Codex and Teams on the actual installed build. Do not send
+  test messages. Retain explicit pending status when live checks are unavailable.
+
+The user confirmed the corrected installed build works after this recurrence.
+That confirmation does not close the separate wake-recovery or accuracy gates.

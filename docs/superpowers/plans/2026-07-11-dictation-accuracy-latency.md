@@ -658,3 +658,12 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Run the full suite:** `.venv/bin/python -m pytest -q` — all green, including the new `test_preprocess.py`, `test_phonetics.py`, and the extended `test_profiles.py`.
 - [ ] **Manual dictation smoke test:** run `.venv/bin/python -m speakeasy`, dictate a few phrases including a leading pause; confirm text still appears correctly and onsets aren't clipped.
 - [ ] **Manual fuzzy check:** with a profile whose `vocabulary` includes a technical word, dictate a sentence where the model tends to mis-spell it; confirm the snap fires (and that ordinary words are untouched).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](../../insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

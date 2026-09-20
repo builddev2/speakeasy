@@ -167,3 +167,12 @@ Built **after** both components land, to quantify rather than gate:
   diarization) — deprioritized by the user.
 - Multi-word vocabulary phrase matching (v1 is single-token).
 - Any new runtime dependency (offline + supply-chain constraints).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](../../insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

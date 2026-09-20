@@ -250,3 +250,12 @@ Later executable changes and their distinct validation are recorded in the
 follow-through and focused recovery/insertion documents. The temporary dependency
 virtualenv link used for verification is removed after completion; configure a
 project environment before running the reproduction or microphone commands.
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

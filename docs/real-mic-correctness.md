@@ -149,3 +149,12 @@ remain unchanged. The diagnostic UI adds saved results, missing-short follow-ups
 and explicit failure reasons. The authorized release uses an in-place signed
 installation from the merged `master` revision; installed provenance and origin
 parity are verified during release.
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

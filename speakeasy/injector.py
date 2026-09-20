@@ -194,11 +194,11 @@ def deliver_final(text, target, *, timing=None):
         return "focus_changed"
     role_error, role = _attribute(current, "AXRole")
     subrole_error, subrole = _attribute(current, "AXSubrole")
-    # Unsupported is normal for controls without a subrole. A timeout,
-    # permission error, or missing advertised value cannot establish security.
+    # Subrole is optional: Chromium returns nil for ordinary text editors.
+    # NoValue is absence, whereas timeout and permission errors fail closed.
     if (role_error != 0 or role is None
-            or subrole_error not in (0, ax.kAXErrorAttributeUnsupported)
-            or (subrole_error == 0 and subrole is None)
+            or subrole_error not in (0, ax.kAXErrorAttributeUnsupported,
+                                     ax.kAXErrorNoValue)
             or subrole == "AXSecureTextField"):
         return "secure_or_unknown_field"
     error, writable = ax.AXUIElementIsAttributeSettable(current, "AXSelectedText", None)

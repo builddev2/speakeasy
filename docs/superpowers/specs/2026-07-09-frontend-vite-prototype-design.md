@@ -177,3 +177,12 @@ No automated test suite — this is a visual prototype with no logic worth
 unit-testing yet. Verification is manual: run `npm run dev`, open each of the
 three entries, and compare side-by-side against `speakeasy-reference.html`'s
 four window states (colors, spacing, radii, shadows, animation).
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](../../insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

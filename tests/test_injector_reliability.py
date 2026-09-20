@@ -213,7 +213,7 @@ def test_security_inspection_errors_block_before_clipboard(monkeypatch):
     monkeypatch.setattr(injector, "_attribute", query_attribute)
     target = injector.focused_target()
     monkeypatch.setattr(injector, "insert_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
-    for error in (-25204, -25211, -25202, -25212):
+    for error in (-25204, -25211, -25202):
         monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue",
                             lambda e, n, out: (0, "AXTextArea") if n == "AXRole" else (error, None))
         assert injector.deliver_final("final", target) == "secure_or_unknown_field"
@@ -229,7 +229,8 @@ def test_supported_and_unsupported_subroles_on_native_and_web_fields(monkeypatch
     monkeypatch.setattr(injector, "insert_text", lambda *a, **k: pastes.append(1))
     for web in (False, True):
         monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *a: (0, ["AXDOMIdentifier"] if web else []))
-        for subrole in ((-25205, None), (0, "AXSearchField"), (0, "")):
+        for subrole in ((-25205, None), (-25212, None), (0, None),
+                        (0, "AXSearchField"), (0, "")):
             monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda e, n, out: (0, "AXTextArea") if n == "AXRole" else subrole)
             assert injector.deliver_final("final", target) == ("dispatched_unconfirmed" if web else "ax_acknowledged")
-    assert len(writes) == len(pastes) == 3
+    assert len(writes) == len(pastes) == 5

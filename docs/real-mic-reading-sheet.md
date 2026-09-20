@@ -127,3 +127,12 @@ Capture the decision and its owner. I will check the details this afternoon and 
 ## 30. moderate_noise — long
 
 The engineering team reviewed the release. Compare the complete recording with the delivered samples before applying any vocabulary corrections. We should keep the validation evidence separate from production telemetry and review the failure cases individually. The release remains blocked until the team verifies the customer workflow on the actual device. The acceptance criteria must include accurate results and clear ownership of each unresolved issue.
+
+## Enhancement regression reminder
+
+Before changing dictation, focus, accessibility, security checks, or paste behavior,
+read the [recurring insertion defect and prevention rules](insertion-focus-regression.md).
+The user confirmed the corrected installed build works in Codex and Teams after
+the optional-subrole fix; TextEdit was confirmed earlier. Historical observations
+above remain scoped to their original builds. Microphone wake recovery and the
+100-take accuracy gate remain unresolved.

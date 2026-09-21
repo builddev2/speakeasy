@@ -1,9 +1,12 @@
 # Current performance and release evidence — 20 September 2026
 
 This is the current summary; linked incident documents retain historical results.
-The candidate is **not accepted**: installed end-to-end, visible delivery, wake,
-input switching and real meeting transition checks remain pending. Nothing was
-installed, relaunched, merged or pushed in this task.
+Installed build `fb1015e8784e13cbe2788a2f0d118a0afda17794` passed signed asset
+verification and reached Ready. The user confirmed TextEdit and Codex work and
+the static is gone after removing ordinary dictation start/stop cues. The final
+pre-merge suite passed **393 tests in 8.95 s**. The user authorized merge to origin
+and branch cleanup on 20 September. Full OS acceptance remains incomplete: the
+additional device, lifecycle and performance checks below are still open.
 
 ## Implemented
 
@@ -108,8 +111,10 @@ Final follow-up also keeps cancellation visible when later stage callbacks arriv
 and labels probe phase records as batch. The final candidate revision is embedded
 in `dist/Speakeasy.app/Contents/Resources/build-commit.txt`; its verification receipt
 is `dist/release-verification.json`. Candidate verification is not OS acceptance.
-Installed provenance was re-read as
-`ba9f0c11787b062bdf7194b5c7484f995d691715-dirty`; it remains unchanged.
+The earlier installed provenance was
+`ba9f0c11787b062bdf7194b5c7484f995d691715-dirty`; it was subsequently replaced
+in place by the verified `fb1015e` build. Documentation-only release records and
+the merge commit may follow that installed revision without changing runtime code.
 
 The clean candidate build passed asset verification and `codesign --verify --deep
 --strict` with Speakeasy Dev. See [release procedure](release-checks.md) and the
@@ -118,9 +123,10 @@ The browser-use tool explicitly blocked the local fixture URL; no alternate rout
 was used to bypass that policy. Native/Electron/terminal fixtures are documented
 manual scenarios, not newly completed automated OS integration results.
 
-A release instruction is needed before installing over the user's application.
-Then verify exactly-once insertion/caret in TextEdit, browser controls, an Electron
-editor, a terminal editor buffer, and unsent Codex/Teams composers. Coordinate
+Installation was authorized and completed. User confirmation covers ordinary
+TextEdit and Codex dictation on `fb1015e`; earlier Codex/Terminal confirmation
+applies to `de619e8`. Exact selection/caret and the remaining browser, Electron,
+terminal-editor and Teams scenarios have not all been established. Coordinate
 wake/input switching and next dictation, diagnostic-to-dictation and a user-started
 meeting-to-dictation transition. No bulk recording corpus is requested.
 

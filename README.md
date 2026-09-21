@@ -115,10 +115,10 @@ you left off. It can't revoke the macOS permission grants or delete the
 ## Using it
 
 When Speakeasy is running, its menu-bar item shows the current state (`Ready`,
-`Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release: a
-pop sound and dancing rainbow waveform bars (bottom-center of the screen) mark
-recording, a bottle sound marks stop, and the text appears at your cursor within
-about a second.
+`Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release:
+recording starts and stops silently. Dancing rainbow waveform bars (bottom-center
+of the screen) show recording and transcription, and the text appears at your
+cursor within about a second.
 
 Click the menu-bar item for:
 
@@ -215,7 +215,7 @@ the menu discards it. When it finishes, the transcript appears under
 - **Rename…** or **Delete** it.
 
 While a meeting records, hold-to-talk dictation is off (both would fight over
-the mic and the model); it re-arms the moment processing starts. The active
+the mic and the model); it re-arms when meeting processing finishes. The active
 profile's corrections are applied to both tracks. The optional speaker count
 means **remote speakers** with dual-track capture; in microphone-only fallback
 it necessarily applies to every voice audible on the mixed mic track.
@@ -307,6 +307,13 @@ scripts/build_system_audio_helper.sh
 Terminal, dictation permissions attach to **Terminal** (or iTerm), not to the
 `.app` — grant them there too if you develop from source. The system-audio
 helper embeds its own usage description for source runs.
+
+### Release candidates
+
+See [current performance and acceptance evidence](docs/performance-release-current.md)
+and [repeatable release checks](docs/release-checks.md) for clean signed builds,
+private source/package inference comparisons and the required visible-app matrix.
+A verified bundle is not accepted while OS checks remain pending.
 
 ### Tests
 

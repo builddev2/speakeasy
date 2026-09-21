@@ -41,3 +41,13 @@ def test_invalid_values_are_not_persisted(tmp_path):
     timing.emit("success", path=path)
 
     assert benchmark.read_records(path) == []
+
+
+def test_older_records_remain_readable(tmp_path):
+    timing = benchmark.MeetingTiming()
+    timing.capture_mode = 'mic_only'
+    record = timing.record('success')
+    del record['backlog_ms']
+    path = tmp_path / 'old.jsonl'
+    path.write_text(json.dumps(record) + '\n')
+    assert benchmark.read_records(path)[0]['backlog_ms'] is None

@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Speakeasy disposable insertion checks</title>
+<style>body{font:18px system-ui;max-width:800px;margin:40px auto}textarea,[contenteditable]{border:1px solid;padding:18px;display:block;width:90%;min-height:80px;margin:15px 0}output{white-space:pre-wrap}</style>
+<h1>Disposable insertion check</h1>
+<p>Select SELECT in either control, dictate “blue lantern”, then click Verify. Nothing is submitted or transmitted. Expected: LEFT blue lantern RIGHT, exactly once, caret after lantern.</p>
+<label>Textarea<textarea id="native">LEFT SELECT RIGHT</textarea></label>
+<label>Contenteditable<div id="web" contenteditable="true" role="textbox">LEFT SELECT RIGHT</div></label>
+<button id="verify">Verify text and last caret position</button>
+<output id="result"></output>
+<script>
+const expected='LEFT blue lantern RIGHT';
+const positions={};
+document.addEventListener('selectionchange',()=>{
+ const control=document.activeElement;
+ if(control.id==='native')positions.native=[control.selectionStart,control.selectionEnd];
+ if(control.id==='web'){
+  const s=getSelection();
+  if(s.rangeCount){const r=s.getRangeAt(0),p=r.cloneRange();p.selectNodeContents(control);p.setEnd(r.startContainer,r.startOffset);positions.web=[p.toString().length,p.toString().length+r.toString().length];}
+ }
+});
+document.querySelector('#verify').onclick=()=>{
+ document.querySelector('#result').textContent=['native','web'].map(id=>{
+  const el=document.getElementById(id),text=id==='native'?el.value:el.textContent;
+  const caret=positions[id];
+  return id+': '+(text===expected&&caret&&caret[0]===17&&caret[1]===17?'PASS':'PENDING / FAIL')+'; caret '+JSON.stringify(caret);
+ }).join('\n');
+};
+</script>

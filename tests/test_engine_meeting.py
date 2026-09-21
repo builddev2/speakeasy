@@ -765,3 +765,67 @@ def test_meeting_start_failure_is_visible_and_next_attempt_can_start(spool_dir, 
     finally:
         engine.control.shutdown(wait=True)
         engine.worker.shutdown(wait=True)
+
+
+def test_processing_failure_is_visible_without_exception_content(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    class Broken(FakeTranscriber):
+        def transcribe_long(self, *args, **kwargs):
+            raise OSError('private transcript and path')
+    engine.transcriber = Broken()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    try:
+        assert engine.meeting_processing_error == 'processing_failed'
+        assert not list(spool_dir.iterdir())
+        assert not meetings.list_meetings()
+    finally:
+        engine.shutdown()
+
+
+def test_cleanup_failure_does_not_skip_other_track_or_rearm(meetings_dir, spool_dir, monkeypatch):
+    from pathlib import Path
+    engine = _engine(spool_dir)
+    mic, system = spool_dir / 'mic.wav', spool_dir / 'system.wav'
+    mic.write_bytes(b'bad')
+    system.write_bytes(b'bad')
+    original = Path.unlink
+    def unlink(path, *args, **kwargs):
+        if path == mic:
+            raise OSError('private disk detail')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'unlink', unlink)
+    try:
+        engine._process_meeting(MeetingRecording(mic_path=mic, system_path=system))
+        assert engine.meeting_processing_error == 'cleanup_failed'
+        assert not system.exists()
+        assert not engine._meeting_active
+        assert engine._listener.running
+    finally:
+        monkeypatch.setattr(Path, 'unlink', original)
+        mic.unlink()
+        engine.shutdown()
+
+
+def test_progress_after_cancel_keeps_cancellation_visible(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    messages = []
+    engine.on_meeting_progress = messages.append
+    class Cancelling(FakeTranscriber):
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            engine.cancel_meeting_processing()
+            progress(0.5)
+            return super().transcribe_long(audio, progress=progress, cancel=cancel)
+    engine.transcriber = Cancelling()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    try:
+        assert messages[-1].startswith('Cancelling')
+        assert not meetings.list_meetings()
+        assert not list(spool_dir.iterdir())
+    finally:
+        engine.shutdown()

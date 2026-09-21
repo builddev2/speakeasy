@@ -116,9 +116,9 @@ you left off. It can't revoke the macOS permission grants or delete the
 
 When Speakeasy is running, its menu-bar item shows the current state (`Ready`,
 `Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release:
-recording starts silently, with dancing rainbow waveform bars (bottom-center
-of the screen). A bottle sound marks stop, and the text appears at your cursor within
-about a second.
+recording starts and stops silently. Dancing rainbow waveform bars (bottom-center
+of the screen) show recording and transcription, and the text appears at your
+cursor within about a second.
 
 Click the menu-bar item for:
 

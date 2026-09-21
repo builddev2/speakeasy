@@ -459,7 +459,6 @@ class DictationEngine:
                 )
             )
             try:
-                play_sound(config.SOUND_STOP)
                 if status == "recording_too_short":
                     print("  → (too short, ignored)")
             finally:
@@ -491,9 +490,7 @@ class DictationEngine:
                     and self.recorder.stream_delivery_complete
                 ),
             )
-            play_sound(config.SOUND_STOP)
             return
-        # Kick off transcription before the sound: Popen costs ~10-30 ms.
         timing.mark("worker_submitted")
         try:
             self.worker.submit(
@@ -508,7 +505,6 @@ class DictationEngine:
             return
         if self.overlay:
             self.overlay.show_transcribing()
-        play_sound(config.SOUND_STOP)
         self._set_state(State.TRANSCRIBING)
 
     def _cancel_dictation_stream(

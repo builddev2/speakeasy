@@ -332,7 +332,6 @@ class DictationEngine:
             )
         if self.overlay:
             self.overlay.show_recording(lambda: self.recorder.level)
-        play_sound(config.SOUND_START)
         self._set_state(State.RECORDING)
         print("● recording...")
 

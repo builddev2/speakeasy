@@ -115,9 +115,9 @@ you left off. It can't revoke the macOS permission grants or delete the
 ## Using it
 
 When Speakeasy is running, its menu-bar item shows the current state (`Ready`,
-`Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release: a
-pop sound and dancing rainbow waveform bars (bottom-center of the screen) mark
-recording, a bottle sound marks stop, and the text appears at your cursor within
+`Recording…`, `Transcribing…`). Hold **Right Command**, speak, and release:
+recording starts silently, with dancing rainbow waveform bars (bottom-center
+of the screen). A bottle sound marks stop, and the text appears at your cursor within
 about a second.
 
 Click the menu-bar item for:

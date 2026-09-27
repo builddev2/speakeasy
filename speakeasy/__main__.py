@@ -64,7 +64,33 @@ def main() -> None:
                         help="consented one-shot microphone comparison; requires a terminal")
     parser.add_argument("--diagnostic-corpus", metavar="CORPUS_JSON")
     parser.add_argument("--diagnostic-sounds", action="store_true")
+    parser.add_argument("--import-json-meetings", action="store_true",
+                        help="import legacy JSON meetings into the library")
+    parser.add_argument("--rebuild-index", action="store_true",
+                        help="rebuild meeting search and the calendar cache")
+    parser.add_argument("--export-meetings", metavar="DIR",
+                        help="write every meeting as Markdown into DIR")
     args = parser.parse_args()
+
+    if args.import_json_meetings or args.rebuild_index or args.export_meetings:
+        from . import meeting_store
+        from .meeting_export import export_all
+        from .meeting_import import import_json_meetings
+
+        if args.import_json_meetings:
+            report = import_json_meetings()
+            print(f"Imported {report.imported}, already present {report.already_present}, "
+                  f"skipped {len(report.skipped)}.")
+            for name, reason in report.skipped:
+                print(f"  skipped {name}: {reason}")
+        if args.rebuild_index:
+            conn = meeting_store.connect()
+            meeting_store.rebuild_derived(conn)
+            conn.close()
+            print("Rebuilt meeting search index and cleared the calendar cache.")
+        if args.export_meetings:
+            print(f"Exported {export_all(Path(args.export_meetings))} meeting(s).")
+        return
 
     from .dictation_diagnostic import sweep_temporary_audio
 

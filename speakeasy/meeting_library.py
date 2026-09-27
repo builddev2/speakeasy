@@ -47,6 +47,14 @@ class MeetingNotFound(KeyError):
     pass
 
 
+class ImportVerificationError(RuntimeError):
+    pass
+
+
+def nonspace_len(text: str) -> int:
+    return len(re.sub(r"\s", "", text))
+
+
 def utc_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -318,6 +326,26 @@ class MeetingLibrary:
             ],
         )
         return meeting_id
+
+    def import_meetings(self, batch, expected) -> None:
+        """Insert a batch in one transaction and verify it against what the
+        caller read from the source files (non-whitespace character count and
+        speaker set per meeting) before committing. Any mismatch raises and
+        the whole import rolls back, so a splitting/import bug can never
+        silently drop or garble a legacy meeting's transcript."""
+        if set(expected) != {n.meeting_id for n in batch}:
+            raise ImportVerificationError("batch and expectations differ")
+        with self._transaction() as conn:
+            for new in batch:
+                self._insert(conn, new)
+            for meeting_id, (chars, speakers) in expected.items():
+                rows = conn.execute(
+                    "SELECT speaker, text FROM segments WHERE meeting_id = ?",
+                    (meeting_id,)).fetchall()
+                got = (sum(nonspace_len(r["text"]) for r in rows),
+                       frozenset(r["speaker"] for r in rows))
+                if got != (chars, speakers):
+                    raise ImportVerificationError(f"content mismatch in {meeting_id}")
 
     def _touch(self, conn, meeting_id: str) -> None:
         cur = conn.execute(

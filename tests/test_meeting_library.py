@@ -89,6 +89,19 @@ def test_rename_and_relabel(library_path):
     assert [s.speaker for s in lib.get_meeting(mid).segments] == ["Refayet", "Refayet", "Speaker 2"]
     with pytest.raises(IndexError):
         lib.relabel_speaker(mid, 9, "x")
+    with pytest.raises(ValueError):
+        lib.relabel_speaker(mid, 0, "  ")
+
+
+def test_rename_relabel_and_transcript_page_raise_for_missing_meeting(library_path):
+    lib = MeetingLibrary()
+    missing = "20260101-000000-0000"
+    with pytest.raises(MeetingNotFound):
+        lib.rename(missing, "New title")
+    with pytest.raises(MeetingNotFound):
+        lib.relabel_speaker(missing, 0, "Someone")
+    with pytest.raises(MeetingNotFound):
+        lib.transcript_page(missing)
 
 
 def test_delete(library_path):

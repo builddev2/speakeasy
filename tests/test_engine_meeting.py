@@ -770,7 +770,7 @@ def test_meeting_start_failure_is_visible_and_next_attempt_can_start(spool_dir, 
         engine.worker.shutdown(wait=True)
 
 
-def test_processing_failure_is_visible_without_exception_content(meetings_dir, spool_dir):
+def test_processing_failure_is_visible_without_exception_content(meetings_dir, spool_dir, capsys):
     engine = _engine(spool_dir)
     class Broken(FakeTranscriber):
         def transcribe_long(self, *args, **kwargs):
@@ -784,6 +784,9 @@ def test_processing_failure_is_visible_without_exception_content(meetings_dir, s
         assert engine.meeting_processing_error == 'processing_failed'
         assert not list(spool_dir.iterdir())
         assert MeetingLibrary().count_meetings() == 0
+        err = capsys.readouterr().err
+        assert 'Traceback' in err and 'OSError' in err
+        assert 'private transcript' not in err
     finally:
         engine.shutdown()
 
@@ -910,12 +913,40 @@ def test_upgrade_library_imports_and_publishes_status(meetings_dir, spool_dir):
     engine.shutdown()
 
 
+def test_upgrade_library_reports_skipped_files_without_leaking_content(
+    meetings_dir, spool_dir, capsys
+):
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    bad_name = "20260924-134024-bbbb.json"
+    (meetings_dir / bad_name).write_text("not valid json {{{ private secret content")
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "done")
+    assert statuses[-1]["state"] == "done"
+    assert statuses[-1]["skipped"] == [{"file": bad_name, "reason": "JSONDecodeError"}]
+    assert MeetingLibrary().count_meetings() == 1
+    out = capsys.readouterr().out
+    assert f"skipped {bad_name}:" in out
+    assert "private secret content" not in out
+    engine.shutdown()
+
+
 def test_upgrade_library_is_a_no_op_without_legacy_files(meetings_dir, spool_dir):
     engine = _engine(spool_dir)
     statuses = []
     engine.on_library_status = statuses.append
     engine.upgrade_library()
-    time.sleep(0.2)
+    # Wait on a sentinel submitted to the same single-worker executor: since
+    # ThreadPoolExecutor(max_workers=1) runs jobs in submission order, this
+    # future only resolves after upgrade_library's job (if any) has already
+    # run, so the test cannot pass before that job would have published.
+    engine.worker.submit(lambda: None).result(timeout=5.0)
     assert statuses == [] and engine.library_status["state"] == "idle"
     engine.shutdown()
 
@@ -942,7 +973,11 @@ def test_upgrade_library_is_a_no_op_when_library_already_has_meetings(
     statuses = []
     engine.on_library_status = statuses.append
     engine.upgrade_library()
-    time.sleep(0.2)
+    # See test_upgrade_library_is_a_no_op_without_legacy_files: waiting on a
+    # sentinel submitted after upgrade_library's own job guarantees that job
+    # (which does run here, since a legacy file exists) has already
+    # completed before the assertion below.
+    engine.worker.submit(lambda: None).result(timeout=5.0)
     assert statuses == []
     engine.shutdown()
 

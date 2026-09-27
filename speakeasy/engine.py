@@ -21,6 +21,7 @@ no extra thread.
 
 import dataclasses
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -714,16 +715,18 @@ class DictationEngine:
         self.on_library_status(status)
 
     def _upgrade_library(self) -> None:
-        # Auto-import only runs when the library is empty: otherwise a single
-        # malformed file left in meetings/ would bring the upgrade banner
-        # back on every launch. Manual re-import stays available separately.
-        if self.library.count_meetings() > 0:
-            return
-
         def progress(done, total):
             self._publish_library_status(
                 {"state": "upgrading", "done": done, "total": total, "skipped": []})
         try:
+            # Auto-import only runs when the library is empty: otherwise a
+            # single malformed file left in meetings/ would bring the upgrade
+            # banner back on every launch. Manual re-import stays available
+            # separately. count_meetings() lives inside this try so a DB
+            # error here publishes "failed" instead of vanishing silently
+            # inside the worker Future.
+            if self.library.count_meetings() > 0:
+                return
             report = meeting_import.import_json_meetings(self.library, progress=progress)
         except Exception as err:
             traceback.print_exc()
@@ -1177,11 +1180,25 @@ class DictationEngine:
         except MeetingCancelled:
             print("  → meeting processing cancelled; nothing saved")
             status = "cancelled"
-        except Exception:
+        except Exception as error:
             # A save failure (library I/O, etc.) must not vanish silently —
             # the spec forbids a JSON fallback, so this print is the only
-            # remaining record of the loss.
-            traceback.print_exc()
+            # remaining record of the loss. Both the exception's message
+            # (traceback.print_exc()/print_exception(value=...)) and a raise
+            # statement's own source line can carry a transcript or a path.
+            # traceback.print_tb (and StackSummary.format(), even with
+            # lookup_lines=False) both read the source line lazily via
+            # FrameSummary.line/linecache at format time, so file/lineno/
+            # function are pulled out with extract_tb and printed directly
+            # instead — the source text is never touched.
+            print("Traceback (most recent call last):", file=sys.stderr)
+            for frame in traceback.extract_tb(error.__traceback__):
+                print(
+                    f'  File "{frame.filename}", line {frame.lineno},'
+                    f" in {frame.name}",
+                    file=sys.stderr,
+                )
+            print(type(error).__name__, file=sys.stderr)
             self.meeting_processing_error = "processing_failed"
         finally:
             for path in recording.paths:

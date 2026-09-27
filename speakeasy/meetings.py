@@ -58,6 +58,21 @@ _CAPTURE_HEALTH_KEYS = {
 _MAX_TURN_DISTANCE_SECONDS = 2.0
 
 
+def filter_capture_health(d: dict | None) -> dict:
+    """Keep only the privacy-safe whitelisted capture-health fields.
+
+    Shared by Meeting and MeetingLibrary so the whitelist logic lives in
+    exactly one place; meeting/app names, device names and transcripts must
+    never leak into diagnostics.
+    """
+    return {
+        str(key): value
+        for key, value in (d or {}).items()
+        if key in _CAPTURE_HEALTH_KEYS
+        and (value is None or isinstance(value, (bool, int, str)))
+    }
+
+
 @dataclass
 class MeetingSegment:
     speaker: str
@@ -102,12 +117,7 @@ class Meeting:
         self.capture_mode = capture_mode
         self.system_audio_status = system_audio_status
         self.track_offsets_seconds = track_offsets_seconds or {"mic": 0.0}
-        self.capture_health = {
-            str(key): value
-            for key, value in (capture_health or {}).items()
-            if key in _CAPTURE_HEALTH_KEYS
-            and (value is None or isinstance(value, (bool, int, str)))
-        }
+        self.capture_health = filter_capture_health(capture_health)
         self.capture_scope = capture_scope
 
     # -- storage --------------------------------------------------------

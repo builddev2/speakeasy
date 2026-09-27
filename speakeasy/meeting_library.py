@@ -8,10 +8,12 @@ UTC offset captured at recording start.
 """
 
 import json
+import re
 import secrets
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from . import meeting_store
@@ -19,6 +21,26 @@ from .meetings import MeetingSegment, _ID_RE, filter_capture_health
 
 _MAX_PAGE_CHARS = 60_000
 _MIN_PAGE_CHARS = 1_000
+
+# Snippet highlight markers (SQLite's snippet() char() arguments); consumers
+# convert these into their own markup before display.
+HIT_OPEN, HIT_CLOSE = "\x02", "\x03"
+_MAX_QUERY_TERMS = 12
+# Echoes across mic + system-audio tracks land within a few seconds of each
+# other but are rarely frame-identical, so a time-overlap check alone would
+# both miss real echoes and merge unrelated back-to-back remarks.
+_ECHO_SLACK_SECONDS = 5.0
+_ECHO_MIN_RATIO = 0.8
+
+
+def fts_query(text: str, *, any_term: bool = False) -> str | None:
+    """Turn free text into a safe FTS5 query: every word becomes a quoted
+    string, so FTS operators and punctuation in user or Claude input can
+    never raise a syntax error or change the query's meaning."""
+    terms = re.findall(r"\w+", str(text))[:_MAX_QUERY_TERMS]
+    if not terms:
+        return None
+    return (" OR " if any_term else " ").join(f'"{t}"' for t in terms)
 
 
 class MeetingNotFound(KeyError):
@@ -151,6 +173,48 @@ class StoredMeeting:
 class TranscriptPage:
     segments: list[tuple[int, MeetingSegment]]
     next_cursor: int | None
+
+
+@dataclass
+class SearchHit:
+    meeting_id: str
+    title: str
+    started_at: str
+    tz_offset_minutes: int
+    kind: str  # "transcript" or "notes"
+    speaker: str | None
+    start_seconds: float | None
+    end_seconds: float | None
+    segment_index: int | None
+    snippet: str
+    also_speakers: list[str]
+    score: float
+
+
+def _plain(snippet: str) -> str:
+    return snippet.replace(HIT_OPEN, "").replace(HIT_CLOSE, "").lower()
+
+
+def collapse_echoes(hits: list[SearchHit]) -> list[SearchHit]:
+    """Merge a passage that both tracks transcribed (in-room speaker mode)
+    into one result. Stored transcripts are never changed; only results."""
+    kept: list[SearchHit] = []
+    for hit in hits:
+        twin = None
+        if hit.kind == "transcript":
+            for k in kept:
+                if (k.kind == "transcript" and k.meeting_id == hit.meeting_id
+                        and k.start_seconds - _ECHO_SLACK_SECONDS <= hit.end_seconds
+                        and hit.start_seconds - _ECHO_SLACK_SECONDS <= k.end_seconds
+                        and SequenceMatcher(None, _plain(k.snippet),
+                                            _plain(hit.snippet)).ratio() >= _ECHO_MIN_RATIO):
+                    twin = k
+                    break
+        if twin is None:
+            kept.append(hit)
+        elif hit.speaker != twin.speaker and hit.speaker not in twin.also_speakers:
+            twin.also_speakers.append(hit.speaker)
+    return kept
 
 
 def _segment(row) -> MeetingSegment:
@@ -504,6 +568,55 @@ class MeetingLibrary:
                 "SELECT t.name, COUNT(*) FROM tags t JOIN meeting_tags mt"
                 " ON mt.tag_id = t.id GROUP BY t.id"
                 " ORDER BY COUNT(*) DESC, t.name COLLATE NOCASE")]
+
+    # -- search -------------------------------------------------------------
+
+    def search(self, query: str, *, from_date=None, to_date=None, tag=None,
+               person=None, limit=10) -> list[SearchHit]:
+        limit = max(1, min(int(limit), 50))
+        where, params = meeting_filters(from_date, to_date, tag, person)
+        with self._transaction() as conn:
+            for any_term in (False, True):
+                match = fts_query(query, any_term=any_term)
+                if match is None:
+                    return []
+                hits = self._search(conn, match, where, params, limit * 4)
+                if hits:
+                    break
+        hits.sort(key=lambda h: h.score)
+        return collapse_echoes(hits)[:limit]
+
+    def _search(self, conn, match, where, params, fetch) -> list[SearchHit]:
+        # Controller ruling: the spec's ~30-word snippet wins over the
+        # plan's 24 (snippet() token count is the 6th argument).
+        snippet = "snippet({t}, -1, char(2), char(3), '…', 30)"
+        hits = [
+            SearchHit(r["id"], r["title"], r["started_at"], r["tz_offset_minutes"],
+                      "transcript", r["speaker"], r["start_seconds"],
+                      r["end_seconds"], r["idx"], r["snip"], [], r["score"])
+            for r in conn.execute(
+                "SELECT m.id, m.title, m.started_at, m.tz_offset_minutes, s.speaker,"
+                " s.start_seconds, s.end_seconds, s.idx,"
+                f" {snippet.format(t='segments_fts')} AS snip,"
+                " bm25(segments_fts) AS score FROM segments_fts"
+                " JOIN segments s ON s.id = segments_fts.rowid"
+                " JOIN meetings m ON m.id = s.meeting_id"
+                f" WHERE segments_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
+                (match, *params, fetch))
+        ]
+        hits += [
+            SearchHit(r["id"], r["title"], r["started_at"], r["tz_offset_minutes"],
+                      "notes", None, None, None, None, r["snip"], [], r["score"])
+            for r in conn.execute(
+                "SELECT m.id, m.title, m.started_at, m.tz_offset_minutes,"
+                f" {snippet.format(t='notes_fts')} AS snip,"
+                " bm25(notes_fts) AS score FROM notes_fts"
+                " JOIN notes n ON n.id = notes_fts.rowid"
+                " JOIN meetings m ON m.id = n.meeting_id"
+                f" WHERE notes_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
+                (match, *params, fetch))
+        ]
+        return hits
 
     def list_people(self, query=None) -> list[tuple[str, int]]:
         where, params = "1", []

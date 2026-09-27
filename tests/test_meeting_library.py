@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from speakeasy import meeting_store
 from speakeasy.meeting_library import (
     MeetingLibrary, MeetingNotFound, NewMeeting,
 )
@@ -152,3 +153,124 @@ def test_concurrent_writers(library_path):
     for t in threads: t.start()
     for t in threads: t.join()
     assert lib.count_meetings() == 40
+
+
+def test_save_notes_partial_updates_and_tag_normalisation(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    notes = lib.save_notes(mid, summary="Invest in VFA.", tags=[" DMT", "dmt", "VFA ", ""])
+    assert notes.summary == "Invest in VFA." and notes.action_items == []
+    lib.save_notes(mid, action_items=["Confirm Purvi's leave with Naresh", "  "])
+    m = lib.get_meeting(mid)
+    assert m.notes.summary == "Invest in VFA."           # untouched field kept
+    assert m.notes.action_items == ["Confirm Purvi's leave with Naresh"]
+    assert m.notes.updated_by == "claude"
+    assert m.tags == ["DMT", "VFA"]
+    lib.save_notes(mid, tags=["VFA"])
+    assert lib.list_tags() == [("VFA", 1)]                # orphan DMT removed
+    assert lib.list_meetings(tag="vfa")[0].has_summary is True
+
+
+def test_save_notes_limits_and_missing(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    with pytest.raises(ValueError):
+        lib.save_notes(mid, tags=[f"t{i}" for i in range(21)])
+    with pytest.raises(ValueError):
+        lib.save_notes(mid, tags=["x" * 41])
+    with pytest.raises(ValueError):
+        lib.save_notes(mid, summary="x" * 20_001)
+    with pytest.raises(MeetingNotFound):
+        lib.save_notes("20260101-000000-0000", summary="x")
+
+
+def test_save_notes_action_item_limits(library_path):
+    # Controller ruling: pin the action-item cap explicitly (list length and
+    # per-item length), since the brief's limits test only covered tags and
+    # summary.
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    with pytest.raises(ValueError):
+        lib.save_notes(mid, action_items=[f"item {i}" for i in range(51)])
+    with pytest.raises(ValueError):
+        lib.save_notes(mid, action_items=["x" * 501])
+    # Right at the limits should be accepted.
+    lib.save_notes(mid, action_items=[f"item {i}" for i in range(50)])
+    assert len(lib.get_meeting(mid).notes.action_items) == 50
+
+
+def test_people_link_by_email_then_name(library_path):
+    lib = MeetingLibrary()
+    a = lib.save_meeting(_new())
+    b = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))
+    lib.link_people(a, [("Refayet K", "refayet@example.com", "organizer"),
+                        ("Jason", None, "attendee")])
+    lib.link_people(b, [("Refayet Khan", "REFAYET@example.com", "attendee")])
+    assert lib.list_people() == [("Refayet K", 2), ("Jason", 1)]
+    assert lib.list_people("jas") == [("Jason", 1)]
+    assert [m.meeting_id for m in lib.list_meetings(person="refayet@example.com")] == [b, a]
+    assert lib.get_meeting(a).people == ["Refayet K", "Jason"]  # organizer first
+
+
+def test_person_email_normalisation_merges_case_and_whitespace(library_path):
+    # Controller ruling 1: normalise email once (strip + lower) and use the
+    # normalised value for both the lookup and the insert, otherwise a
+    # differently-cased or padded email misses the lookup and raises
+    # IntegrityError on the people.email UNIQUE constraint instead of
+    # reusing the existing person.
+    lib = MeetingLibrary()
+    a = lib.save_meeting(_new())
+    b = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))
+    lib.link_people(a, [("Refayet K", " Refayet@example.com", "attendee")])
+    lib.link_people(b, [("Refayet K", "refayet@example.com ", "attendee")])
+    assert lib.list_people() == [("Refayet K", 2)]
+
+
+def test_list_meetings_tag_filter_excludes_untagged(library_path):
+    lib = MeetingLibrary()
+    tagged = lib.save_meeting(_new())
+    untagged = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))
+    lib.save_notes(tagged, tags=["Project X"])
+    result = lib.list_meetings(tag="Project X")
+    assert [m.meeting_id for m in result] == [tagged]
+    assert untagged not in [m.meeting_id for m in result]
+
+
+def test_list_meetings_person_filter_excludes_unlinked(library_path):
+    lib = MeetingLibrary()
+    linked = lib.save_meeting(_new())
+    unlinked = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))
+    lib.link_people(linked, [("Naresh", "naresh@example.com", "attendee")])
+    result = lib.list_meetings(person="naresh@example.com")
+    assert [m.meeting_id for m in result] == [linked]
+    assert unlinked not in [m.meeting_id for m in result]
+
+
+def test_has_summary_true_only_after_nonempty_summary(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    assert lib.list_meetings()[0].has_summary is False
+    # Notes with only action items (no summary) still leave has_summary False.
+    lib.save_notes(mid, action_items=["Follow up"])
+    assert lib.list_meetings()[0].has_summary is False
+    lib.save_notes(mid, summary="Discussed roadmap.")
+    assert lib.list_meetings()[0].has_summary is True
+
+
+def test_delete_removes_orphan_tags_but_keeps_shared_tags(library_path):
+    lib = MeetingLibrary()
+    a = lib.save_meeting(_new())
+    b = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))
+    lib.save_notes(a, tags=["Solo", "Shared"])
+    lib.save_notes(b, tags=["Shared"])
+    lib.delete(a)
+    assert lib.list_tags() == [("Shared", 1)]  # Solo (orphaned) is gone, Shared kept
+    # list_tags() joins through meeting_tags, so an orphan row left behind
+    # in the `tags` table itself wouldn't show up there either way; check
+    # the raw table so a regression that drops the cleanup is still caught.
+    conn = meeting_store.connect(library_path)
+    try:
+        names = {r[0] for r in conn.execute("SELECT name FROM tags")}
+    finally:
+        conn.close()
+    assert names == {"Shared"}

@@ -59,6 +59,21 @@ def _check_id(meeting_id: str) -> None:
         raise ValueError(f"Invalid meeting id: {meeting_id!r}")
 
 
+def _normalise_tags(tags) -> list[str]:
+    seen, result = set(), []
+    for raw in tags:
+        name = " ".join(str(raw).split())
+        if not name or name.lower() in seen:
+            continue
+        if len(name) > 40:
+            raise ValueError("Tags are at most 40 characters.")
+        seen.add(name.lower())
+        result.append(name)
+    if len(result) > 20:
+        raise ValueError("At most 20 tags per meeting.")
+    return result
+
+
 @dataclass
 class NewMeeting:
     segments: list[MeetingSegment]
@@ -399,3 +414,103 @@ class MeetingLibrary:
             page.append((row["idx"], _segment(row)))
             used += len(row["text"])
         return TranscriptPage(page, None)
+
+    # -- notes, tags, people ---------------------------------------------
+
+    def save_notes(self, meeting_id: str, *, summary=None, action_items=None,
+                   tags=None, updated_by="claude") -> Notes:
+        """Replace only the fields given; the rest keep their stored value."""
+        _check_id(meeting_id)
+        if summary is not None:
+            summary = str(summary).strip()
+            if len(summary) > 20_000:
+                raise ValueError("Summary is longer than 20,000 characters.")
+        if action_items is not None:
+            action_items = [str(a).strip() for a in action_items if str(a).strip()]
+            if len(action_items) > 50 or any(len(a) > 500 for a in action_items):
+                raise ValueError("At most 50 action items of 500 characters each.")
+        if tags is not None:
+            tags = _normalise_tags(tags)
+        with self._transaction() as conn:
+            self._touch(conn, meeting_id)
+            current = self._notes(conn, meeting_id) or Notes("", [], "", updated_by)
+            summary = current.summary if summary is None else summary
+            action_items = current.action_items if action_items is None else action_items
+            now = _now_iso()
+            conn.execute(
+                "INSERT INTO notes (meeting_id, summary, action_items_json,"
+                " action_items_text, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)"
+                # Upsert, not INSERT OR REPLACE: REPLACE deletes without firing
+                # the FTS delete trigger, leaving stale search entries.
+                " ON CONFLICT(meeting_id) DO UPDATE SET summary = excluded.summary,"
+                " action_items_json = excluded.action_items_json,"
+                " action_items_text = excluded.action_items_text,"
+                " updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+                (meeting_id, summary, json.dumps(action_items),
+                 "\n".join(action_items), now, updated_by),
+            )
+            if tags is not None:
+                conn.execute("DELETE FROM meeting_tags WHERE meeting_id = ?", (meeting_id,))
+                for name in tags:
+                    conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+                    conn.execute(
+                        "INSERT INTO meeting_tags (meeting_id, tag_id)"
+                        " SELECT ?, id FROM tags WHERE name = ?", (meeting_id, name))
+                conn.execute(
+                    "DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM meeting_tags)")
+            return self._notes(conn, meeting_id)
+
+    def _person_id(self, conn, name: str, email: str | None) -> int:
+        # Controller ruling: normalise the email once, here, and use the
+        # normalised value for both the lookup and the insert. Doing the
+        # lookup on the raw value and only lower-casing on insert means a
+        # differently-cased or padded email (" Refayet@x.com") misses the
+        # lookup and then raises IntegrityError on the UNIQUE constraint
+        # when the normalised form already exists.
+        email = str(email).strip().lower() if email else None
+        email = email or None
+        name = name.strip() or (email or "Unknown")
+        if email:
+            row = conn.execute("SELECT id FROM people WHERE email = ?", (email,)).fetchone()
+            if row:
+                return row["id"]
+            return conn.execute(
+                "INSERT INTO people (display_name, email) VALUES (?, ?)",
+                (name, email)).lastrowid
+        row = conn.execute(
+            "SELECT id FROM people WHERE email IS NULL AND display_name = ?"
+            " COLLATE NOCASE", (name,)).fetchone()
+        if row:
+            return row["id"]
+        return conn.execute(
+            "INSERT INTO people (display_name) VALUES (?)", (name,)).lastrowid
+
+    def link_people(self, meeting_id: str, people) -> None:
+        """Replace a meeting's people with [(name, email|None, role)]."""
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            self._touch(conn, meeting_id)
+            conn.execute("DELETE FROM meeting_people WHERE meeting_id = ?", (meeting_id,))
+            for name, email, role in people:
+                pid = self._person_id(conn, name, email)
+                conn.execute(
+                    "INSERT OR IGNORE INTO meeting_people (meeting_id, person_id, role)"
+                    " VALUES (?, ?, ?)", (meeting_id, pid, role))
+
+    def list_tags(self) -> list[tuple[str, int]]:
+        with self._transaction() as conn:
+            return [(r[0], r[1]) for r in conn.execute(
+                "SELECT t.name, COUNT(*) FROM tags t JOIN meeting_tags mt"
+                " ON mt.tag_id = t.id GROUP BY t.id"
+                " ORDER BY COUNT(*) DESC, t.name COLLATE NOCASE")]
+
+    def list_people(self, query=None) -> list[tuple[str, int]]:
+        where, params = "1", []
+        if query:
+            where = "(p.display_name LIKE ? OR p.email LIKE ?)"
+            params = [f"%{query.strip()}%"] * 2
+        with self._transaction() as conn:
+            return [(r[0], r[1]) for r in conn.execute(
+                "SELECT p.display_name, COUNT(*) FROM people p JOIN meeting_people mp"
+                f" ON mp.person_id = p.id WHERE {where} GROUP BY p.id"
+                " ORDER BY COUNT(*) DESC, p.display_name COLLATE NOCASE", params)]

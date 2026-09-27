@@ -6,6 +6,8 @@ the transcript saved on success and never on cancel, and the spool WAV
 deleted on every exit path.
 """
 
+import dataclasses
+import json
 import queue
 import threading
 import time
@@ -14,9 +16,10 @@ import wave
 import numpy as np
 import pytest
 
-from speakeasy import config, meeting_benchmark, meetings
+from speakeasy import config, meeting_benchmark, meeting_import, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
+from speakeasy.meeting_library import MeetingLibrary, NewMeeting
 from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
 from speakeasy.meeting_stream import MeetingASRResult, MeetingASRStatus
 from speakeasy.transcriber import MeetingCancelled
@@ -273,7 +276,7 @@ def test_meeting_happy_path(meetings_dir, spool_dir, make_profile):
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     assert saved, "on_meeting_saved never fired"
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert stored.segments[0].speaker == "Speaker 1"
     assert stored.segments[0].text == "Claude says hello"  # profile applied
     assert not list(spool_dir.iterdir())  # spool deleted after processing
@@ -296,7 +299,7 @@ def test_meeting_reuses_during_capture_mic_transcript(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert stored.segments[0].text == "during capture"
     assert transcriber.live_calls == 1
     assert transcriber.batch_calls == 0
@@ -324,7 +327,7 @@ def test_meeting_pretranscription_failure_falls_back_to_spool(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    assert meetings.Meeting.load(saved[0]).segments[0].text == "clod says hello"
+    assert MeetingLibrary().get_meeting(saved[0]).segments[0].text == "clod says hello"
     assert transcriber.live_calls == 1
     assert transcriber.batch_calls == 1
     assert not list(spool_dir.iterdir())
@@ -373,7 +376,7 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert [(s.speaker, s.start) for s in stored.segments] == [
         ("You", 0.1),
         ("Speaker 1", 0.5),
@@ -433,7 +436,7 @@ def test_dual_track_streams_both_transcripts_before_loading_system_for_diarizati
         ("transcribe", recorder.system_path),
         ("full_load", recorder.system_path),
     ]
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert [(segment.speaker, segment.start) for segment in stored.segments] == [
         ("You", 0.1),
         ("Speaker 1", 0.5),
@@ -458,8 +461,8 @@ def test_selected_application_scope_persists_without_pid_or_name(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
-    raw = stored.path.read_text()
+    stored = MeetingLibrary().get_meeting(saved[0])
+    raw = json.dumps(dataclasses.asdict(stored), default=str)
     assert stored.capture_scope == "selected"
     assert stored.capture_health["capture_scope"] == "selected"
     assert "4242" not in raw
@@ -480,7 +483,7 @@ def test_empty_system_track_falls_back_to_existing_mic_diarization(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert stored.capture_mode == "mic_only"
     assert stored.system_audio_status == "empty_track"
     assert stored.segments[0].speaker == "Speaker 1"
@@ -518,7 +521,7 @@ def test_enrolled_profile_matching_applies_only_to_remote_track(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert [s.speaker for s in stored.segments] == ["You", "Alice", "Speaker 2"]
     assert identified_lengths == [config.SAMPLE_RATE * 2]
     engine.shutdown()
@@ -541,7 +544,7 @@ def test_cancel_set_during_remote_diarization_discards_both_tracks(
     assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
-    assert meetings.list_meetings() == []
+    assert MeetingLibrary().count_meetings() == 0
     assert not list(spool_dir.iterdir())
     engine.shutdown()
 
@@ -561,7 +564,7 @@ def test_dual_track_processing_failure_cleans_both_spools(
     assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
-    assert meetings.list_meetings() == []
+    assert MeetingLibrary().count_meetings() == 0
     assert not list(spool_dir.iterdir())
     engine.shutdown()
 
@@ -589,7 +592,7 @@ def test_selected_voice_profile_is_used_locally(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     assert calls == [(["Alice"], True)]
-    assert meetings.Meeting.load(saved[0]).segments[0].speaker == "Alice"
+    assert MeetingLibrary().get_meeting(saved[0]).segments[0].speaker == "Alice"
     engine.shutdown()
 
 
@@ -649,7 +652,7 @@ def test_cancel_discards_everything(meetings_dir, spool_dir):
     engine.cancel_meeting_processing()
     trap.set()  # release the trapped transcriber; it sees cancel and raises
     assert _wait_for(lambda: engine.state is State.READY)
-    assert meetings.list_meetings() == []  # nothing saved
+    assert MeetingLibrary().count_meetings() == 0  # nothing saved
     assert not list(spool_dir.iterdir())  # spool deleted anyway
     assert engine._listener.running is True
     engine.shutdown()
@@ -780,7 +783,7 @@ def test_processing_failure_is_visible_without_exception_content(meetings_dir, s
     try:
         assert engine.meeting_processing_error == 'processing_failed'
         assert not list(spool_dir.iterdir())
-        assert not meetings.list_meetings()
+        assert MeetingLibrary().count_meetings() == 0
     finally:
         engine.shutdown()
 
@@ -825,7 +828,141 @@ def test_progress_after_cancel_keeps_cancellation_visible(meetings_dir, spool_di
     assert _wait_for(lambda: engine.state is State.READY)
     try:
         assert messages[-1].startswith('Cancelling')
-        assert not meetings.list_meetings()
+        assert MeetingLibrary().count_meetings() == 0
         assert not list(spool_dir.iterdir())
     finally:
         engine.shutdown()
+
+
+class ShortFakeMeetingRecorder(FakeMeetingRecorder):
+    """Writes far less audio than the wall-clock gap the test sleeps through,
+    so a lost start time (falling back to now() - duration) lands clearly
+    after `after_begin` instead of within noise distance of it."""
+
+    def start(self, *, system_audio_pid=None):
+        assert system_audio_pid is None
+        self._path = self._spool_dir / "meeting-test.wav"
+        with wave.open(str(self._path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(config.SAMPLE_RATE)
+            frames = max(1, int(config.SAMPLE_RATE * 0.1))
+            w.writeframes(np.ones(frames, dtype=np.int16).tobytes())
+
+
+def test_meeting_start_time_is_capture_start(meetings_dir, spool_dir):
+    from datetime import datetime
+
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = ShortFakeMeetingRecorder(spool_dir)
+    saved = []
+    engine.on_meeting_saved = saved.append
+    before = datetime.now().astimezone().replace(microsecond=0)
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    after_begin = datetime.now().astimezone()
+    time.sleep(1.1)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    stored = MeetingLibrary().get_meeting(saved[0])
+    assert before <= stored.local_start <= after_begin
+    assert stored.source == "recorded" and not stored.timestamps_approximate
+    engine.shutdown()
+
+
+def test_process_meeting_uses_recordings_started_at(meetings_dir, spool_dir):
+    from datetime import datetime, timedelta, timezone
+
+    engine = _engine(spool_dir)
+    saved = []
+    engine.on_meeting_saved = saved.append
+    mic = spool_dir / "mic.wav"
+    with wave.open(str(mic), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(config.SAMPLE_RATE)
+        w.writeframes(np.ones(config.SAMPLE_RATE, dtype=np.int16).tobytes())
+    started_at = datetime(2026, 9, 24, 13, 17, 23, tzinfo=timezone(timedelta(hours=-4)))
+    try:
+        engine._process_meeting(MeetingRecording(mic_path=mic, started_at=started_at))
+        assert saved, "on_meeting_saved never fired"
+        stored = MeetingLibrary().get_meeting(saved[0])
+        assert stored.started_at == "2026-09-24T17:17:23Z"
+    finally:
+        engine.shutdown()
+
+
+def test_upgrade_library_imports_and_publishes_status(meetings_dir, spool_dir):
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "done")
+    assert statuses[0] == {"state": "upgrading", "done": 1, "total": 1, "skipped": []}
+    assert statuses[-1] == {"state": "done", "done": 1, "total": 1, "skipped": []}
+    assert engine.library_status == statuses[-1]
+    assert MeetingLibrary().count_meetings() == 1
+    engine.shutdown()
+
+
+def test_upgrade_library_is_a_no_op_without_legacy_files(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    time.sleep(0.2)
+    assert statuses == [] and engine.library_status["state"] == "idle"
+    engine.shutdown()
+
+
+def test_upgrade_library_is_a_no_op_when_library_already_has_meetings(
+    meetings_dir, spool_dir
+):
+    # Spec: auto-import only runs when the library is empty. Otherwise a
+    # malformed legacy file left in meetings/ would bring the upgrade banner
+    # back on every launch; manual re-import stays available separately.
+    import json as _json
+    from datetime import datetime, timezone
+
+    library = MeetingLibrary()
+    library.save_meeting(NewMeeting(
+        segments=[], duration_seconds=1.0,
+        started_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+    ))
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    time.sleep(0.2)
+    assert statuses == []
+    engine.shutdown()
+
+
+def test_upgrade_library_publishes_failed_status_with_details(
+    meetings_dir, spool_dir, monkeypatch
+):
+    (meetings_dir / "20260924-134023-aaaa.json").write_text("not json meeting data")
+    engine = _engine(spool_dir)
+
+    def boom(library=None, progress=None):
+        raise RuntimeError("synthetic import failure")
+
+    monkeypatch.setattr(meeting_import, "import_json_meetings", boom)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "failed")
+    assert statuses[-1] == {
+        "state": "failed", "done": 0, "total": 0,
+        "skipped": [{"file": "", "reason": "RuntimeError"}],
+    }
+    engine.shutdown()

@@ -135,3 +135,73 @@ def test_limit_is_clamped_to_50(library_path):
             segments=[MeetingSegment("You", 0, 5, "quarterly standup notes")],
             duration_seconds=600, started_at=day))
     assert len(lib.search("standup", limit=1000)) == 50
+
+
+def test_snippet_is_about_30_words(library_path):
+    # Fix round 1, ruling 1: nothing asserted the snippet() token count, so
+    # a regression back to the plan's 24 (instead of the spec's ~30) would
+    # go unnoticed. Put the match near the middle of a ~60-word segment and
+    # check the stripped snippet has more than 24 and at most 30 words.
+    lib = MeetingLibrary()
+    before = " ".join(f"before{i}" for i in range(30))
+    after = " ".join(f"after{i}" for i in range(29))
+    text = f"{before} needleword {after}"
+    _save(lib, 24, ("You", 0, 5, text))
+    hits = lib.search("needleword")
+    plain = hits[0].snippet.replace(HIT_OPEN, "").replace(HIT_CLOSE, "")
+    word_count = len([w for w in plain.split() if w != "…"])
+    assert 24 < word_count <= 30
+
+
+def test_stronger_match_ranks_first(library_path):
+    # Fix round 1, ruling 2: nothing asserted the sort order. A single-kind
+    # query is already ordered by the SQL query itself, so that alone
+    # wouldn't catch a removed/reversed `hits.sort(key=lambda h: h.score)`
+    # in MeetingLibrary.search: the transcript and notes SQL queries run
+    # separately and their results are concatenated (transcript first, then
+    # notes) before that Python-level sort. Put the *stronger* match in
+    # notes and the *weaker* one in transcript, in a different meeting, so
+    # only the Python-level re-sort produces the correct order.
+    lib = MeetingLibrary()
+    weak = _save(lib, 20, ("You", 0, 5, "gizmo mentioned once here"))
+    strong = _save(lib, 24, ("You", 0, 5, "unrelated chatter"))
+    lib.save_notes(strong, summary="gizmo gizmo gizmo gizmo gizmo")
+    hits = lib.search("gizmo")
+    assert [h.meeting_id for h in hits] == [strong, weak]
+
+
+def test_notes_filter_excludes_out_of_range_meeting(library_path):
+    # Fix round 1, ruling 3: nothing asserted that from_date/to_date/tag/
+    # person filters actually apply to the notes_fts query, so a stray
+    # `({where} OR 1)` in the notes branch would go unnoticed. Two meetings
+    # each have a notes-only match; only the in-range one should come back.
+    lib = MeetingLibrary()
+    a = _save(lib, 24, ("You", 0, 5, "hello"))
+    lib.save_notes(a, summary="mentions zephyrsummary project")
+    b = _save(lib, 10, ("You", 0, 5, "hello"))
+    lib.save_notes(b, summary="also mentions zephyrsummary project")
+    assert {h.meeting_id for h in lib.search("zephyrsummary")} == {a, b}
+    assert [h.meeting_id for h in lib.search("zephyrsummary", from_date="2026-09-22")] == [a]
+
+
+def test_collapse_keeps_notes_hit_alongside_transcript_hit():
+    # Fix round 1, ruling 4: the `kind == "transcript"` guard in
+    # collapse_echoes has no direct test. A notes hit has start_seconds =
+    # None, so removing the guard would raise TypeError when comparing it
+    # against a transcript hit's numeric times in the same meeting.
+    transcript = SearchHit("m1", "t", "2026-09-24T17:00:00Z", -240, "transcript",
+                            "You", 0, 10, 0, "ACP is thin", [], -1.0)
+    notes = SearchHit("m1", "t", "2026-09-24T17:00:00Z", -240, "notes",
+                       None, None, None, None, "ACP is thin", [], -1.0)
+    kept = collapse_echoes([transcript, notes])
+    assert len(kept) == 2
+    assert {h.kind for h in kept} == {"transcript", "notes"}
+
+
+def test_search_none_or_empty_query_returns_empty_list(library_path):
+    # Fix round 1, ruling 5: search(None) used to call fts_query(str(None))
+    # and actually search for the literal word "None".
+    lib = MeetingLibrary()
+    _save(lib, 24, ("You", 0, 5, "None of this matters"))
+    assert lib.search(None) == []
+    assert lib.search("") == []

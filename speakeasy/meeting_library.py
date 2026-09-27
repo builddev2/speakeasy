@@ -574,6 +574,12 @@ class MeetingLibrary:
     def search(self, query: str, *, from_date=None, to_date=None, tag=None,
                person=None, limit=10) -> list[SearchHit]:
         limit = max(1, min(int(limit), 50))
+        # A falsy query (None, "") must short-circuit before fts_query ever
+        # sees it: str(None) is the literal text "None", which would
+        # otherwise become a real FTS match for any segment containing that
+        # word.
+        if not query:
+            return []
         where, params = meeting_filters(from_date, to_date, tag, person)
         with self._transaction() as conn:
             for any_term in (False, True):

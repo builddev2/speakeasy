@@ -78,9 +78,32 @@ def test_import_happy_path(meetings_dir):
 def test_malformed_file_is_skipped_reported_and_left(meetings_dir):
     _write(meetings_dir, "20260924-134023-aaaa")
     bad = _write(meetings_dir, "20260924-140000-cccc", segments=["not a dict"])
+    seen = []
+    report = import_json_meetings(progress=lambda d, t: seen.append((d, t)))
+    assert report.imported == 1
+    assert report.skipped == [(bad.name, "TypeError")]
+    assert bad.exists()
+    # progress must still be driven to completion when a file is skipped,
+    # not just when every file succeeds.
+    assert seen[-1] == (2, 2)
+
+
+def test_bad_profile_id_type_is_skipped_not_fatal(meetings_dir):
+    # profile_id is the one legacy field Meeting.load passes through
+    # without casting. A hand-edited file that slips a dict in there must
+    # not blow up the whole import -- it should be skipped and reported
+    # exactly like a file that fails to parse, and every good file around
+    # it still imports and archives normally.
+    good = _write(meetings_dir, "20260924-134023-aaaa")
+    bad = _write(meetings_dir, "20260924-140000-cccc", segments=[
+        {"speaker": "You", "start": 0.0, "end": 5.0, "text": "hi",
+         "profile_id": {"a": 1}},
+    ])
     report = import_json_meetings()
     assert report.imported == 1
     assert report.skipped == [(bad.name, "TypeError")]
+    assert MeetingLibrary().get_meeting("20260924-134023-aaaa") is not None
+    assert (meetings_dir / "legacy-json" / good.name).exists()
     assert bad.exists()
 
 
@@ -93,6 +116,64 @@ def test_verification_failure_rolls_back_and_moves_nothing(meetings_dir, monkeyp
         import_json_meetings()
     assert MeetingLibrary().count_meetings() == 0
     assert path.exists()
+
+
+def test_no_half_import_across_several_meetings(meetings_dir, monkeypatch):
+    # Verification failure on ONE meeting in a multi-meeting batch must roll
+    # back every meeting in that batch, not just the offending one -- each
+    # meeting is not committed separately.
+    a = _write(meetings_dir, "20260924-134023-aaaa")
+    b = _write(meetings_dir, "20260924-140000-bbbb", created="2026-09-24T14:00:00")
+    real_convert = meeting_import._convert
+
+    def lossy_convert(legacy):
+        new = real_convert(legacy)
+        if legacy.meeting_id == "20260924-140000-bbbb":
+            new.segments = [
+                MeetingSegment(s.speaker, s.start, s.end, s.text[:-1])
+                for s in new.segments
+            ]
+        return new
+
+    monkeypatch.setattr(meeting_import, "_convert", lossy_convert)
+    with pytest.raises(ImportVerificationError):
+        import_json_meetings()
+    assert MeetingLibrary().count_meetings() == 0
+    assert a.exists() and b.exists()
+
+
+def test_speaker_set_mismatch_rolls_back(meetings_dir, monkeypatch):
+    path = _write(meetings_dir, "20260924-134023-aaaa")
+
+    def renaming(segment, **kw):
+        return [MeetingSegment("Someone Else", segment.start, segment.end, segment.text)]
+
+    monkeypatch.setattr(meeting_import, "split_long_segment", renaming)
+    with pytest.raises(ImportVerificationError):
+        import_json_meetings()
+    assert MeetingLibrary().count_meetings() == 0
+    assert path.exists()
+
+
+def test_archiving_never_overwrites_an_existing_archive(meetings_dir):
+    path = _write(meetings_dir, "20260924-134023-aaaa")
+    import_json_meetings()
+    archive_dir = meetings_dir / "legacy-json"
+    original_contents = (archive_dir / path.name).read_text()
+    # A different file lands back under the SAME name (e.g. a hand-restored
+    # backup) and gets picked up on a later run. It's already present in
+    # the library, so it is only archived, never re-inserted -- but
+    # archiving it must not clobber the meeting already archived there.
+    dup = _write(meetings_dir, "20260924-134023-aaaa", title="Restored copy")
+    report = import_json_meetings()
+    assert report.already_present == 1
+    assert not dup.exists()
+    assert (archive_dir / path.name).read_text() == original_contents
+    siblings = sorted(archive_dir.glob("20260924-134023-aaaa*.json"))
+    assert len(siblings) == 2
+    contents = {p.read_text() for p in siblings}
+    assert original_contents in contents
+    assert len(contents) == 2  # neither copy was lost
 
 
 def test_rerun_after_crash_between_commit_and_archive(meetings_dir):

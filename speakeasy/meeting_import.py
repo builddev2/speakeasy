@@ -15,6 +15,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from . import meetings, settings
 from .meeting_library import (
@@ -70,7 +71,52 @@ def split_long_segment(segment, *, threshold_seconds=120.0, target_seconds=60.0)
     return result
 
 
+def _validate_segment(seg: MeetingSegment) -> None:
+    """Meeting.load casts speaker/text/start/end/confidence/overlap, but not
+    profile_id -- a hand-edited file can slip a dict or list through as
+    profile_id, and it would only fail deep inside sqlite3's INSERT (which
+    runs after every file has already been queued), aborting the whole
+    batch instead of just the one bad file. Check every type the DB insert
+    needs here, inside the per-file try in import_json_meetings, so a bad
+    value is skipped and reported the same way a malformed file is."""
+    if not isinstance(seg.speaker, str):
+        raise TypeError(f"segment speaker must be str, got {type(seg.speaker).__name__}")
+    if not isinstance(seg.text, str):
+        raise TypeError(f"segment text must be str, got {type(seg.text).__name__}")
+    for name, value in (("start", seg.start), ("end", seg.end)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError(f"segment {name} must be a number, got {type(value).__name__}")
+    if seg.confidence is not None and (
+        isinstance(seg.confidence, bool) or not isinstance(seg.confidence, (int, float))
+    ):
+        raise TypeError(
+            f"segment confidence must be a number or None, got {type(seg.confidence).__name__}")
+    if not isinstance(seg.overlap, (bool, int)):
+        raise TypeError(f"segment overlap must be bool or int, got {type(seg.overlap).__name__}")
+    if seg.profile_id is not None and not isinstance(seg.profile_id, str):
+        raise TypeError(
+            f"segment profile_id must be str or None, got {type(seg.profile_id).__name__}")
+
+
+def _archive_target(archive_dir: Path, name: str) -> Path:
+    """Never silently clobber an existing archived original: a re-run can
+    find a file already archived under this name (a hand-restored copy, or
+    another meeting that happens to share a legacy filename), and
+    os.replace would otherwise destroy whatever is already there. Pick a
+    fresh, still-unique name instead of overwriting."""
+    target = archive_dir / name
+    if not target.exists():
+        return target
+    stem, suffix = Path(name).stem, Path(name).suffix
+    n = 1
+    while (archive_dir / f"{stem}.{n}{suffix}").exists():
+        n += 1
+    return archive_dir / f"{stem}.{n}{suffix}"
+
+
 def _convert(legacy) -> NewMeeting:
+    for seg in legacy.segments:
+        _validate_segment(seg)
     if legacy.created:
         finished = datetime.fromisoformat(legacy.created)
     else:
@@ -134,5 +180,5 @@ def import_json_meetings(library=None, progress=None) -> ImportReport:
     archive = settings.meetings_dir() / LEGACY_DIR_NAME
     archive.mkdir(exist_ok=True)
     for path in to_archive:
-        os.replace(path, archive / path.name)
+        os.replace(path, _archive_target(archive, path.name))
     return report

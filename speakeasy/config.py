@@ -135,3 +135,9 @@ OVERLAY_ALPHA = 0.4           # bar translucency (lower = more transparent/subtl
 FUZZY_VOCAB_ENABLED = True
 FUZZY_MIN_RATIO = 0.8        # difflib SequenceMatcher ratio floor to snap
 FUZZY_MIN_TOKEN_LEN = 3      # ignore very short tokens (too collision-prone)
+
+# The known local (mic) track has no diarization turns to break it up, so
+# without a limit a whole meeting became one segment timestamped 00:00:00.
+# Split on real pauses and cap length so search can cite a moment.
+KNOWN_SPEAKER_MAX_GAP_SECONDS = 1.5
+KNOWN_SPEAKER_MAX_SEGMENT_SECONDS = 60.0

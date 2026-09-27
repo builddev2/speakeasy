@@ -274,6 +274,23 @@ def test_known_mic_track_is_always_you():
     assert segments[0].text == "hello again"
 
 
+def test_known_track_splits_on_pause_longer_than_gap():
+    segments = meetings.known_speaker_segments(
+        [Sentence(0.0, 1.0, "one"), Sentence(2.5, 3.0, "two"),   # 1.5 s gap: merge
+         Sentence(4.6, 5.0, "three")]                            # 1.6 s gap: split
+    )
+    assert [(s.start, s.end, s.text) for s in segments] == [
+        (0.0, 3.0, "one two"), (4.6, 5.0, "three")]
+
+
+def test_known_track_caps_segment_length():
+    sentences = [Sentence(i * 10.0, i * 10.0 + 9.5, f"s{i}") for i in range(13)]
+    segments = meetings.known_speaker_segments(sentences)
+    assert all(s.end - s.start <= 60.0 for s in segments)
+    assert " ".join(s.text for s in segments) == " ".join(f"s{i}" for i in range(13))
+    assert len(segments) == 3
+
+
 def test_read_wav_downmixes_and_resamples_off_callback(tmp_path):
     path = tmp_path / "stereo-8k.wav"
     left = np.linspace(-0.5, 0.5, 800, dtype=np.float32)

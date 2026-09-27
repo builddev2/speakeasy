@@ -498,25 +498,34 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
     return segments
 
 
-def known_speaker_segments(sentences, speaker: str = "You") -> list[MeetingSegment]:
-    """Convert one known-source ASR track without running diarization."""
+def known_speaker_segments(
+    sentences,
+    speaker: str = "You",
+    *,
+    max_gap_seconds: float | None = None,
+    max_segment_seconds: float | None = None,
+) -> list[MeetingSegment]:
+    """Convert one known-source ASR track without running diarization.
+
+    Consecutive sentences merge unless the pause between them exceeds
+    max_gap_seconds or the merged segment would exceed max_segment_seconds.
+    """
+    gap = config.KNOWN_SPEAKER_MAX_GAP_SECONDS if max_gap_seconds is None else max_gap_seconds
+    cap = (config.KNOWN_SPEAKER_MAX_SEGMENT_SECONDS
+           if max_segment_seconds is None else max_segment_seconds)
     segments = []
     for sentence in sentences or []:
         text = sentence.text.strip()
         if not text:
             continue
-        if segments and segments[-1].speaker == speaker:
-            segments[-1].text = (segments[-1].text + " " + text).strip()
-            segments[-1].end = float(sentence.end)
+        start, end = float(sentence.start), float(sentence.end)
+        last = segments[-1] if segments else None
+        if (last is not None and last.speaker == speaker
+                and start - last.end <= gap and end - last.start <= cap):
+            last.text = (last.text + " " + text).strip()
+            last.end = end
         else:
-            segments.append(
-                MeetingSegment(
-                    speaker=speaker,
-                    start=float(sentence.start),
-                    end=float(sentence.end),
-                    text=text,
-                )
-            )
+            segments.append(MeetingSegment(speaker=speaker, start=start, end=end, text=text))
     return segments
 
 

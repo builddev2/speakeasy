@@ -54,6 +54,12 @@ def meetings_dir() -> Path:
     return d
 
 
+def library_path() -> Path:
+    """The meeting library (SQLite, WAL): master copy of every transcript,
+    note, tag and person. Text only — audio is never persisted."""
+    return app_support_dir() / "library.sqlite"
+
+
 def voice_profiles_dir() -> Path:
     """Versioned local speaker embeddings; enrollment audio is never stored."""
     d = app_support_dir() / "voice_profiles"

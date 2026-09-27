@@ -13,8 +13,16 @@ def profiles_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def meetings_dir(tmp_path, monkeypatch):
-    """Point the meetings dir at a throwaway directory for the test."""
+def library_path(tmp_path, monkeypatch):
+    """Point the SQLite meeting library at a throwaway file."""
+    path = tmp_path / "library.sqlite"
+    monkeypatch.setattr(settings, "library_path", lambda: path)
+    return path
+
+
+@pytest.fixture
+def meetings_dir(tmp_path, monkeypatch, library_path):
+    """Point the meetings dir (legacy JSON) at a throwaway directory."""
     d = tmp_path / "meetings"
     d.mkdir()
     monkeypatch.setattr(settings, "meetings_dir", lambda: d)

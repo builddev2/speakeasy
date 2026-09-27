@@ -462,11 +462,12 @@ class MeetingLibrary:
 
     def _person_id(self, conn, name: str, email: str | None) -> int:
         # Controller ruling: normalise the email once, here, and use the
-        # normalised value for both the lookup and the insert. Doing the
-        # lookup on the raw value and only lower-casing on insert means a
-        # differently-cased or padded email (" Refayet@x.com") misses the
-        # lookup and then raises IntegrityError on the UNIQUE constraint
-        # when the normalised form already exists.
+        # normalised value for both the lookup and the insert. The email
+        # column is UNIQUE COLLATE NOCASE, so a case-only difference is
+        # already handled by SQLite; but a padded email (" Refayet@x.com")
+        # is not — NOCASE does not trim whitespace — so without stripping
+        # here the lookup misses the existing row and the insert then
+        # raises IntegrityError on the UNIQUE constraint.
         email = str(email).strip().lower() if email else None
         email = email or None
         name = name.strip() or (email or "Unknown")

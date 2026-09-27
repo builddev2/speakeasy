@@ -168,7 +168,21 @@ def test_save_notes_partial_updates_and_tag_normalisation(library_path):
     assert m.tags == ["DMT", "VFA"]
     lib.save_notes(mid, tags=["VFA"])
     assert lib.list_tags() == [("VFA", 1)]                # orphan DMT removed
+    # list_tags() inner-joins meeting_tags, so it would hide an orphan row
+    # left behind in the `tags` table even if the cleanup didn't run; check
+    # the raw table so a regression that drops the cleanup is still caught.
+    conn = meeting_store.connect(library_path)
+    try:
+        names = {r[0] for r in conn.execute("SELECT name FROM tags")}
+    finally:
+        conn.close()
+    assert names == {"VFA"}
     assert lib.list_meetings(tag="vfa")[0].has_summary is True
+    # Replacing tags is a partial update too: action items set earlier
+    # must survive a tags-only save.
+    assert lib.get_meeting(mid).notes.action_items == ["Confirm Purvi's leave with Naresh"]
+    lib.save_notes(mid, summary="Invest in VFA, revised.")
+    assert lib.get_meeting(mid).notes.action_items == ["Confirm Purvi's leave with Naresh"]
 
 
 def test_save_notes_limits_and_missing(library_path):
@@ -212,12 +226,37 @@ def test_people_link_by_email_then_name(library_path):
     assert lib.get_meeting(a).people == ["Refayet K", "Jason"]  # organizer first
 
 
+def test_link_people_reuses_name_only_person_case_insensitively(library_path):
+    # Covers both branches of the no-email path in _person_id: the
+    # case-insensitive lookup (COLLATE NOCASE) and reusing the existing
+    # row rather than inserting a duplicate.
+    lib = MeetingLibrary()
+    a = lib.save_meeting(_new())
+    b = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))
+    lib.link_people(a, [("Jason", None, "attendee")])
+    lib.link_people(b, [("jason", None, "attendee")])
+    assert lib.list_people() == [("Jason", 2)]
+
+
+def test_link_people_replaces_previous_links(library_path):
+    # link_people replaces a meeting's people wholesale; a person dropped
+    # from the new list must no longer be linked to that meeting.
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    lib.link_people(mid, [("Jason", None, "attendee")])
+    assert lib.get_meeting(mid).people == ["Jason"]
+    lib.link_people(mid, [("Naresh", None, "attendee")])
+    assert lib.get_meeting(mid).people == ["Naresh"]
+    assert lib.list_people() == [("Naresh", 1)]  # Jason no longer linked
+
+
 def test_person_email_normalisation_merges_case_and_whitespace(library_path):
     # Controller ruling 1: normalise email once (strip + lower) and use the
-    # normalised value for both the lookup and the insert, otherwise a
-    # differently-cased or padded email misses the lookup and raises
-    # IntegrityError on the people.email UNIQUE constraint instead of
-    # reusing the existing person.
+    # normalised value for both the lookup and the insert. people.email is
+    # UNIQUE COLLATE NOCASE, so case alone is already handled by SQLite;
+    # a padded email (leading/trailing whitespace) is not, so without the
+    # strip a padded email misses the lookup and raises IntegrityError on
+    # the UNIQUE constraint instead of reusing the existing person.
     lib = MeetingLibrary()
     a = lib.save_meeting(_new())
     b = lib.save_meeting(_new(started=datetime(2026, 9, 25, 9, 0, tzinfo=EDT)))

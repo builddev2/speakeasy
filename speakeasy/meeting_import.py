@@ -76,9 +76,10 @@ def _validate_segment(seg: MeetingSegment) -> None:
     profile_id -- a hand-edited file can slip a dict or list through as
     profile_id, and it would only fail deep inside sqlite3's INSERT (which
     runs after every file has already been queued), aborting the whole
-    batch instead of just the one bad file. Check every type the DB insert
-    needs here, inside the per-file try in import_json_meetings, so a bad
-    value is skipped and reported the same way a malformed file is."""
+    batch instead of just the one bad file. Check the segment-level fields
+    the DB insert needs here (see _convert for the top-level `title` check),
+    inside the per-file try in import_json_meetings, so a bad value is
+    skipped and reported the same way a malformed file is."""
     if not isinstance(seg.speaker, str):
         raise TypeError(f"segment speaker must be str, got {type(seg.speaker).__name__}")
     if not isinstance(seg.text, str):
@@ -117,6 +118,15 @@ def _archive_target(archive_dir: Path, name: str) -> Path:
 def _convert(legacy) -> NewMeeting:
     for seg in legacy.segments:
         _validate_segment(seg)
+    # Meeting.load passes a truthy top-level `title` through unchanged
+    # (falling back to the meeting id only when it's falsy), so a
+    # hand-edited file with e.g. "title": ["x"] or "title": 2024 reaches
+    # here uncast. Left unchecked, that only fails deep inside _insert's
+    # `(new.title or "").strip()` with a raw AttributeError, after the
+    # whole batch has already been queued -- aborting every file, not just
+    # this one. Catch it here instead, inside the per-file try.
+    if not isinstance(legacy.title, str):
+        raise TypeError(f"title must be str, got {type(legacy.title).__name__}")
     if legacy.created:
         finished = datetime.fromisoformat(legacy.created)
     else:

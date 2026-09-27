@@ -118,6 +118,21 @@ def test_verification_failure_rolls_back_and_moves_nothing(meetings_dir, monkeyp
     assert path.exists()
 
 
+def test_bad_title_type_is_skipped_not_fatal(meetings_dir):
+    # Meeting.load passes a truthy top-level `title` through unchanged, so a
+    # hand-edited file with a non-string title (a list, a number, ...) must
+    # not blow up the whole import -- it should be skipped and reported like
+    # any other malformed file, with every good file around it unaffected.
+    good = _write(meetings_dir, "20260924-134023-aaaa")
+    bad = _write(meetings_dir, "20260924-140000-cccc", title=["x"])
+    report = import_json_meetings()
+    assert report.imported == 1
+    assert report.skipped == [(bad.name, "TypeError")]
+    assert MeetingLibrary().get_meeting("20260924-134023-aaaa") is not None
+    assert (meetings_dir / "legacy-json" / good.name).exists()
+    assert bad.exists()
+
+
 def test_no_half_import_across_several_meetings(meetings_dir, monkeypatch):
     # Verification failure on ONE meeting in a multi-meeting batch must roll
     # back every meeting in that batch, not just the offending one -- each

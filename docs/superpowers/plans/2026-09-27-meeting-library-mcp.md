@@ -2753,3 +2753,45 @@ Scope: `speakeasy/ui/record_prompt.py` hosting `prompt.html` in a **non-activati
 ## Execution notes
 
 (Record deviations, surprises and review findings here during execution.)
+
+### Phase 1 progress (27–28 Sep 2026, branch `meeting-library-phase1`, worktree `.claude/worktrees/meeting-library-phase1`)
+
+**Done and review-clean (Opus review with mutation checks):** Tasks 1–8, and Task 9 Steps 1–5 (split into 9a and 9b). Python suite: 489 passed. Frontend build is clean. **Stopped at Task 9 Step 6, waiting for the user's design approval.** The screenshots are in the session scratchpad, and they can be regenerated from the dev server with any `?state=` value.
+
+**Decisions made during execution** (pre-flight scan and reviews; these change the text above):
+- Schema v1: `segments` and `notes` have an explicit `id INTEGER PRIMARY KEY`, used as the FTS `content_rowid` (VACUUM-safe). `notes.meeting_id` is `UNIQUE`.
+- `connect()` retries the WAL pragma on "locked" when a fresh file is opened concurrently. The file is pre-created with mode 0600.
+- `meetings.filter_capture_health()` is shared by `Meeting` and the library.
+- Search snippets are 30 tokens (the spec), not 24. A `None` or empty query returns `[]`.
+- Import:
+  - A title that exactly equals the old default title (computed from `created`) is regenerated from the estimated start.
+  - Value types are validated per file, so a bad file is skipped rather than blocking the whole import.
+  - An existing archive is never overwritten; a unique name is used instead.
+- Auto-import runs only when the library is empty (per the spec).
+  - A failed upgrade publishes `skipped=[{"file":"","reason":<ErrorType>}]`.
+  - Skipped files are logged by name and category only.
+- A save failure is logged with frames and the error type only; the exception message is never logged (privacy).
+- Export:
+  - Collisions are tracked per run, keyed on NFC + casefold (APFS is insensitive to case and normalisation).
+  - Re-exporting overwrites the previous export's files.
+- Frontend:
+  - New tokens: `--surface-elevated` (opaque), `--scrim` and others.
+  - A shared `Sheet` component and `useFocusTrap` hook.
+  - Extra mock state `upgrade-skipped`.
+  - Older list groups are headed by month.
+  - `AgendaEvent` gains `endTime` (phase 3 contract).
+  - Mock "now" in the Today view is 4:29 PM.
+
+**For Task 10/11 (next session):**
+- 9a removed every bridge call from `meetings/App.tsx`, so the installed window is inert until Tasks 10–11 restore list/get/rename/delete/relabel/copy/export and `meetings.changed`. Do not install before Task 12.
+- Delete the dead `Meeting` JSON write paths (`new`, `save`, `rename`, `delete`, `relabel_speaker`, `list_meetings`) and prune `tests/test_meetings.py`.
+- Open design question for the user: search is not reachable while the Today view is shown.
+
+**Deferred minors, to triage at the final whole-branch review:**
+- `collapse_echoes` inner guard is untested.
+- Extreme hand-edited legacy values (`cluster_id` > int64; year-1 `created`) still abort the whole import batch.
+- `_upgrade_library` still uses `traceback.print_exc()`, whose message may contain a path.
+- ⌘F refocus and editable-target guard.
+- No-op media-query rules in the dock, Switch and ConnectClaude CSS.
+- Pre-existing raw colours in `dock/App.module.css`.
+- The full list is in the SDD ledger (`.superpowers/sdd/2026-09-27-meeting-library-mcp/progress.md`, git-ignored).

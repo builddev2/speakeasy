@@ -162,3 +162,14 @@ def snippet_parts(snippet: str) -> list[dict]:
         elif piece:
             parts.append({"text": piece, "hit": hit})
     return parts
+
+
+ESCAPE_EVENT = "window.escape"
+
+
+def forward_escape(emit: Callable[[str, Any], None]) -> str:
+    """Native fallback for Esc: AppKit delivers an Esc the page did not mark
+    handled (no preventDefault) as cancelOperation: on the web view. Tell the
+    page, which routes it to the topmost overlay only. Returns the event name."""
+    emit(ESCAPE_EVENT, None)
+    return ESCAPE_EVENT

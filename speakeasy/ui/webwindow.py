@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from speakeasy import settings
-from speakeasy.ui.webbridge import BridgeDispatcher, EvalQueue
+from speakeasy.ui.webbridge import BridgeDispatcher, EvalQueue, forward_escape
 
 _handler_classes = None
 
@@ -77,7 +77,28 @@ def _make_handler_classes():
         def mouseDown_(self, event):
             self.window().performWindowDragWithEvent_(event)
 
-    _handler_classes = (SpeakeasyScriptHandler, SpeakeasyNavDelegate, SpeakeasyDragStrip)
+    from WebKit import WKWebView
+
+    class SpeakeasyWebView(WKWebView):
+        """WKWebView that forwards an unhandled Esc to the page.
+
+        If the page's keydown handler calls preventDefault, WebKit treats Esc
+        as consumed. Otherwise (or when the text-input system takes it for a
+        focused field) AppKit sends cancelOperation: up the responder chain,
+        where nothing would act on it; forward it so overlays still close.
+        """
+
+        def cancelOperation_(self, sender):
+            owner = getattr(self, "owner", None)
+            if owner is not None:
+                forward_escape(owner.emit)
+
+    _handler_classes = (
+        SpeakeasyScriptHandler,
+        SpeakeasyNavDelegate,
+        SpeakeasyDragStrip,
+        SpeakeasyWebView,
+    )
     return _handler_classes
 
 
@@ -100,11 +121,11 @@ class WebWindow:
             NSViewWidthSizable,
         )
         from Foundation import NSMakeRect, NSURL
-        from WebKit import WKWebView, WKWebViewConfiguration
+        from WebKit import WKWebViewConfiguration
 
         from speakeasy.ui import glass
 
-        script_handler_cls, nav_delegate_cls, drag_strip_cls = _make_handler_classes()
+        script_handler_cls, nav_delegate_cls, drag_strip_cls, webview_cls = _make_handler_classes()
 
         self._dispatcher = dispatcher
         self._queue = EvalQueue()
@@ -128,11 +149,12 @@ class WebWindow:
             self._script_handler, "speakeasy"
         )
 
-        webview = WKWebView.alloc().initWithFrame_configuration_(
+        webview = webview_cls.alloc().initWithFrame_configuration_(
             NSMakeRect(0, 0, width, height), config
         )
         # Transparent webview: the NSVisualEffectView behind supplies the blur;
         # the page paints only its semi-transparent surfaces on top.
+        webview.owner = self
         webview.setValue_forKey_(False, "drawsBackground")
         webview.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
         self._nav_delegate = nav_delegate_cls.alloc().initWithOwner_(self)

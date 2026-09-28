@@ -10,7 +10,9 @@ from speakeasy.ui.webbridge import (
     BridgeDispatcher,
     EvalQueue,
     capture_application_options,
+    ESCAPE_EVENT,
     day_label,
+    forward_escape,
     format_timestamp,
     segments_to_lines,
     snippet_parts,
@@ -213,3 +215,11 @@ class TestJavaScriptNumberIds:
         sent = []
         d.dispatch({"id": 3.5, "method": "ping", "params": {}}, sent.append)
         assert sent == []
+
+
+class TestForwardEscape:
+    def test_emits_window_escape_with_no_payload(self):
+        calls = []
+        name = forward_escape(lambda event, payload: calls.append((event, payload)))
+        assert name == ESCAPE_EVENT == "window.escape"
+        assert calls == [("window.escape", None)]

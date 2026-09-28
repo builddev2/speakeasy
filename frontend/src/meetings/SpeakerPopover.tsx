@@ -36,6 +36,8 @@ export function SpeakerPopover({ label, anchor, onCancel, onRename }: SpeakerPop
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       onCancel();
       return;
     }

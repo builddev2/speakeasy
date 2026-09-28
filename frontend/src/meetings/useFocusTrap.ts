@@ -17,6 +17,7 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, onEsca
   return useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         e.stopPropagation();
         onEscape();
         return;

@@ -218,6 +218,7 @@ export function MeetingDetail({
     }
     function onDocKeyDown(e: globalThis.KeyboardEvent) {
       if (e.key === 'Escape') {
+        e.preventDefault();
         setMenuOpen(false);
         moreButtonRef.current?.focus();
       }
@@ -311,7 +312,11 @@ export function MeetingDetail({
             value={searchDraft}
             onChange={(e) => onSearchInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') clearSearch();
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                clearSearch();
+              }
             }}
           />
         </div>
@@ -340,7 +345,11 @@ export function MeetingDetail({
                 onChange={(e) => setRenameText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') commitRename();
-                  if (e.key === 'Escape') setRenaming(false);
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRenaming(false);
+                  }
                 }}
                 onBlur={() => setRenaming(false)}
               />
@@ -504,6 +513,8 @@ export function MeetingDetail({
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.stopPropagation();
                         closeFindBar();
                       } else if (e.key === 'Enter') {
                         e.preventDefault();

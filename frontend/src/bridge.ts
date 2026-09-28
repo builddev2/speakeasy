@@ -72,3 +72,28 @@ window.speakeasyBridge = bridge;
 if (bridge.embedded) {
   document.documentElement.classList.add('embedded');
 }
+
+/*
+ * Esc in WKWebView: page handlers call preventDefault on Escape so WebKit
+ * treats it as consumed. When Esc instead reaches AppKit as cancelOperation:,
+ * Python emits `window.escape`; re-dispatch it as a synthetic keydown on the
+ * focused element so the same topmost-overlay handlers run (they stopPropagation,
+ * so only one layer closes). A real Escape keydown seen just before is treated
+ * as already delivered, so one press never closes two layers.
+ */
+const ESCAPE_DEDUPE_MS = 200;
+let lastRealEscape = -Infinity;
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (e.key === 'Escape' && e.isTrusted) lastRealEscape = performance.now();
+  },
+  true,
+);
+bridge.on('window.escape', () => {
+  if (performance.now() - lastRealEscape < ESCAPE_DEDUPE_MS) return;
+  const target = document.activeElement ?? document.body;
+  target.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }),
+  );
+});

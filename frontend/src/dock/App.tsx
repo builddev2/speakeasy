@@ -284,7 +284,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
           status={
             isRecording ? (
               <>
-                <StatusDot variant="rec" /> Recording{linkedEvent ? <> · {linkedEvent.title}</> : ' meeting'}{' '}
+                <StatusDot variant="rec" /> Recording · {linkedEvent ? linkedEvent.title : 'Untitled meeting'}{' '}
                 <span className={styles.timer}>· {formatTimer(elapsed)}</span>
               </>
             ) : (
@@ -318,43 +318,56 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             <span className={app.captureMode === 'mic_and_system' ? styles.captureGood : styles.captureWarning}>
               {liveCaptureStatus(app)}
             </span>
-            {linkedEvent && (
-              <div className={styles.eventMenuWrap} ref={eventMenuRef}>
-                <button
-                  className={styles.eventMenuButton}
-                  aria-label="Event options"
-                  aria-haspopup="menu"
-                  aria-expanded={eventMenuOpen}
-                  onClick={() => setEventMenuOpen((v) => !v)}
-                >
-                  ⌄
-                </button>
-                {eventMenuOpen && (
-                  <div className={styles.eventMenu} role="menu">
+            <div className={styles.eventMenuWrap} ref={eventMenuRef}>
+              <button
+                className={styles.eventMenuButton}
+                aria-label="Event options"
+                aria-haspopup="menu"
+                aria-expanded={eventMenuOpen}
+                onClick={() => setEventMenuOpen((v) => !v)}
+              >
+                ⌄
+              </button>
+              {eventMenuOpen && (
+                <div className={styles.eventMenu} role="menu">
+                  {linkedEvent ? (
+                    <>
+                      <button
+                        role="menuitem"
+                        className={styles.eventMenuItem}
+                        onClick={() => {
+                          setEventMenuOpen(false);
+                          console.log('change-event');
+                        }}
+                      >
+                        Change Event…
+                      </button>
+                      <button
+                        role="menuitem"
+                        className={styles.eventMenuItem}
+                        onClick={() => {
+                          setEventMenuOpen(false);
+                          setLinkedEvent(null);
+                        }}
+                      >
+                        Unlink
+                      </button>
+                    </>
+                  ) : (
                     <button
                       role="menuitem"
                       className={styles.eventMenuItem}
                       onClick={() => {
                         setEventMenuOpen(false);
-                        console.log('change-event');
+                        console.log('link-to-event');
                       }}
                     >
-                      Change Event…
+                      Link to Event…
                     </button>
-                    <button
-                      role="menuitem"
-                      className={styles.eventMenuItem}
-                      onClick={() => {
-                        setEventMenuOpen(false);
-                        setLinkedEvent(null);
-                      }}
-                    >
-                      Unlink
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

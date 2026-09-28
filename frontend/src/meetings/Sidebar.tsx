@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import type { Filters } from '../mock/meetings';
 import styles from './Sidebar.module.css';
 
@@ -7,11 +8,14 @@ interface SidebarProps {
   filters: Filters;
   activeFilter: SidebarFilter;
   activeToday: boolean;
-  todayCount: number;
+  /** Undefined (no count shown) when Calendar isn't connected. */
+  todayCount?: number;
   onSelectFilter: (filter: SidebarFilter) => void;
   onSelectToday: () => void;
   onConnectClaude: () => void;
   onOpenSettings: () => void;
+  connectClaudeRef?: RefObject<HTMLButtonElement>;
+  settingsRef?: RefObject<HTMLButtonElement>;
 }
 
 function sameFilter(a: SidebarFilter, b: SidebarFilter): boolean {
@@ -29,6 +33,8 @@ export function Sidebar({
   onSelectToday,
   onConnectClaude,
   onOpenSettings,
+  connectClaudeRef,
+  settingsRef,
 }: SidebarProps) {
   return (
     <nav className={styles.sidebar} aria-label="Meetings sidebar">
@@ -40,7 +46,7 @@ export function Sidebar({
             onClick={onSelectToday}
           >
             <span className={styles.rowLabel}>Today</span>
-            <span className={styles.count}>{todayCount}</span>
+            {todayCount !== undefined && <span className={styles.count}>{todayCount}</span>}
           </button>
         </div>
       )}
@@ -103,12 +109,18 @@ export function Sidebar({
       {(filters.features.claude || filters.features.settings) && (
         <div className={styles.footer}>
           {filters.features.claude && (
-            <button className={styles.footerRow} onClick={onConnectClaude}>
+            <button ref={connectClaudeRef} className={styles.footerRow} onClick={onConnectClaude}>
               Connect Claude
             </button>
           )}
           {filters.features.settings && (
-            <button className={styles.gear} aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+            <button
+              ref={settingsRef}
+              className={styles.gear}
+              aria-label="Settings"
+              title="Settings"
+              onClick={onOpenSettings}
+            >
               ⚙
             </button>
           )}

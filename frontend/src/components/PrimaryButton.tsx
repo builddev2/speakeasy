@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import type { ReactNode } from 'react';
 import styles from './PrimaryButton.module.css';
 
@@ -8,11 +9,14 @@ interface PrimaryButtonProps {
   onClick?: () => void;
 }
 
-export function PrimaryButton({ children, danger = false, className, onClick }: PrimaryButtonProps) {
+export const PrimaryButton = forwardRef<HTMLButtonElement, PrimaryButtonProps>(function PrimaryButton(
+  { children, danger = false, className, onClick },
+  ref,
+) {
   const classes = [styles.btn, danger ? styles.danger : '', className].filter(Boolean).join(' ');
   return (
-    <button className={classes} onClick={onClick}>
+    <button ref={ref} className={classes} onClick={onClick}>
       {children}
     </button>
   );
-}
+});

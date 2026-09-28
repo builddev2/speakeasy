@@ -29,14 +29,24 @@ export function PromptApp({ eventTitle = 'Weekly 1:1 — Alex', attendeeCount = 
     return () => window.clearTimeout(timer);
   }, [phase]);
 
+  // Mock-only loop: bring the banner back after a dismissal so every phase
+  // can be re-checked in preview without reloading. The real behavior —
+  // Not Now (or 5 minutes with no action) dismissing for that event only —
+  // lands in phase 4 once this is wired to the bridge.
+  useEffect(() => {
+    if (phase !== 'dismissed') return;
+    const timer = window.setTimeout(() => setPhase('prompt'), 1500);
+    return () => window.clearTimeout(timer);
+  }, [phase]);
+
   function onRecord() {
     setPhase('recording');
-    if (bridge.embedded) console.log('record');
+    if (!bridge.embedded) console.log('record');
   }
 
   function onNotNow() {
     setPhase('dismissed');
-    if (bridge.embedded) console.log('not-now');
+    if (!bridge.embedded) console.log('not-now');
   }
 
   if (phase === 'dismissed') {

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { useRef, useState } from 'react';
+import { Sheet } from './Sheet';
+import { Switch } from '../components/Switch';
+import { PrimaryButton } from '../components/PrimaryButton';
 import styles from './SettingsSheet.module.css';
 
 interface Calendar {
@@ -38,22 +40,11 @@ const INITIAL_ACCOUNTS: CalendarAccount[] = [
   },
 ];
 
-function focusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>('input, button, [tabindex]:not([tabindex="-1"])'),
-  ).filter((el) => !el.hasAttribute('disabled'));
-}
-
 /** Meetings section of Settings: recording offer toggle, calendar checklist, export. */
 export function SettingsSheet({ onClose, onExportAll }: SettingsSheetProps) {
   const [offerToRecord, setOfferToRecord] = useState(true);
   const [accounts, setAccounts] = useState<CalendarAccount[]>(INITIAL_ACCOUNTS);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
+  const doneRef = useRef<HTMLButtonElement>(null);
 
   function toggleCalendar(accountName: string, calendarName: string) {
     setAccounts((prev) =>
@@ -70,68 +61,45 @@ export function SettingsSheet({ onClose, onExportAll }: SettingsSheetProps) {
     );
   }
 
-  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      onClose();
-      return;
-    }
-    if (e.key === 'Tab' && sheetRef.current) {
-      const focusable = focusableElements(sheetRef.current);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }
-
   return (
-    <div className={styles.overlay} onKeyDown={onKeyDown}>
-      <div ref={sheetRef} className={styles.sheet} role="dialog" aria-modal="true" aria-label="Settings">
-        <div className={styles.header}>
-          <div className={styles.title}>Settings</div>
-          <button ref={closeRef} className={styles.close} aria-label="Close" onClick={onClose}>
-            ×
-          </button>
-        </div>
+    <Sheet ariaLabel="Settings" onClose={onClose} initialFocusRef={doneRef} className={styles.sheet}>
+      <div className={styles.title}>Settings</div>
 
-        <label className={styles.toggleRow}>
-          <span>Offer to record calendar meetings</span>
-          <input
-            type="checkbox"
-            checked={offerToRecord}
-            onChange={(e) => setOfferToRecord(e.target.checked)}
-          />
-        </label>
-
-        <div className={styles.sectionTitle}>Calendars</div>
-        <div className={styles.calendarList}>
-          {accounts.map((account) => (
-            <div key={account.name} className={styles.accountGroup}>
-              <div className={styles.accountName}>{account.name}</div>
-              {account.calendars.map((cal) => (
-                <label key={cal.name} className={styles.calendarRow}>
-                  <input
-                    type="checkbox"
-                    checked={cal.enabled}
-                    onChange={() => toggleCalendar(account.name, cal.name)}
-                  />
-                  <span>{cal.name}</span>
-                </label>
-              ))}
-            </div>
-          ))}
-        </div>
-
-        <button className={styles.exportButton} onClick={onExportAll}>
-          Export all meetings…
-        </button>
+      <div className={styles.toggleRow}>
+        <span id="offer-to-record-label">Offer to record calendar meetings</span>
+        <Switch checked={offerToRecord} onChange={setOfferToRecord} ariaLabelledBy="offer-to-record-label" />
       </div>
-    </div>
+
+      <div className={styles.sectionTitle}>Calendars</div>
+      <div className={styles.calendarList}>
+        {accounts.map((account) => (
+          <div key={account.name} className={styles.accountGroup}>
+            <div className={styles.accountName}>{account.name}</div>
+            {account.calendars.map((cal) => (
+              <label key={cal.name} className={styles.calendarRow}>
+                <input
+                  type="checkbox"
+                  checked={cal.enabled}
+                  onChange={() => toggleCalendar(account.name, cal.name)}
+                />
+                <span>{cal.name}</span>
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <button className={styles.exportButton} onClick={onExportAll}>
+        Export all meetings…
+      </button>
+
+      <div className={styles.footer}>
+        <div className={styles.doneWrap}>
+          <PrimaryButton ref={doneRef} onClick={onClose}>
+            Done
+          </PrimaryButton>
+        </div>
+      </div>
+    </Sheet>
   );
 }

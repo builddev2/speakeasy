@@ -66,6 +66,8 @@ export interface AgendaEvent {
   // phase 3
   key: string;
   time: string;
+  /** Null when no end time is known yet (e.g. a further-out Upcoming row). */
+  endTime: string | null;
   title: string;
   attendeeCount: number;
   status: 'recorded' | 'recording' | 'record' | 'none';
@@ -483,9 +485,40 @@ export const MOCK_STATUS: Record<'idle' | 'upgrading' | 'done' | 'doneWithSkips'
 // ---------------------------------------------------------------------------
 
 export const MOCK_AGENDA: AgendaEvent[] = [
-  { key: 'a1', time: '9:00 AM', title: 'Stand-up', attendeeCount: 3, status: 'recorded', meetingId: standupDetail.id },
-  { key: 'a2', time: '1:00 PM', title: 'Weekly 1:1 — Alex', attendeeCount: 2, status: 'recorded', meetingId: oneOnOneDetail.id },
-  { key: 'a3', time: '3:30 PM', title: 'Design Sync', attendeeCount: 4, status: 'recording', meetingId: null },
-  { key: 'a4', time: '4:30 PM', title: 'Roadmap Review', attendeeCount: 5, status: 'record', meetingId: null },
-  { key: 'a5', time: '5:00 PM', title: 'Backlog Grooming', attendeeCount: 3, status: 'none', meetingId: null },
+  // End times for the two recorded rows match their meeting's own duration
+  // (standupMeta/oneOnOneMeta above), so they're checkable against it.
+  { key: 'a1', time: '9:00 AM', endTime: '9:12 AM', title: 'Stand-up', attendeeCount: 3, status: 'recorded', meetingId: standupDetail.id },
+  { key: 'a2', time: '1:00 PM', endTime: '1:23 PM', title: 'Weekly 1:1 — Alex', attendeeCount: 2, status: 'recorded', meetingId: oneOnOneDetail.id },
+  { key: 'a3', time: '3:30 PM', endTime: '4:30 PM', title: 'Design Sync', attendeeCount: 4, status: 'recording', meetingId: null },
+  { key: 'a4', time: '4:30 PM', endTime: '5:00 PM', title: 'Roadmap Review', attendeeCount: 5, status: 'record', meetingId: null },
+  { key: 'a5', time: '5:00 PM', endTime: '5:30 PM', title: 'Backlog Grooming', attendeeCount: 3, status: 'none', meetingId: null },
+];
+
+// ---------------------------------------------------------------------------
+// Upcoming agenda (phase 3; next 7 days, collapsed by day). Days without
+// events are omitted, as the spec asks.
+// ---------------------------------------------------------------------------
+
+export const MOCK_UPCOMING: { dayLabel: string; events: AgendaEvent[] }[] = [
+  {
+    dayLabel: 'Mon 28 Sep',
+    events: [
+      { key: 'u1', time: '9:00 AM', endTime: null, title: 'Stand-up', attendeeCount: 3, status: 'none', meetingId: null },
+      { key: 'u2', time: '2:00 PM', endTime: null, title: 'Customer Call — Fenwick Labs', attendeeCount: 2, status: 'none', meetingId: null },
+    ],
+  },
+  {
+    dayLabel: 'Tue 29 Sep',
+    events: [
+      { key: 'u3', time: '9:00 AM', endTime: null, title: 'Stand-up', attendeeCount: 3, status: 'none', meetingId: null },
+      { key: 'u4', time: '11:00 AM', endTime: null, title: 'Design Review — Checkout Flow', attendeeCount: 3, status: 'none', meetingId: null },
+      { key: 'u5', time: '3:00 PM', endTime: null, title: 'Sprint Planning', attendeeCount: 4, status: 'none', meetingId: null },
+    ],
+  },
+  {
+    dayLabel: 'Thu 1 Oct',
+    events: [
+      { key: 'u6', time: '10:00 AM', endTime: null, title: 'Roadmap Review', attendeeCount: 5, status: 'none', meetingId: null },
+    ],
+  },
 ];

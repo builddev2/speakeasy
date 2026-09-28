@@ -15,7 +15,7 @@ import { TodayView } from './TodayView';
 import type { TodayConnection } from './TodayView';
 import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
-import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS, MOCK_AGENDA } from '../mock/meetings';
+import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS, MOCK_AGENDA, MOCK_UPCOMING } from '../mock/meetings';
 import type {
   MeetingMeta,
   MeetingDetail as MeetingDetailType,
@@ -106,6 +106,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [searchFocusToken, setSearchFocusToken] = useState<number | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const jumpNonceRef = useRef(0);
+  const connectClaudeButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const libraryStatus: LibraryStatus =
     mockState === 'empty'
@@ -151,6 +153,16 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   function onSelectTodayMeeting(meetingId: string) {
     setToday(false);
     select(meetingId);
+  }
+
+  function closeConnectClaude() {
+    setConnectClaudeOpen(false);
+    connectClaudeButtonRef.current?.focus();
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    settingsButtonRef.current?.focus();
   }
 
   function onSearchChange(value: string) {
@@ -228,11 +240,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           filters={filters}
           activeFilter={filter}
           activeToday={today}
-          todayCount={isMock ? MOCK_AGENDA.length : 0}
+          todayCount={isMock && todayConnection === 'connected' ? MOCK_AGENDA.length : undefined}
           onSelectFilter={onSelectFilter}
           onSelectToday={onSelectToday}
           onConnectClaude={() => setConnectClaudeOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          connectClaudeRef={connectClaudeButtonRef}
+          settingsRef={settingsButtonRef}
         />
 
         {!today &&
@@ -260,6 +274,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           <TodayView
             connection={todayConnection}
             agenda={isMock ? MOCK_AGENDA : []}
+            upcoming={isMock ? MOCK_UPCOMING : []}
             onSelectMeeting={onSelectTodayMeeting}
             onRecord={(key) => console.log('record', key)}
             onConnectCalendar={() => console.log('connect-calendar')}
@@ -283,10 +298,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           />
         )}
 
-        {connectClaudeOpen && <ConnectClaudeSheet onClose={() => setConnectClaudeOpen(false)} />}
+        {connectClaudeOpen && <ConnectClaudeSheet onClose={closeConnectClaude} />}
 
         {settingsOpen && (
-          <SettingsSheet onClose={() => setSettingsOpen(false)} onExportAll={() => console.log('export-all-meetings')} />
+          <SettingsSheet onClose={closeSettings} onExportAll={() => console.log('export-all-meetings')} />
         )}
 
         {popover && (

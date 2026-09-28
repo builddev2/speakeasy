@@ -2847,3 +2847,10 @@ Scope: `speakeasy/ui/record_prompt.py` hosting `prompt.html` in a **non-activati
 - dictation in TextEdit.
 
 **Incident:** during the final review, a subagent's "dry run on a copy" ran against the real data directory (06:01). It created `library.sqlite` and moved the 92 JSON files into `legacy-json/`. No data was lost. With the user's agreement, the controller backed everything up to `~/Library/Application Support/Speakeasy-backup-20260928/`, restored the 92 files (checksums verified), and removed the stray library, so the installed app did the first import itself. Lesson: tell reviewers explicitly to point `HOME`, or `settings.app_support_dir`, at a temp dir for any real-data dry run, and check that they did.
+
+**User test recording (28 Sep, "1on1 Todd TEST", 72.6 s, mic + system audio):**
+- Stored start is 11:10:34 local (18:10:34Z, offset −420). Processing finished at 11:12:01, so the auto title "… Sep 28, 11:10 AM" carries the **start** time. Review issue 1 is fixed.
+- "You" came out as 2 segments (17.8 s and 53.0 s) instead of one. The pause/cap split works.
+- The system track produced one "Speaker 1" segment of 71.9 s. The 60 s cap applies only to the known mic track, not to diarised system-audio segments. Follow-up: consider capping system-track segments too.
+- The user did one dictation in TextEdit (user-reported). TextEdit insertion was not independently checked; Codex and Teams insertion were not re-tested (insertion code is unchanged).
+- Delete via the sheet was not exercised: the user may be in a call, and the Meetings window was on another display. The test meeting is still in the library for the user to delete.

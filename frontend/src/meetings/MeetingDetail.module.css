@@ -448,8 +448,6 @@
   padding: 6px;
   border-radius: 10px;
   background: var(--surface-elevated);
-  backdrop-filter: blur(30px) saturate(1.4);
-  -webkit-backdrop-filter: blur(30px) saturate(1.4);
   border: 0.5px solid var(--hairline);
   box-shadow: var(--shadow-panel);
   z-index: 10;
@@ -508,7 +506,6 @@
   .summaryPane,
   .transcriptPane,
   .findBar,
-  .menu,
   .searchInput,
   .findInput {
     background: #1b1f1d;

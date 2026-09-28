@@ -2826,3 +2826,24 @@ Scope: `speakeasy/ui/record_prompt.py` hosting `prompt.html` in a **non-activati
   - `UpcomingDay` is declared twice.
 - `scripts/uninstall.sh` usage line and prompt still say only "profiles and settings".
 - Earlier `traceback.print_exc()` sites in `engine.py` predate this branch.
+
+### Installed-app check (28 Sep 2026, build e81254f, installed in `/Applications`)
+
+**Real first launch:** done after restoring the pre-migration state. See the incident note below.
+- All 92 meetings imported (19,830 segments, all marked `≈`, longest segment 119.9 s). All 92 originals are in `meetings/legacy-json/`. `library.sqlite` is 0600.
+- The Meetings window lists them grouped by weekday or month. Today, Connect Claude and the gear are hidden. `≈` shows on the header note and on line times.
+- Search on real data returns ranked, highlighted snippets. Choosing a result selects the meeting and scrolls the transcript to the line.
+- Clicking a speaker opens the rename popover, which closes review issue 6. Cancel closes it with no change.
+
+**Bugs found at launch** (to fix in a new session, per CLAUDE.md):
+- **B1:** macOS autocorrect rewrites the search text when focus leaves the field. "cognos" became "Cognoscenti", and the search showed "No results". Set `spellCheck={false}`, `autoCorrect="off"`, `autoCapitalize="off"` and `autoComplete="off"` on the search, find, rename and speaker fields.
+- **B2:** The "92 meetings upgraded" banner does not fade after 4 s; it stayed visible for minutes with no skipped files. Suspect the fade guard in `LibraryBanner.tsx` treats an empty `skipped` array as "has skipped files", or the timer never arms in embedded mode.
+- **B3:** Esc does not close the speaker popover in the real app (WKWebView); Cancel works. Check how Escape reaches the page. The window may consume it as `cancelOperation:` before the page sees the keydown. Check ConfirmSheet and the sheets too.
+
+**Not yet verified:**
+- the 820×520 minimum window size;
+- deleting a throwaway recording through the sheet;
+- a new 1-minute recording (start-time title; "You" split into several segments);
+- dictation in TextEdit.
+
+**Incident:** during the final review, a subagent's "dry run on a copy" ran against the real data directory (06:01). It created `library.sqlite` and moved the 92 JSON files into `legacy-json/`. No data was lost. With the user's agreement, the controller backed everything up to `~/Library/Application Support/Speakeasy-backup-20260928/`, restored the 92 files (checksums verified), and removed the stray library, so the installed app did the first import itself. Lesson: tell reviewers explicitly to point `HOME`, or `settings.app_support_dir`, at a temp dir for any real-data dry run, and check that they did.

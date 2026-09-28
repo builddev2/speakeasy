@@ -85,8 +85,10 @@ def main() -> None:
                 print(f"  skipped {name}: {reason}")
         if args.rebuild_index:
             conn = meeting_store.connect()
-            meeting_store.rebuild_derived(conn)
-            conn.close()
+            try:
+                meeting_store.rebuild_derived(conn)
+            finally:
+                conn.close()
             print("Rebuilt meeting search index and cleared the calendar cache.")
         if args.export_meetings:
             print(f"Exported {export_all(Path(args.export_meetings))} meeting(s).")

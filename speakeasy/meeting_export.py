@@ -4,7 +4,7 @@ Markdown file per meeting, for backups and troubleshooting."""
 import re
 from pathlib import Path
 
-from .meeting_library import MeetingLibrary
+from .meeting_library import MeetingLibrary, MeetingNotFound
 from .meetings import render_md
 
 _UNSAFE = re.compile(r'[/\\:*?"<>|\x00-\x1f]')
@@ -41,20 +41,31 @@ def export_all(folder: Path, library=None) -> int:
     folder.mkdir(parents=True, exist_ok=True)
     count = 0
     offset = 0
+    # Names already written *this run*, not files already on disk: re-running
+    # an export into the same folder must overwrite each meeting's own file
+    # in place, not pile up "(2)", "(3)", ... copies of everything every time.
+    used_names = set()
     while batch := library.list_meetings(limit=500, offset=offset):
         for summary in batch:
-            stored = library.get_meeting(summary.meeting_id)
+            try:
+                stored = library.get_meeting(summary.meeting_id)
+            except MeetingNotFound:
+                # Deleted between the list() page and this get(); skip it
+                # rather than crashing the rest of the export.
+                continue
             name = safe_filename(stored.title, stored.meeting_id)
             day = stored.local_start.strftime("%Y-%m-%d")
-            path = folder / f"{day} {name}.md"
+            base = f"{day} {name}"
             # Two meetings can share a title on the same day; a numeric
             # suffix keeps the second export from silently overwriting the
             # first instead of losing a meeting's transcript.
+            candidate = base
             suffix = 2
-            while path.exists():
-                path = folder / f"{day} {name} ({suffix}).md"
+            while candidate in used_names:
+                candidate = f"{base} ({suffix})"
                 suffix += 1
-            path.write_text(render_export_md(stored), encoding="utf-8")
+            used_names.add(candidate)
+            (folder / f"{candidate}.md").write_text(render_export_md(stored), encoding="utf-8")
             count += 1
         offset += len(batch)
     return count

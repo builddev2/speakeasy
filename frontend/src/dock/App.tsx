@@ -270,6 +270,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   }
 
   const idleInfo = isRecording ? null : STATUS[app.mode as Exclude<EngineMode, 'meeting_recording'>];
+  // Phase 3 (event linking) is not wired yet. The real, embedded Dock keeps the
+  // pre-phase-3 "Recording meeting" label and no event menu; only the approved
+  // mock `?state=recording-linked` preview shows the new label and menu.
+  const showEventUI = isMock && dockMockState === 'recording-linked';
   const name = bridge.embedded ? app.profileName : operatorName;
   const selectedAppAvailable = captureSelection === 'global'
     || captureApps.some((application) => String(application.pid) === captureSelection);
@@ -284,7 +288,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
           status={
             isRecording ? (
               <>
-                <StatusDot variant="rec" /> Recording · {linkedEvent ? linkedEvent.title : 'Untitled meeting'}{' '}
+                <StatusDot variant="rec" />{' '}
+                {showEventUI
+                  ? <>Recording · {linkedEvent ? linkedEvent.title : 'Untitled meeting'}</>
+                  : 'Recording meeting'}{' '}
                 <span className={styles.timer}>· {formatTimer(elapsed)}</span>
               </>
             ) : (
@@ -318,6 +325,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             <span className={app.captureMode === 'mic_and_system' ? styles.captureGood : styles.captureWarning}>
               {liveCaptureStatus(app)}
             </span>
+            {showEventUI && (
             <div className={styles.eventMenuWrap} ref={eventMenuRef}>
               <button
                 className={styles.eventMenuButton}
@@ -368,6 +376,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
 

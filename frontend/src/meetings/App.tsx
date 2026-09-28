@@ -343,6 +343,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         .then((list) => {
           setMetas(list);
           setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title } } : prev));
+          // Renaming doesn't fire `meetings.changed` (that's only emitted for
+          // library imports), so the sidebar's tag/people counts and total
+          // would otherwise go stale until the next unrelated refresh.
+          void bridge
+            .call<Filters>('meetings.filters')
+            .then(setFilters)
+            .catch((err) => console.error('meetings.filters failed', err));
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);
@@ -426,6 +433,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           // `list` already reflects the active tag/person filter, so it
           // doubles as the "remaining visible" list.
           select(nextSelectionAfterDelete(id, list));
+          // Deleting doesn't fire `meetings.changed` either (see the rename
+          // handler above) — refetch so the sidebar total and tag/people
+          // counts stay correct.
+          void bridge
+            .call<Filters>('meetings.filters')
+            .then(setFilters)
+            .catch((err) => console.error('meetings.filters failed', err));
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);
@@ -472,7 +486,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           ) : visibleMetas.length === 0 ? (
             <div className={styles.listColumn}>
               <LibraryBanner status={libraryStatus} />
-              <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+              {libraryStatus.state !== 'upgrading' && (
+                <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+              )}
             </div>
           ) : (
             <div className={styles.listColumn}>

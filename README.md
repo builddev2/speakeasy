@@ -210,8 +210,8 @@ A 2-hour meeting takes several minutes to process; **Cancel Processing** in
 the menu discards it. When it finishes, the transcript is saved to the
 meeting library (below) and appears under **Meetings…**, where you can:
 
-- **Search** across every saved meeting — titles, transcript text, and notes
-  — with ranked, highlighted results,
+- **Search** across every saved meeting — transcript text and speaker names,
+  plus notes (summary and action items) — with ranked, highlighted results,
 - **Copy** it to the clipboard and paste it into any notepad,
 - **Export…** it as a `.txt` or `.md` file,
 - **Rename…** or **Delete** it.
@@ -221,9 +221,10 @@ meeting library (below) and appears under **Meetings…**, where you can:
 Meetings are stored in one local SQLite database,
 `~/Library/Application Support/Speakeasy/library.sqlite` (WAL mode; text
 only, same as before — audio is never written to it). It replaces the old
-one-JSON-file-per-meeting store and adds full-text search, tags, people, and
-notes without changing what leaves your Mac: everything still stays local
-and offline.
+one-JSON-file-per-meeting store and adds full-text search, plus room for
+tags, people, and notes — set via the Claude connection (phase 2) and
+calendar linking (phase 3), not yet in this phase — without changing what
+leaves your Mac: everything still stays local and offline.
 
 The first time the library is empty, Speakeasy automatically imports any
 legacy per-meeting JSON files it finds, once, and moves the originals,
@@ -233,17 +234,17 @@ now malformed) is left where it was and reported by name and category rather
 than blocking the rest of the import. Imported meetings didn't record their
 real start time, so it's estimated as the old "finished" timestamp minus the
 meeting's duration; those meetings are marked approximate and show a **≈**
-next to their time in the list. A legacy meeting that was never renamed gets
-a fresh title generated from that estimated start, instead of importing the
-stale end-time title.
+next to the start time in the detail header and on each transcript line's
+time. A legacy meeting that was never renamed gets a fresh title generated
+from that estimated start, instead of importing the stale end-time title.
 
 Three CLI commands operate on the library directly (`.venv/bin/python -m
 speakeasy <flag>`):
 
 - `--import-json-meetings` — run the same legacy-JSON import manually,
-- `--rebuild-index` — rebuild the search index and the calendar cache (both
-  are derived from the meetings/segments/notes tables and can always be
-  regenerated),
+- `--rebuild-index` — rebuild the search indexes from the meetings/segments/
+  notes tables, and clear the calendar cache (it is refilled by the phase-3
+  calendar sync, not rebuilt from the meeting tables),
 - `--export-meetings DIR` — write every saved meeting as one Markdown file
   into `DIR`; re-running overwrites that run's previous files in place
   rather than piling up duplicates, and two meetings whose exported names
@@ -657,6 +658,10 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   thin native controllers around those web-rendered pages. They expose live
   engine/capture state, meeting actions and speaker relabeling, and the guided
   training lifecycle while preserving the existing executor boundaries
+- **`ui/meetings_bridge.py`** — the pure-Python handlers behind the Meetings
+  window (no AppKit), so the payload shapes the React page depends on are
+  unit-tested directly; `ui/meetings_window.py`'s ObjC controller only adds
+  Copy/Export and window glue on top
 - **`meeting_recorder.py`** — dual-track coordination plus long-form mic
   capture: an int16 stream whose
   audio callback only enqueues bytes, drained to a spool WAV by a dedicated

@@ -905,8 +905,10 @@ def test_upgrade_library_imports_and_publishes_status(meetings_dir, spool_dir):
     statuses = []
     engine.on_library_status = statuses.append
     engine.upgrade_library()
+    # The very first status is published synchronously by upgrade_library()
+    # itself, before the job is even queued on the worker.
+    assert statuses[0] == {"state": "upgrading", "done": 0, "total": 1, "skipped": []}
     assert _wait_for(lambda: statuses and statuses[-1]["state"] == "done")
-    assert statuses[0] == {"state": "upgrading", "done": 1, "total": 1, "skipped": []}
     assert statuses[-1] == {"state": "done", "done": 1, "total": 1, "skipped": []}
     assert engine.library_status == statuses[-1]
     assert MeetingLibrary().count_meetings() == 1
@@ -948,6 +950,59 @@ def test_upgrade_library_is_a_no_op_without_legacy_files(meetings_dir, spool_dir
     # run, so the test cannot pass before that job would have published.
     engine.worker.submit(lambda: None).result(timeout=5.0)
     assert statuses == [] and engine.library_status["state"] == "idle"
+    engine.shutdown()
+
+
+def test_upgrade_library_publishes_queued_state_synchronously(meetings_dir, spool_dir):
+    # Spec: publish the "upgrading" placeholder the moment the job is
+    # queued, not only once the worker (behind model load) gets to it, so
+    # the UI shows "Importing meetings…" instead of the empty state during
+    # the first-launch delay. This is checked with no wait: the publish
+    # must happen synchronously inside upgrade_library() itself.
+    import json as _json
+    for i in range(3):
+        (meetings_dir / f"2026092{i}-134023-aaa{i}.json").write_text(_json.dumps({
+            "id": f"2026092{i}-134023-aaa{i}", "title": "t", "created": "2026-09-24T13:40:23",
+            "duration_seconds": 60, "segments": [
+                {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    assert statuses == [{"state": "upgrading", "done": 0, "total": 3, "skipped": []}]
+    assert engine.library_status == statuses[0]
+    engine.shutdown()
+
+
+def test_upgrade_library_worker_publishes_idle_if_meeting_appears_before_it_runs(
+    meetings_dir, spool_dir
+):
+    # Spec: upgrade_library() decides whether to publish "upgrading" from a
+    # main-thread count_meetings() check at queue time; _upgrade_library()
+    # re-checks count_meetings() when it actually runs on the worker. If a
+    # meeting was saved in between (so the job is now a no-op), the worker
+    # must publish "idle" explicitly so the queued banner doesn't stick.
+    from datetime import datetime, timezone
+
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    # Simulate the race directly: the queued placeholder was already
+    # published (as upgrade_library() would when the library was empty)...
+    engine._publish_library_status({"state": "upgrading", "done": 0, "total": 1, "skipped": []})
+    statuses.clear()
+    # ...but by the time the worker job runs, a meeting has appeared.
+    MeetingLibrary().save_meeting(NewMeeting(
+        segments=[], duration_seconds=1.0,
+        started_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+    ))
+    engine._upgrade_library()
+    assert statuses == [{"state": "idle", "done": 0, "total": 0, "skipped": []}]
     engine.shutdown()
 
 

@@ -26,9 +26,10 @@ sweep at next launch). Meetings persist to a SQLite library at
 - Every `MeetingLibrary` call opens its own short-lived SQLite connection —
   never share one across threads or processes (WAL plus a busy timeout make
   that safe for the app and, later, the MCP server writing concurrently).
-- Full-text search and the calendar cache are derived, not master data, and
-  can always be rebuilt from the meetings/segments/notes tables
-  (`--rebuild-index`).
+- Full-text search and the calendar cache are derived, not master data.
+  `--rebuild-index` rebuilds the search indexes from the meetings/segments/
+  notes tables, but only clears the calendar cache — it does not rebuild it;
+  the phase-3 calendar sync refills it from Calendar.app.
 - The capture-health whitelist (`meetings.filter_capture_health`) still
   applies at save — only the fixed privacy-safe schema reaches the database,
   never raw provenance.

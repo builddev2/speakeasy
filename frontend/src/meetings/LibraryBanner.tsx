@@ -20,10 +20,13 @@ export function LibraryBanner({ status }: LibraryBannerProps) {
 
   useEffect(() => {
     setFaded(false);
-    if (status.state !== 'done') return;
+    // Skipped files mean there's something the user may still need to read,
+    // and an open Show Details panel means they're reading it right now —
+    // neither should be yanked away by the auto-fade.
+    if (status.state !== 'done' || status.skipped.length > 0 || showDetails) return;
     const timer = window.setTimeout(() => setFaded(true), 4000);
     return () => window.clearTimeout(timer);
-  }, [status]);
+  }, [status, showDetails]);
 
   if (status.state === 'idle') return null;
   if (status.state === 'done' && faded) return null;

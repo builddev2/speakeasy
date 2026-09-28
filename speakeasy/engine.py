@@ -707,8 +707,18 @@ class DictationEngine:
     def upgrade_library(self) -> None:
         """Import legacy JSON meetings once. Queued on `worker` behind model
         load so it never races meeting processing, which also runs there."""
-        if meeting_import.legacy_files():
-            self.worker.submit(self._upgrade_library)
+        legacy_files = meeting_import.legacy_files()
+        if not legacy_files:
+            return
+        # Publish the queued state immediately so the UI shows "Importing
+        # meetings…" instead of the empty state during the seconds this job
+        # waits behind model load. Only when the job will actually run: a
+        # non-empty library means _upgrade_library will return early below,
+        # so nothing is queued and the state stays idle.
+        if self.library.count_meetings() == 0:
+            self._publish_library_status(
+                {"state": "upgrading", "done": 0, "total": len(legacy_files), "skipped": []})
+        self.worker.submit(self._upgrade_library)
 
     def _publish_library_status(self, status: dict) -> None:
         self.library_status = status
@@ -726,6 +736,15 @@ class DictationEngine:
             # error here publishes "failed" instead of vanishing silently
             # inside the worker Future.
             if self.library.count_meetings() > 0:
+                # A queued placeholder may have published "upgrading" (see
+                # upgrade_library) before this ran on the worker, if a
+                # meeting was saved in the meantime. Clear it explicitly so
+                # the "Importing meetings…" banner never sticks once we know
+                # the job is a no-op. When nothing was queued (state was
+                # never touched), leave it alone.
+                if self.library_status.get("state") == "upgrading":
+                    self._publish_library_status(
+                        {"state": "idle", "done": 0, "total": 0, "skipped": []})
                 return
             report = meeting_import.import_json_meetings(self.library, progress=progress)
         except Exception as err:

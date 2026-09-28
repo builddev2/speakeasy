@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react';
 import type { MeetingDetail as MeetingDetailType, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
+import { bridge } from '../bridge';
 import styles from './MeetingDetail.module.css';
 
 type Tab = 'summary' | 'transcript';
@@ -444,7 +445,12 @@ export function MeetingDetail({
                   <ActionButton
                     onClick={() => {
                       const prompt = `Summarise and tag my Speakeasy meeting "${detail.title}" (${detail.id}) and save the notes.`;
-                      void navigator.clipboard?.writeText(prompt).catch(() => {});
+                      const fallback = () => {
+                        if (bridge.embedded) void bridge.call('meetings.copyText', { text: prompt }).catch(() => {});
+                      };
+                      const clip = navigator.clipboard?.writeText(prompt);
+                      if (clip) void clip.catch(fallback);
+                      else fallback();
                     }}
                   >
                     Copy prompt

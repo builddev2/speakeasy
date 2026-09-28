@@ -19,6 +19,7 @@ class MeetingsWindowController(NSObject):
         self._bridge.register(dispatcher)
         dispatcher.register("meetings.copy", self._copy)
         dispatcher.register("meetings.export", self._export)
+        dispatcher.register("meetings.copyText", self._copy_text)
         self._web = WebWindow(
             "Meetings", 1040, 660, "meetings", dispatcher,
             resizable=True, min_size=(820, 520),
@@ -52,6 +53,13 @@ class MeetingsWindowController(NSObject):
 
         meeting = self._bridge.library.get_meeting(str(params.get("id", "")))
         injector.set_clipboard(meetings.render_txt(meeting))
+        respond(True)
+
+    @objc.python_method
+    def _copy_text(self, params, respond):
+        from speakeasy import injector
+
+        injector.set_clipboard(str(params.get("text", "")))
         respond(True)
 
     @objc.python_method

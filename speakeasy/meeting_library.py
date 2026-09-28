@@ -141,6 +141,11 @@ class MeetingSummary:
     timestamps_approximate: bool
     tags: list[str]
     people: list[str]
+    # Distinct segment speakers, in order of first appearance. Carried on
+    # the summary (not just the count) so the Meetings window bridge can
+    # build a "You, Speaker 1"-style subtitle for a listed meeting without
+    # a second per-row query for its full transcript.
+    speakers: list[str] = field(default_factory=list)
 
     @property
     def local_start(self) -> datetime:
@@ -459,7 +464,14 @@ class MeetingLibrary:
                 "SELECT m.*, (SELECT COUNT(DISTINCT speaker) FROM segments s"
                 " WHERE s.meeting_id = m.id) AS speaker_count,"
                 " EXISTS (SELECT 1 FROM notes n WHERE n.meeting_id = m.id"
-                " AND n.summary <> '') AS has_summary"
+                " AND n.summary <> '') AS has_summary,"
+                # Distinct speakers in order of first appearance, unit-separator
+                # joined (char(31): never appears in a speaker label) — lets
+                # callers build a subtitle without a second per-row query.
+                " (SELECT group_concat(speaker, char(31)) FROM ("
+                "   SELECT speaker, MIN(idx) AS first_idx FROM segments"
+                "   WHERE meeting_id = m.id GROUP BY speaker ORDER BY first_idx"
+                " )) AS speakers_blob"
                 f" FROM meetings m WHERE {where}"
                 " ORDER BY m.started_at DESC, m.id DESC LIMIT ? OFFSET ?",
                 (*params, limit, max(0, int(offset))),
@@ -474,6 +486,8 @@ class MeetingLibrary:
                     timestamps_approximate=bool(r["timestamps_approximate"]),
                     tags=self._tags(conn, r["id"]),
                     people=self._people(conn, r["id"]),
+                    speakers=(r["speakers_blob"].split("\x1f")
+                              if r["speakers_blob"] else []),
                 )
                 for r in rows
             ]

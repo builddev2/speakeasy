@@ -7,6 +7,7 @@ approved design) — see task-10-report.md for where they deviate from the
 original task brief's literal test expectations and why.
 """
 
+import json
 from datetime import datetime, timedelta
 
 from speakeasy.meeting_library import MeetingLibrary, MeetingNotFound, local_start
@@ -17,6 +18,17 @@ _IDLE = {"state": "idle", "done": 0, "total": 0, "skipped": []}
 
 def _minutes(seconds: float) -> int:
     return max(1, round(seconds / 60))
+
+
+def _subtitle(people: list[str], speakers: list[str]) -> str:
+    # Controller ruling: linked people win (mock rows show "Alex, Priya,
+    # Sam"); otherwise fall back to the distinct speaker labels in order of
+    # first appearance (e.g. "You, Speaker 1"). Both lists are already
+    # available on the caller's object (MeetingSummary.speakers is a SQL
+    # column, StoredMeeting's come from _distinct_speakers(m.segments)) —
+    # never a second per-row fetch, which used to make meetings.list load
+    # every listed meeting's full transcript on the main thread.
+    return ", ".join(people) if people else ", ".join(speakers)
 
 
 def _distinct_speakers(segments) -> list[str]:
@@ -84,23 +96,12 @@ class MeetingsBridge:
             "approximate": approximate, "tags": tags, "people": people,
         }
 
-    def _subtitle(self, meeting_id: str, people: list[str], speakers=None) -> str:
-        # Controller ruling: linked people win (mock rows show "Alex, Priya,
-        # Sam"); otherwise fall back to the distinct speaker labels in order
-        # of first appearance (e.g. "You, Speaker 1"), fetching segments only
-        # when we don't already have them (list rows have no segments).
-        if people:
-            return ", ".join(people)
-        if speakers is None:
-            speakers = _distinct_speakers(self.library.get_meeting(meeting_id).segments)
-        return ", ".join(speakers)
-
     def _meta(self, m) -> dict:
         return self._meta_fields(
             meeting_id=m.meeting_id, title=m.title, meeting_local_start=m.local_start,
             duration_seconds=m.duration_seconds, speaker_count=m.speaker_count,
             has_summary=m.has_summary, approximate=m.timestamps_approximate,
-            tags=m.tags, people=m.people, subtitle=self._subtitle(m.meeting_id, m.people),
+            tags=m.tags, people=m.people, subtitle=_subtitle(m.people, m.speakers),
         )
 
     def list_payload(self, params) -> list[dict]:
@@ -123,7 +124,7 @@ class MeetingsBridge:
             meeting_id=m.meeting_id, title=m.title, meeting_local_start=m.local_start,
             duration_seconds=m.duration_seconds, speaker_count=len(speakers),
             has_summary=bool(m.notes and m.notes.summary), approximate=m.timestamps_approximate,
-            tags=m.tags, people=m.people, subtitle=self._subtitle(m.meeting_id, m.people, speakers),
+            tags=m.tags, people=m.people, subtitle=_subtitle(m.people, speakers),
         )
         detail.update({
             # Controller ruling: MeetingDetail.tsx composes "date · time ·
@@ -152,8 +153,12 @@ class MeetingsBridge:
         return results
 
     def rename_payload(self, params) -> list[dict]:
+        # Controller ruling: the list this returns re-applies the page's
+        # active tag/person filter (Task 11 passes it through in params) —
+        # otherwise a rename while filtered would silently reset the view
+        # to "all meetings".
         self.library.rename(str(params.get("id", "")), str(params.get("title", "")))
-        return self.list_payload({})
+        return self.list_payload(params)
 
     def relabel_payload(self, params) -> dict:
         self.library.relabel_speaker(
@@ -163,10 +168,24 @@ class MeetingsBridge:
 
     def delete_payload(self, params) -> list[dict]:
         self.library.delete(str(params.get("id", "")))
-        return self.list_payload({})
+        return self.list_payload(params)
 
     def status_payload(self, params) -> dict:
         return dict(self._status)
 
     def set_library_status(self, status: dict) -> None:
         self._status = dict(status)
+
+    def apply_status_json(self, payload_json: str) -> list[tuple[str, dict | None]]:
+        """Parse a `library_status` JSON string, store it, and return the
+        (event, payload) pairs the window should emit to the page: always
+        `library.progress` with the fresh status, plus `meetings.changed`
+        once the upgrade reaches `done` (new titles/speakers may have
+        appeared). The ObjC side (meetings_window.py) only forwards these
+        to WebWindow.emit — kept here so the decision is unit-tested."""
+        self.set_library_status(json.loads(payload_json))
+        status = self.status_payload({})
+        events: list[tuple[str, dict | None]] = [("library.progress", status)]
+        if status["state"] == "done":
+            events.append(("meetings.changed", None))
+        return events

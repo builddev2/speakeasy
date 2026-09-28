@@ -58,6 +58,27 @@ def test_list_newest_first_with_speaker_count(library_path):
     rows = lib.list_meetings()
     assert [r.meeting_id for r in rows] == [new, old]
     assert rows[0].speaker_count == 2 and rows[0].has_summary is False
+    # Ordered, deduplicated speakers (Task 10 fix round 1): the bridge
+    # builds a list-row subtitle from this without a second per-meeting
+    # fetch, so the order (first appearance) and de-duplication both have
+    # to come from SQL, not just the count.
+    assert rows[0].speakers == ["You", "Speaker 1"]
+
+
+def test_list_speakers_ordered_by_first_appearance_and_deduplicated(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new(segments=_segs(
+        ("Speaker 2", 0.0, 1.0, "a"), ("Speaker 1", 2.0, 3.0, "b"),
+        ("Speaker 2", 4.0, 5.0, "c"))))
+    row = lib.list_meetings()[0]
+    assert row.meeting_id == mid
+    assert row.speakers == ["Speaker 2", "Speaker 1"]
+
+
+def test_list_speakers_empty_for_a_meeting_with_no_segments(library_path):
+    lib = MeetingLibrary()
+    lib.save_meeting(_new(segments=[]))
+    assert lib.list_meetings()[0].speakers == []
 
 
 def test_list_date_filter_uses_local_day(library_path):

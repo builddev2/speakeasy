@@ -1,7 +1,5 @@
 """Meetings library browser — WKWebView hosting frontend meetings.html."""
 
-import json
-
 import objc
 from Foundation import NSObject
 
@@ -39,10 +37,10 @@ class MeetingsWindowController(NSObject):
         self._web.emit("meetings.changed")
 
     def libraryStatus_(self, payload):
-        self._bridge.set_library_status(json.loads(str(payload)))
-        self._web.emit("library.progress", self._bridge.status_payload({}))
-        if self._bridge.status_payload({})["state"] == "done":
-            self._web.emit("meetings.changed")
+        # apply_status_json (MeetingsBridge, tested there) decides what to
+        # parse/store and which events to emit; this stays thin ObjC glue.
+        for event, data in self._bridge.apply_status_json(str(payload)):
+            self._web.emit(event, data)
 
     # -- Copy/Export: not part of MeetingsBridge (they touch the clipboard
     #    and AppKit save panels, so they stay here with the rest of the

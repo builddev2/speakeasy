@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
+import { useOverlayEscape } from './overlayStack';
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -8,20 +9,14 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Shared Tab-trap + Esc-to-close keydown handler for an overlay (sheet or
- * popover). Escape stops propagation so it only ever closes the overlay it
- * was pressed in, never something behind it. Spread the returned handler
+ * Shared Tab-trap keydown handler for an overlay (sheet or popover), plus
+ * Esc registration on the overlay stack so only the topmost layer closes. Spread the returned handler
  * onto the overlay's outermost element.
  */
 export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, onEscape: () => void) {
+  useOverlayEscape(true, onEscape);
   return useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onEscape();
-        return;
-      }
       if (e.key === 'Tab' && containerRef.current) {
         const focusable = focusableElements(containerRef.current);
         if (focusable.length === 0) return;
@@ -36,6 +31,6 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, onEsca
         }
       }
     },
-    [containerRef, onEscape],
+    [containerRef],
   );
 }

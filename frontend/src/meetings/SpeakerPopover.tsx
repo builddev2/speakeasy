@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import styles from './SpeakerPopover.module.css';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
+import { useOverlayEscape } from './overlayStack';
 
 interface SpeakerPopoverProps {
   label: string;
@@ -23,6 +24,8 @@ export function SpeakerPopover({ label, anchor, onCancel, onRename }: SpeakerPop
   const cancelRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  useOverlayEscape(true, onCancel);
+
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
@@ -35,12 +38,6 @@ export function SpeakerPopover({ label, anchor, onCancel, onRename }: SpeakerPop
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      onCancel();
-      return;
-    }
     if (e.key === 'Enter') {
       // A focused button (Cancel/Rename) handles its own Enter via onClick;
       // only the text field and checkbox should trigger commit here.

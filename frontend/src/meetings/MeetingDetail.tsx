@@ -6,6 +6,7 @@ import { ActionButton } from '../components/ActionButton';
 import { bridge } from '../bridge';
 import styles from './MeetingDetail.module.css';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
+import { useOverlayEscape } from './overlayStack';
 
 type Tab = 'summary' | 'transcript';
 
@@ -216,20 +217,19 @@ export function MeetingDetail({
         setMenuOpen(false);
       }
     }
-    function onDocKeyDown(e: globalThis.KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setMenuOpen(false);
-        moreButtonRef.current?.focus();
-      }
-    }
     document.addEventListener('mousedown', onDocMouseDown);
-    document.addEventListener('keydown', onDocKeyDown);
     return () => {
       document.removeEventListener('mousedown', onDocMouseDown);
-      document.removeEventListener('keydown', onDocKeyDown);
     };
   }, [menuOpen]);
+
+  useOverlayEscape(menuOpen, () => {
+    setMenuOpen(false);
+    moreButtonRef.current?.focus();
+  });
+
+  useOverlayEscape(renaming, () => setRenaming(false));
+  useOverlayEscape(findOpen, closeFindBar);
 
   function onSearchInput(value: string) {
     setSearchDraft(value);
@@ -312,11 +312,7 @@ export function MeetingDetail({
             value={searchDraft}
             onChange={(e) => onSearchInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                clearSearch();
-              }
+              if (e.key === 'Escape') clearSearch();
             }}
           />
         </div>
@@ -345,11 +341,6 @@ export function MeetingDetail({
                 onChange={(e) => setRenameText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') commitRename();
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setRenaming(false);
-                  }
                 }}
                 onBlur={() => setRenaming(false)}
               />
@@ -512,11 +503,7 @@ export function MeetingDetail({
                       setFindIndex(0);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        closeFindBar();
-                      } else if (e.key === 'Enter') {
+                      if (e.key === 'Enter') {
                         e.preventDefault();
                         goToMatch(e.shiftKey ? -1 : 1);
                       }

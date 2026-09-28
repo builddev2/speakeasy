@@ -1,0 +1,144 @@
+.view {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.header {
+  flex-shrink: 0;
+  padding: 18px 24px 6px;
+}
+
+.title {
+  margin: 0;
+  font: 600 22px/1.3 var(--sans);
+  color: var(--text-hi);
+}
+
+.agenda {
+  padding: 6px 24px 24px;
+}
+
+.rowWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.nowLine {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--rec-red);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  border-bottom: 0.5px solid var(--hairline-lo);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+
+button.row {
+  cursor: pointer;
+}
+
+button.row:hover {
+  background: var(--glass-fill-2);
+}
+
+.time {
+  flex-shrink: 0;
+  width: 64px;
+  font: 400 12.5px/1.4 var(--sans);
+  color: var(--text-mid);
+}
+
+.eventTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 13px/1.4 var(--sans);
+  color: var(--text-hi);
+}
+
+.attendees {
+  flex-shrink: 0;
+  font: 400 11px/1.4 var(--sans);
+  color: var(--text-lo);
+}
+
+.statusCell {
+  flex-shrink: 0;
+  min-width: 96px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.recordedLabel {
+  font: 400 12px/1.4 var(--sans);
+  color: var(--text-mid);
+}
+
+.recordingLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 12px/1.4 var(--sans);
+  color: var(--rec-red);
+}
+
+.recordingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rec-red);
+}
+
+.recordButton {
+  height: 26px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 7px;
+  background: var(--coral-1);
+  color: var(--text-on-accent);
+  font: 600 12px/1 var(--sans);
+  cursor: pointer;
+}
+
+.row:focus-visible,
+.recordButton:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.row,
+  .recordButton {
+    transition: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .row {
+    border-bottom-color: var(--hairline);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  button.row:hover {
+    background: #1b1f1d;
+  }
+}

@@ -125,3 +125,77 @@
   font: 500 11.5px/1 var(--sans);
   color: rgba(255,255,255,0.62);
 }
+
+.eventMenuWrap {
+  position: relative;
+  margin-left: auto;
+}
+
+.eventMenuButton {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 0.5px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eventMenuButton:hover {
+  background: rgba(255,255,255,0.14);
+}
+
+.eventMenuButton:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: 1px;
+}
+
+.eventMenu {
+  position: absolute;
+  top: 26px;
+  right: 0;
+  z-index: 10;
+  width: 150px;
+  padding: 4px;
+  border-radius: 9px;
+  background: var(--surface-elevated);
+  backdrop-filter: blur(30px) saturate(1.4);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
+  border: 0.5px solid var(--hairline);
+  box-shadow: var(--shadow-panel);
+}
+
+.eventMenuItem {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: 400 12px/1.4 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.eventMenuItem:hover {
+  background: var(--glass-fill-2);
+}
+
+.eventMenuItem:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .eventMenu {
+    background: #1b1f1d;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

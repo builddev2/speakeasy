@@ -11,6 +11,10 @@ import { SpeakerPopover } from './SpeakerPopover';
 import { ConfirmSheet } from './ConfirmSheet';
 import { LibraryBanner } from './LibraryBanner';
 import { EmptyState } from './EmptyState';
+import { TodayView } from './TodayView';
+import type { TodayConnection } from './TodayView';
+import { ConnectClaudeSheet } from './ConnectClaudeSheet';
+import { SettingsSheet } from './SettingsSheet';
 import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS, MOCK_AGENDA } from '../mock/meetings';
 import type {
   MeetingMeta,
@@ -32,7 +36,12 @@ type MockState =
   | 'search'
   | 'no-summary'
   | 'popover'
-  | 'delete';
+  | 'delete'
+  | 'today'
+  | 'today-denied'
+  | 'today-unconnected'
+  | 'connect-claude'
+  | 'settings';
 
 const KNOWN_STATES: MockState[] = [
   'default',
@@ -44,7 +53,14 @@ const KNOWN_STATES: MockState[] = [
   'no-summary',
   'popover',
   'delete',
+  'today',
+  'today-denied',
+  'today-unconnected',
+  'connect-claude',
+  'settings',
 ];
+
+const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected'];
 
 function readMockState(): MockState {
   const raw = new URLSearchParams(window.location.search).get('state');
@@ -81,6 +97,11 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [searchQuery, setSearchQuery] = useState(mockState === 'search' ? 'sync' : '');
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
+  const [today, setToday] = useState(TODAY_STATES.includes(mockState));
+  const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
+  const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
+  const todayConnection: TodayConnection =
+    mockState === 'today-denied' ? 'denied' : mockState === 'today-unconnected' ? 'unconnected' : 'connected';
   const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
   const [searchFocusToken, setSearchFocusToken] = useState<number | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,11 +133,24 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   function onSelectFilter(next: SidebarFilter) {
     setFilter(next);
     setSearching(false);
+    setToday(false);
     const list =
       next.type === 'all'
         ? metas
         : metas.filter((m) => (next.type === 'tag' ? m.tags.includes(next.value) : m.people.includes(next.value)));
     select(list[0]?.id ?? null);
+  }
+
+  function onSelectToday() {
+    setToday(true);
+    setSearching(false);
+    setPopover(null);
+    setConfirmOpen(false);
+  }
+
+  function onSelectTodayMeeting(meetingId: string) {
+    setToday(false);
+    select(meetingId);
   }
 
   function onSearchChange(value: string) {
@@ -193,49 +227,67 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         <Sidebar
           filters={filters}
           activeFilter={filter}
-          activeToday={false}
+          activeToday={today}
           todayCount={isMock ? MOCK_AGENDA.length : 0}
           onSelectFilter={onSelectFilter}
-          onSelectToday={() => {}}
-          onConnectClaude={() => {}}
-          onOpenSettings={() => {}}
+          onSelectToday={onSelectToday}
+          onConnectClaude={() => setConnectClaudeOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        {searching ? (
-          <SearchResults results={mockState === 'search' ? MOCK_RESULTS : []} onSelect={onSelectResult} />
-        ) : visibleMetas.length === 0 ? (
-          <div className={styles.listColumn}>
-            <LibraryBanner status={libraryStatus} />
-            <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
-          </div>
+        {!today &&
+          (searching ? (
+            <SearchResults results={mockState === 'search' ? MOCK_RESULTS : []} onSelect={onSelectResult} />
+          ) : visibleMetas.length === 0 ? (
+            <div className={styles.listColumn}>
+              <LibraryBanner status={libraryStatus} />
+              <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+            </div>
+          ) : (
+            <div className={styles.listColumn}>
+              <LibraryBanner status={libraryStatus} />
+              <MeetingList
+                metas={visibleMetas}
+                selectedId={selectedId}
+                onSelect={select}
+                onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+                onRequestDelete={() => setConfirmOpen(true)}
+              />
+            </div>
+          ))}
+
+        {today ? (
+          <TodayView
+            connection={todayConnection}
+            agenda={isMock ? MOCK_AGENDA : []}
+            onSelectMeeting={onSelectTodayMeeting}
+            onRecord={(key) => console.log('record', key)}
+            onConnectCalendar={() => console.log('connect-calendar')}
+            onOpenPrivacySettings={() => console.log('open-privacy-settings')}
+          />
         ) : (
-          <div className={styles.listColumn}>
-            <LibraryBanner status={libraryStatus} />
-            <MeetingList
-              metas={visibleMetas}
-              selectedId={selectedId}
-              onSelect={select}
-              onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
-              onRequestDelete={() => setConfirmOpen(true)}
-            />
-          </div>
+          <MeetingDetail
+            detail={selectedDetail}
+            colorCodeSpeakers={colorCodeSpeakers}
+            searchValue={searchQuery}
+            onSearchChange={onSearchChange}
+            forcedTab={forcedTab}
+            autoOpenPopover={mockState === 'popover'}
+            onRenameTitle={onRenameTitle}
+            onSpeakerClick={onSpeakerClick}
+            onRequestDelete={() => setConfirmOpen(true)}
+            onCopy={() => console.log('copy', selectedId)}
+            onExport={() => console.log('export', selectedId)}
+            jumpTarget={jumpTarget}
+            searchFocusToken={searchFocusToken}
+          />
         )}
 
-        <MeetingDetail
-          detail={selectedDetail}
-          colorCodeSpeakers={colorCodeSpeakers}
-          searchValue={searchQuery}
-          onSearchChange={onSearchChange}
-          forcedTab={forcedTab}
-          autoOpenPopover={mockState === 'popover'}
-          onRenameTitle={onRenameTitle}
-          onSpeakerClick={onSpeakerClick}
-          onRequestDelete={() => setConfirmOpen(true)}
-          onCopy={() => console.log('copy', selectedId)}
-          onExport={() => console.log('export', selectedId)}
-          jumpTarget={jumpTarget}
-          searchFocusToken={searchFocusToken}
-        />
+        {connectClaudeOpen && <ConnectClaudeSheet onClose={() => setConnectClaudeOpen(false)} />}
+
+        {settingsOpen && (
+          <SettingsSheet onClose={() => setSettingsOpen(false)} onExportAll={() => console.log('export-all-meetings')} />
+        )}
 
         {popover && (
           <SpeakerPopover

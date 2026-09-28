@@ -7,18 +7,27 @@ import styles from './MeetingDetail.module.css';
 
 type Tab = 'summary' | 'transcript';
 
+export interface JumpTarget {
+  segmentIndex: number | null;
+  seconds: number | null;
+  kind: 'transcript' | 'notes';
+  /** Bumped on every selection so re-jumping to the same line still fires. */
+  nonce: number;
+}
+
 interface MeetingDetailProps {
   detail: MeetingDetailType | null;
   colorCodeSpeakers: boolean;
   searchValue: string;
   onSearchChange: (value: string) => void;
   forcedTab?: Tab;
+  autoOpenPopover?: boolean;
   onRenameTitle: (title: string) => void;
   onSpeakerClick: (line: TranscriptLine, anchor: { top: number; left: number }) => void;
   onRequestDelete: () => void;
   onCopy: () => void;
   onExport: () => void;
-  jumpTarget?: { segmentIndex: number } | null;
+  jumpTarget?: JumpTarget | null;
   searchFocusToken?: number;
 }
 
@@ -31,12 +40,22 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
 export function MeetingDetail({
   detail,
   colorCodeSpeakers,
   searchValue,
   onSearchChange,
   forcedTab,
+  autoOpenPopover,
   onRenameTitle,
   onSpeakerClick,
   onRequestDelete,
@@ -51,11 +70,18 @@ export function MeetingDetail({
   const [menuOpen, setMenuOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
+  const [findIndex, setFindIndex] = useState(0);
+  const [highlightSegment, setHighlightSegment] = useState<number | null>(null);
   const [searchDraft, setSearchDraft] = useState(searchValue);
   const searchTimer = useRef<number | null>(null);
+  const highlightTimer = useRef<number | null>(null);
+  const autoOpenedRef = useRef(false);
   const titleRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const menuWrapRef = useRef<HTMLDivElement>(null);
+  const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const speakerRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
   useEffect(() => {
     if (searchFocusToken === undefined) return;
@@ -71,16 +97,101 @@ export function MeetingDetail({
     setMenuOpen(false);
     setFindOpen(false);
     setFindQuery('');
+    setFindIndex(0);
+    autoOpenedRef.current = false;
   }, [detail?.id, forcedTab]);
 
   useEffect(() => {
     setSearchDraft(searchValue);
   }, [searchValue]);
 
+  // Search → Transcript jump: switch tab (Summary for notes hits), scroll the
+  // matching line into view (or the nearest by `start` when there's no exact
+  // segment), and flash-highlight it briefly (no animation under Reduce Motion,
+  // handled globally below via the transition-disabling media query).
+  useEffect(() => {
+    if (!jumpTarget || !detail) return;
+    if (jumpTarget.kind === 'notes') {
+      setTab('summary');
+      return;
+    }
+    setTab('transcript');
+    let targetIndex = jumpTarget.segmentIndex;
+    if (targetIndex === null && jumpTarget.seconds !== null) {
+      let best: TranscriptLine | null = null;
+      for (const line of detail.lines) {
+        if (best === null || Math.abs(line.start - jumpTarget.seconds) < Math.abs(best.start - jumpTarget.seconds)) {
+          best = line;
+        }
+      }
+      targetIndex = best?.segmentIndex ?? null;
+    }
+    if (targetIndex === null) return;
+    const resolvedIndex = targetIndex;
+    const raf = window.requestAnimationFrame(() => {
+      lineRefs.current
+        .get(resolvedIndex)
+        ?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    });
+    setHighlightSegment(resolvedIndex);
+    if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlightSegment(null), 1200);
+    return () => window.cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTarget]);
+
+  // V1 demo state: open the popover on the first real speaker button so the
+  // anchor matches an actual click, instead of a hard-coded position.
+  useEffect(() => {
+    if (!autoOpenPopover || tab !== 'transcript' || !detail || detail.lines.length === 0) return;
+    if (autoOpenedRef.current) return;
+    const first = detail.lines[0];
+    const raf = window.requestAnimationFrame(() => {
+      const btn = speakerRefs.current.get(first.segmentIndex);
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        onSpeakerClick(first, { top: rect.bottom, left: rect.left });
+        autoOpenedRef.current = true;
+      }
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [autoOpenPopover, tab, detail, onSpeakerClick]);
+
+  useEffect(() => {
+    setFindIndex(0);
+  }, [findQuery]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    function onDocKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape') setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onDocKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onDocKeyDown);
+    };
+  }, [menuOpen]);
+
   function onSearchInput(value: string) {
     setSearchDraft(value);
     if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
     searchTimer.current = window.setTimeout(() => onSearchChange(value), 250);
+  }
+
+  function clearSearch() {
+    if (searchTimer.current !== null) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
+    setSearchDraft('');
+    onSearchChange('');
   }
 
   function commitRename() {
@@ -103,6 +214,19 @@ export function MeetingDetail({
       if (line.text.toLowerCase().includes(q)) findMatches.push({ segmentIndex: line.segmentIndex });
     });
   }
+  const currentMatchSegment = findOpen ? findMatches[findIndex]?.segmentIndex ?? null : null;
+
+  function goToMatch(delta: number) {
+    if (findMatches.length === 0) return;
+    setFindIndex((i) => (i + delta + findMatches.length) % findMatches.length);
+  }
+
+  useEffect(() => {
+    if (!findOpen || currentMatchSegment === null) return;
+    lineRefs.current
+      .get(currentMatchSegment)
+      ?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }, [findOpen, currentMatchSegment]);
 
   return (
     <div className={styles.detail}>
@@ -117,10 +241,7 @@ export function MeetingDetail({
             value={searchDraft}
             onChange={(e) => onSearchInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setSearchDraft('');
-                onSearchChange('');
-              }
+              if (e.key === 'Escape') clearSearch();
             }}
           />
         </div>
@@ -133,6 +254,7 @@ export function MeetingDetail({
           className={styles.body}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+              if (isEditableTarget(e.target)) return;
               e.preventDefault();
               onRequestDelete();
             }
@@ -183,7 +305,13 @@ export function MeetingDetail({
                 <>
                   <span className={styles.sep}>·</span>
                   <button className={styles.eventChip} title={`Linked to ${detail.event.title}`}>
-                    📅 {detail.event.title} ⌄
+                    <span className={styles.eventIcon} aria-hidden="true">
+                      📅
+                    </span>
+                    <span className={styles.eventTitle}>{detail.event.title}</span>
+                    <span className={styles.eventChevron} aria-hidden="true">
+                      ⌄
+                    </span>
                   </button>
                 </>
               )}
@@ -211,7 +339,14 @@ export function MeetingDetail({
               )}
             </div>
 
-            {detail.approximate && <div className={styles.approxNote}>≈ approximate times</div>}
+            {detail.approximate && (
+              <div
+                className={styles.approxNote}
+                title="Imported from an older version; times are estimated from when processing finished."
+              >
+                ≈ approximate times
+              </div>
+            )}
           </div>
 
           <div className={styles.segmented} role="tablist" aria-label="Summary or transcript">
@@ -286,14 +421,21 @@ export function MeetingDetail({
                       if (e.key === 'Escape') {
                         setFindOpen(false);
                         setFindQuery('');
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        goToMatch(e.shiftKey ? -1 : 1);
                       }
                     }}
                   />
                   <span className={styles.findCount}>
-                    {findMatches.length > 0 ? `1 of ${findMatches.length}` : '0 of 0'}
+                    {findMatches.length > 0 ? `${findIndex + 1} of ${findMatches.length}` : '0 of 0'}
                   </span>
-                  <button className={styles.findNav} aria-label="Previous match">‹</button>
-                  <button className={styles.findNav} aria-label="Next match">›</button>
+                  <button className={styles.findNav} aria-label="Previous match" onClick={() => goToMatch(-1)}>
+                    ‹
+                  </button>
+                  <button className={styles.findNav} aria-label="Next match" onClick={() => goToMatch(1)}>
+                    ›
+                  </button>
                   <button
                     className={styles.findDone}
                     onClick={() => {
@@ -307,24 +449,45 @@ export function MeetingDetail({
               )}
               <div className={styles.lines}>
                 {detail.lines.map((line) => {
-                  const highlighted = jumpTarget?.segmentIndex === line.segmentIndex;
+                  const isJumpHighlight = highlightSegment === line.segmentIndex;
+                  const isFindActive = currentMatchSegment === line.segmentIndex;
+                  const lineClass = [
+                    styles.line,
+                    isJumpHighlight ? styles.lineHighlight : '',
+                    isFindActive ? styles.lineFindActive : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ');
                   return (
                     <div
                       key={line.segmentIndex}
-                      className={highlighted ? `${styles.line} ${styles.lineHighlight}` : styles.line}
+                      ref={(el) => {
+                        if (el) lineRefs.current.set(line.segmentIndex, el);
+                        else lineRefs.current.delete(line.segmentIndex);
+                      }}
+                      className={lineClass}
                     >
-                      <span className={styles.time}>{line.time}</span>{' '}
-                      <button
-                        className={styles.speaker}
-                        style={{ color: speakerColor(line.speakerNumber, colorCodeSpeakers) }}
-                        onClick={(e) => {
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          onSpeakerClick(line, { top: rect.bottom, left: rect.left });
-                        }}
-                      >
-                        {line.speakerLabel}:
-                      </button>{' '}
-                      <span className={styles.text}>
+                      <span className={styles.lineHead}>
+                        <span className={styles.time}>
+                          {detail.approximate ? '≈' : ''}
+                          {line.time}
+                        </span>{' '}
+                        <button
+                          ref={(el) => {
+                            if (el) speakerRefs.current.set(line.segmentIndex, el);
+                            else speakerRefs.current.delete(line.segmentIndex);
+                          }}
+                          className={styles.speaker}
+                          style={{ color: speakerColor(line.speakerNumber, colorCodeSpeakers) }}
+                          onClick={(e) => {
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            onSpeakerClick(line, { top: rect.bottom, left: rect.left });
+                          }}
+                        >
+                          {line.speakerLabel}:
+                        </button>
+                      </span>
+                      <span className={styles.lineText}>
                         {line.overlap ? '[overlap] ' : ''}
                         {line.text}
                       </span>
@@ -340,7 +503,7 @@ export function MeetingDetail({
               Copy
             </ActionButton>
             <ActionButton onClick={onExport}>Export</ActionButton>
-            <div className={styles.menuWrap}>
+            <div className={styles.menuWrap} ref={menuWrapRef}>
               <button
                 className={styles.moreButton}
                 aria-label="More actions"

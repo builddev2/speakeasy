@@ -25,7 +25,9 @@ export function SearchResults({ results, onSelect }: SearchResultsProps) {
         >
           <div className={styles.rowTop}>
             <span className={styles.title}>{result.title}</span>
-            <span className={styles.dayLabel}>{result.dayLabel}</span>
+            <span className={styles.dayLabel}>
+              {result.dayLabel} · {result.time}
+            </span>
           </div>
           {result.speaker && (
             <div className={styles.speakerLine}>

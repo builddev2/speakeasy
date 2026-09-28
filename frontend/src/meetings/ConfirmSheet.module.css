@@ -3,18 +3,19 @@
   inset: 0;
   z-index: 30;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
+  padding-top: 64px;
+  background: var(--scrim);
 }
 
 .sheet {
   width: 320px;
   padding: 18px;
   border-radius: 14px;
-  background: var(--glass-panel);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: var(--surface-elevated);
+  backdrop-filter: blur(30px) saturate(1.4);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
   border: 0.5px solid var(--hairline);
   box-shadow: var(--shadow-panel);
 }

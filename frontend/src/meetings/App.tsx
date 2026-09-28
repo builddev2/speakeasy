@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
 import { Sidebar } from './Sidebar';
@@ -6,11 +6,12 @@ import type { SidebarFilter } from './Sidebar';
 import { MeetingList } from './MeetingList';
 import { SearchResults } from './SearchResults';
 import { MeetingDetail } from './MeetingDetail';
+import type { JumpTarget } from './MeetingDetail';
 import { SpeakerPopover } from './SpeakerPopover';
 import { ConfirmSheet } from './ConfirmSheet';
 import { LibraryBanner } from './LibraryBanner';
 import { EmptyState } from './EmptyState';
-import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS } from '../mock/meetings';
+import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS, MOCK_AGENDA } from '../mock/meetings';
 import type {
   MeetingMeta,
   MeetingDetail as MeetingDetailType,
@@ -27,6 +28,7 @@ type MockState =
   | 'empty'
   | 'upgrading'
   | 'upgrade-failed'
+  | 'upgrade-skipped'
   | 'search'
   | 'no-summary'
   | 'popover'
@@ -37,6 +39,7 @@ const KNOWN_STATES: MockState[] = [
   'empty',
   'upgrading',
   'upgrade-failed',
+  'upgrade-skipped',
   'search',
   'no-summary',
   'popover',
@@ -78,23 +81,21 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [searchQuery, setSearchQuery] = useState(mockState === 'search' ? 'sync' : '');
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
-  const [jumpTarget, setJumpTarget] = useState<{ segmentIndex: number } | null>(null);
+  const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
   const [searchFocusToken, setSearchFocusToken] = useState<number | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
+  const jumpNonceRef = useRef(0);
 
   const libraryStatus: LibraryStatus =
-    mockState === 'upgrading' ? MOCK_STATUS.upgrading : mockState === 'upgrade-failed' ? MOCK_STATUS.failed : MOCK_STATUS.done;
-
-  // Demo state: open the speaker popover on load for `?state=popover`.
-  useEffect(() => {
-    if (mockState !== 'popover' || !selectedId) return;
-    const current = details[selectedId];
-    if (current && current.lines[0]) {
-      setPopover({ line: current.lines[0], anchor: { top: 250, left: 110 } });
-    }
-    // Only on first mount for this mock state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    mockState === 'empty'
+      ? MOCK_STATUS.idle
+      : mockState === 'upgrading'
+        ? MOCK_STATUS.upgrading
+        : mockState === 'upgrade-failed'
+          ? MOCK_STATUS.failed
+          : mockState === 'upgrade-skipped'
+            ? MOCK_STATUS.doneWithSkips
+            : MOCK_STATUS.done;
 
   const visibleMetas = useMemo(() => {
     if (filter.type === 'all') return metas;
@@ -127,7 +128,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     setSearching(false);
     setSearchQuery('');
     select(result.meetingId);
-    if (result.segmentIndex !== null) setJumpTarget({ segmentIndex: result.segmentIndex });
+    jumpNonceRef.current += 1;
+    setJumpTarget({
+      segmentIndex: result.segmentIndex,
+      seconds: result.seconds,
+      kind: result.kind,
+      nonce: jumpNonceRef.current,
+    });
   }
 
   function onRenameTitle(title: string) {
@@ -177,6 +184,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   const selectedDetail = selectedId ? details[selectedId] ?? null : null;
+  const forcedTab = mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : undefined;
 
   return (
     <GlassPanel width={1040} height={660}>
@@ -186,6 +194,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           filters={filters}
           activeFilter={filter}
           activeToday={false}
+          todayCount={isMock ? MOCK_AGENDA.length : 0}
           onSelectFilter={onSelectFilter}
           onSelectToday={() => {}}
           onConnectClaude={() => {}}
@@ -207,6 +216,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               selectedId={selectedId}
               onSelect={select}
               onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+              onRequestDelete={() => setConfirmOpen(true)}
             />
           </div>
         )}
@@ -216,7 +226,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           colorCodeSpeakers={colorCodeSpeakers}
           searchValue={searchQuery}
           onSearchChange={onSearchChange}
-          forcedTab={mockState === 'no-summary' ? 'summary' : undefined}
+          forcedTab={forcedTab}
+          autoOpenPopover={mockState === 'popover'}
           onRenameTitle={onRenameTitle}
           onSpeakerClick={onSpeakerClick}
           onRequestDelete={() => setConfirmOpen(true)}

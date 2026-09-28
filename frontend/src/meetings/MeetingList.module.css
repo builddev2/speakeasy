@@ -8,7 +8,8 @@
 }
 
 .list:focus-visible {
-  outline: none;
+  outline: 2px solid var(--coral-1);
+  outline-offset: -2px;
 }
 
 .dayHeader {
@@ -20,7 +21,7 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-lo);
-  background: rgba(12, 15, 14, 0.82);
+  background: var(--surface-sticky);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-bottom: 0.5px solid var(--hairline-lo);
@@ -71,7 +72,7 @@
 }
 
 .rowActive .time {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-on-accent);
 }
 
 .dot {
@@ -86,13 +87,28 @@
   font-weight: 600;
 }
 
+.rowMeta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.duration {
+  font: 400 11px/1 var(--sans);
+  color: var(--text-lo);
+}
+
+.rowActive .duration {
+  color: var(--text-on-accent-mid);
+}
+
 .summaryDot {
   flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--coral-1);
-  margin-top: 3px;
 }
 
 .rowActive .summaryDot {
@@ -109,7 +125,7 @@
 }
 
 .rowActive .sub {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--text-on-accent-mid);
 }
 
 .row:focus-visible {

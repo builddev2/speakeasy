@@ -7,6 +7,7 @@ interface SidebarProps {
   filters: Filters;
   activeFilter: SidebarFilter;
   activeToday: boolean;
+  todayCount: number;
   onSelectFilter: (filter: SidebarFilter) => void;
   onSelectToday: () => void;
   onConnectClaude: () => void;
@@ -23,6 +24,7 @@ export function Sidebar({
   filters,
   activeFilter,
   activeToday,
+  todayCount,
   onSelectFilter,
   onSelectToday,
   onConnectClaude,
@@ -38,6 +40,7 @@ export function Sidebar({
             onClick={onSelectToday}
           >
             <span className={styles.rowLabel}>Today</span>
+            <span className={styles.count}>{todayCount}</span>
           </button>
         </div>
       )}

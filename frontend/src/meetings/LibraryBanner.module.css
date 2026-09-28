@@ -59,6 +59,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .banner {
+    animation: none;
+  }
   .fill {
     transition: none;
   }

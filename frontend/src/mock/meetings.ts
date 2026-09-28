@@ -190,7 +190,7 @@ const retroMeta: MeetingMeta = {
   duration: '27 min',
   subtitle: 'Alex, Priya, Sam, Jordan',
   speakerCount: 4,
-  hasSummary: false,
+  hasSummary: true,
   approximate: false,
   tags: ['Product'],
   people: ['Alex', 'Priya', 'Sam', 'Jordan'],
@@ -199,7 +199,7 @@ const retroMeta: MeetingMeta = {
 const q3KickoffMeta: MeetingMeta = {
   id: 'm-q3-kickoff',
   title: 'Q3 Kickoff',
-  dayLabel: 'August 12',
+  dayLabel: 'August 2026',
   time: '10:00 AM',
   duration: '52 min',
   subtitle: 'Alex, Priya, Sam, Jordan, Morgan',
@@ -213,7 +213,7 @@ const q3KickoffMeta: MeetingMeta = {
 const onboardingSamMeta: MeetingMeta = {
   id: 'm-onboarding-sam',
   title: 'Onboarding — Sam',
-  dayLabel: 'August 4',
+  dayLabel: 'August 2026',
   time: '9:30 AM',
   duration: '34 min',
   subtitle: 'Sam, Jordan',
@@ -314,18 +314,20 @@ const customerCallDetail = detail(customerCallMeta, {
     'integration timing and requested a follow-up demo once Today view ships.',
   actionItems: ['Send Fenwick the calendar integration timeline (Morgan)', 'Schedule follow-up demo (Priya)'],
   lines: [
-    ln('≈2:15:00 PM', 0, 5, 'Morgan', "Thanks for hopping on — how has export been working for you?", 0),
-    ln('≈2:15:22 PM', 22, 6, 'Priya', "Really well. Our team asked about calendar integration though.", 1),
-    ln('≈2:15:50 PM', 50, 5, 'Morgan', "It's in progress — I can send you a rough timeline after this call.", 2),
-    ln('≈2:16:15 PM', 75, 6, 'Priya', "That would be great, thank you.", 3),
+    ln('2:15:00 PM', 0, 5, 'Morgan', "Thanks for hopping on — how has export been working for you?", 0),
+    ln('2:15:22 PM', 22, 6, 'Priya', "Really well. Our team asked about calendar integration though.", 1),
+    ln('2:15:50 PM', 50, 5, 'Morgan', "It's in progress — I can send you a rough timeline after this call.", 2),
+    ln('2:16:15 PM', 75, 6, 'Priya', "That would be great, thank you.", 3),
   ],
 });
 
 const retroDetail = detail(retroMeta, {
   date: 'Tue 22 Sep',
   event: null,
-  summary: null,
-  actionItems: [],
+  summary:
+    'Dashboard shipped a day early. The offline sync bug took longer than planned; the team agreed to budget ' +
+    'more time for device testing on future sprints.',
+  actionItems: ['Add a device-testing buffer to sprint estimates (Jordan)'],
   lines: [
     ln('4:00:06 PM', 6, 1, 'Alex', "What went well this sprint?", 0),
     ln('4:00:20 PM', 20, 2, 'Priya', "Dashboard shipped a day early, that felt good.", 1),
@@ -374,25 +376,24 @@ export const MOCK_DETAILS: Record<string, MeetingDetail> = {
 };
 
 // ---------------------------------------------------------------------------
-// Filters (sidebar tags/people counts).
+// Filters (sidebar tags/people counts). Counts are derived from MOCK_METAS
+// so they're always checkable against the meeting list, never hand-typed.
 // ---------------------------------------------------------------------------
+
+function countBy(metas: MeetingMeta[], pick: (meta: MeetingMeta) => string[]): { name: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const meta of metas) {
+    for (const value of pick(meta)) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries()).map(([name, count]) => ({ name, count }));
+}
 
 export const MOCK_FILTERS: Filters = {
   total: MOCK_METAS.length,
-  tags: [
-    { name: 'Product', count: 3 },
-    { name: 'Design', count: 1 },
-    { name: 'Planning', count: 2 },
-    { name: '1:1', count: 1 },
-    { name: 'Customer', count: 1 },
-  ],
-  people: [
-    { name: 'Alex', count: 5 },
-    { name: 'Priya', count: 5 },
-    { name: 'Sam', count: 5 },
-    { name: 'Jordan', count: 4 },
-    { name: 'Morgan', count: 3 },
-  ],
+  tags: countBy(MOCK_METAS, (m) => m.tags),
+  people: countBy(MOCK_METAS, (m) => m.people),
   features: { calendar: true, claude: true, settings: true },
 };
 
@@ -446,7 +447,7 @@ export const MOCK_RESULTS: SearchResult[] = [
     parts: [
       { text: 'The offline ', hit: false },
       { text: 'sync', hit: true },
-      { text: ' bug ate more time than expected.', hit: false },
+      { text: ' bug took longer than planned.', hit: false },
     ],
   },
 ];

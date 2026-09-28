@@ -51,7 +51,7 @@
 }
 
 .rowActive .count {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-on-accent);
 }
 
 .rowLabel {
@@ -102,8 +102,9 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--text-mid);
-  font-size: 13px;
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;

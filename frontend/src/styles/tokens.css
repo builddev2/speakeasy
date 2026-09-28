@@ -32,6 +32,15 @@
   --hairline:    rgba(255,255,255,0.16);
   --hairline-lo: rgba(255,255,255,0.10);
 
+  /* Elevated, near-opaque surface for sheets/popovers/menus that must read
+     clearly over any content behind them (Meetings window). */
+  --surface-elevated: rgba(38,42,40,0.96);
+  --scrim: rgba(0,0,0,0.5);
+  --surface-sticky: rgba(12,15,14,0.82);
+  --ring-on-glass: rgba(12,15,14,0.9);
+  --text-on-accent: rgba(255,255,255,0.85);
+  --text-on-accent-mid: rgba(255,255,255,0.75);
+
   /* Speaker palette (transcript color-coding) */
   --sp-1:#6fd8b0; --sp-2:#F0B34A; --sp-3:#C08CF2; --sp-4:#6EA8FF;
   --sp-5:#7ED97E; --sp-6:#F0895A; --sp-7:#DE8FB4;

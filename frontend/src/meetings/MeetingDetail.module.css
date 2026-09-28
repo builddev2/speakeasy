@@ -107,6 +107,9 @@
 }
 
 .eventChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: 0.5px solid var(--hairline);
   background: var(--glass-fill);
   border-radius: 6px;
@@ -114,6 +117,11 @@
   font: 400 12px/1.4 var(--sans);
   color: var(--text-mid);
   cursor: pointer;
+}
+
+.eventIcon,
+.eventChevron {
+  display: inline-flex;
 }
 
 .eventChip:focus-visible {
@@ -144,7 +152,7 @@
   font: 600 10px/1 var(--sans);
   color: var(--text-hi);
   background: var(--glass-fill);
-  border: 1.5px solid rgba(12, 15, 14, 0.9);
+  border: 1.5px solid var(--ring-on-glass);
   margin-left: -6px;
 }
 
@@ -353,16 +361,30 @@
 }
 
 .line {
-  padding: 2px 4px;
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  column-gap: 10px;
+  padding: 3px 4px;
   border-radius: 4px;
 }
 
+.lineHead {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .lineHighlight {
-  background: rgba(232, 149, 90, 0.22);
+  background: color-mix(in srgb, var(--coral-1) 22%, transparent);
+}
+
+.lineFindActive {
+  background: color-mix(in srgb, var(--coral-1) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--coral-1);
 }
 
 .time {
-  color: rgba(232, 149, 90, 0.72);
+  color: color-mix(in srgb, var(--coral-1) 72%, transparent);
 }
 
 .speaker {
@@ -379,7 +401,7 @@
   outline-offset: 1px;
 }
 
-.text {
+.lineText {
   color: var(--text);
 }
 
@@ -419,9 +441,9 @@
   min-width: 140px;
   padding: 6px;
   border-radius: 10px;
-  background: var(--glass-panel);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: var(--surface-elevated);
+  backdrop-filter: blur(30px) saturate(1.4);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
   border: 0.5px solid var(--hairline);
   box-shadow: var(--shadow-panel);
   z-index: 10;
@@ -445,7 +467,7 @@
 }
 
 .menuItemDanger {
-  color: #ff8a80;
+  color: var(--red-1);
 }
 
 .menuItem:focus-visible {

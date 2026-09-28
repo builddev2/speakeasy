@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { MeetingMeta } from '../mock/meetings';
 import styles from './MeetingList.module.css';
@@ -8,11 +8,21 @@ interface MeetingListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRequestSearchFocus?: () => void;
+  onRequestDelete?: () => void;
 }
 
 interface Group {
   dayLabel: string;
   rows: MeetingMeta[];
+}
+
+function rowId(id: string): string {
+  return `meeting-row-${id}`;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 }
 
 function groupByDay(metas: MeetingMeta[]): Group[] {
@@ -28,14 +38,28 @@ function groupByDay(metas: MeetingMeta[]): Group[] {
   return groups;
 }
 
-export function MeetingList({ metas, selectedId, onSelect, onRequestSearchFocus }: MeetingListProps) {
+export function MeetingList({ metas, selectedId, onSelect, onRequestSearchFocus, onRequestDelete }: MeetingListProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const groups = groupByDay(metas);
 
+  useEffect(() => {
+    if (!selectedId) return;
+    rowRefs.current.get(selectedId)?.scrollIntoView({ block: 'nearest' });
+  }, [selectedId]);
+
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (isEditableTarget(e.target)) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault();
       onRequestSearchFocus?.();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+      if (selectedId) {
+        e.preventDefault();
+        onRequestDelete?.();
+      }
       return;
     }
     if (metas.length === 0) return;
@@ -58,18 +82,27 @@ export function MeetingList({ metas, selectedId, onSelect, onRequestSearchFocus 
       role="listbox"
       aria-label="Meetings"
       tabIndex={0}
+      aria-activedescendant={selectedId ? rowId(selectedId) : undefined}
       onKeyDown={onKeyDown}
     >
       {groups.map((group) => (
         <div key={group.dayLabel}>
-          <div className={styles.dayHeader}>{group.dayLabel}</div>
+          <div className={styles.dayHeader} role="presentation">
+            {group.dayLabel}
+          </div>
           {group.rows.map((meta) => {
             const active = meta.id === selectedId;
             return (
               <button
                 key={meta.id}
+                id={rowId(meta.id)}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(meta.id, el);
+                  else rowRefs.current.delete(meta.id);
+                }}
                 role="option"
                 aria-selected={active}
+                tabIndex={-1}
                 className={active ? `${styles.row} ${styles.rowActive}` : styles.row}
                 onClick={() => onSelect(meta.id)}
               >
@@ -79,7 +112,10 @@ export function MeetingList({ metas, selectedId, onSelect, onRequestSearchFocus 
                     <span className={styles.dot}>·</span>
                     <span className={styles.title}>{meta.title}</span>
                   </span>
-                  {meta.hasSummary && <span className={styles.summaryDot} aria-hidden="true" />}
+                  <span className={styles.rowMeta}>
+                    <span className={styles.duration}>{meta.duration}</span>
+                    {meta.hasSummary && <span className={styles.summaryDot} aria-hidden="true" />}
+                  </span>
                 </div>
                 <div className={styles.sub}>{meta.subtitle}</div>
               </button>

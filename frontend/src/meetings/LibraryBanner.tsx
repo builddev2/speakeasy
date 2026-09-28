@@ -10,6 +10,10 @@ function skippedLine(skipped: { file: string; reason: string }): string {
   return skipped.file ? `${skipped.file} — ${skipped.reason}` : skipped.reason;
 }
 
+function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
 export function LibraryBanner({ status }: LibraryBannerProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [faded, setFaded] = useState(false);
@@ -64,7 +68,7 @@ export function LibraryBanner({ status }: LibraryBannerProps) {
     <div className={styles.banner} role="status">
       <div className={styles.line}>
         {status.done} meetings upgraded
-        {skippedCount > 0 && ` · ${skippedCount} files couldn't be imported`}
+        {skippedCount > 0 && ` · ${pluralize(skippedCount, "file")} couldn't be imported`}
         {skippedCount > 0 && (
           <>
             {' · '}

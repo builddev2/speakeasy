@@ -10,6 +10,7 @@ original task brief's literal test expectations and why.
 import json
 from datetime import datetime, timedelta
 
+from speakeasy import meetings as meeting_render
 from speakeasy.meeting_library import MeetingLibrary, MeetingNotFound, local_start
 from speakeasy.ui.webbridge import day_label, segments_to_lines, snippet_parts
 
@@ -74,6 +75,7 @@ class MeetingsBridge:
             "meetings.delete": self.delete_payload,
             "library.status": self.status_payload,
             "meetings.copyText": self.copy_text_payload,
+            "meetings.copy": self.copy_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 
@@ -183,6 +185,27 @@ class MeetingsBridge:
         # "Copy prompt" fallback lands here instead.
         self._set_clipboard(str(params.get("text", "")))
         return True
+
+    def copy_payload(self, params) -> bool:
+        """meetings.copy: puts the rendered transcript+notes on the
+        clipboard. Registered through `register()` like every other
+        method, so a missing meeting rejects with "not_found" via `_wrap`
+        instead of meetings_window.py's old bespoke (and untested)
+        try/except MeetingNotFound."""
+        meeting = self.library.get_meeting(str(params.get("id", "")))
+        self._set_clipboard(meeting_render.render_txt(meeting))
+        return True
+
+    def export_meeting(self, params):
+        """Looks up the meeting for meetings.export. Raises MeetingNotFound
+        (str(params.get("id", "")) not found) like every _wrap'd handler.
+        Not registered on the dispatcher itself — meetings_window.py's
+        `_export` responds asynchronously (after the NSSavePanel's
+        completion handler runs), so it can't route the *whole* call
+        through `_wrap` — but it runs this lookup through `_wrap` directly
+        for the synchronous not_found pre-check, so that conversion is
+        exercised by the same tested code path as every other handler."""
+        return self.library.get_meeting(str(params.get("id", "")))
 
     def set_library_status(self, status: dict) -> None:
         self._status = dict(status)

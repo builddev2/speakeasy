@@ -4,7 +4,6 @@ import objc
 from Foundation import NSObject
 
 from speakeasy import meetings
-from speakeasy.meeting_library import MeetingNotFound
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
@@ -17,12 +16,11 @@ class MeetingsWindowController(NSObject):
             return None
         from speakeasy import injector
 
-        # copyText lives on MeetingsBridge itself (pure-Python, unit-tested);
-        # only the clipboard write is injected here.
+        # copyText and copy both live on MeetingsBridge itself (pure-Python,
+        # unit-tested); only the clipboard write is injected here.
         self._bridge = MeetingsBridge(set_clipboard=injector.set_clipboard)
         dispatcher = BridgeDispatcher()
         self._bridge.register(dispatcher)
-        dispatcher.register("meetings.copy", self._copy)
         dispatcher.register("meetings.export", self._export)
         self._web = WebWindow(
             "Meetings", 1040, 660, "meetings", dispatcher,
@@ -47,31 +45,30 @@ class MeetingsWindowController(NSObject):
         for event, data in self._bridge.apply_status_json(str(payload)):
             self._web.emit(event, data)
 
-    # -- Copy/Export: not part of MeetingsBridge (they touch the clipboard
-    #    and AppKit save panels, so they stay here with the rest of the
-    #    ObjC window glue) --------------------------------------------------
-
-    @objc.python_method
-    def _copy(self, params, respond):
-        from speakeasy import injector
-
-        try:
-            meeting = self._bridge.library.get_meeting(str(params.get("id", "")))
-        except MeetingNotFound:
-            respond(error="not_found")
-            return
-        injector.set_clipboard(meetings.render_txt(meeting))
-        respond(True)
+    # -- Export: not part of MeetingsBridge (it drives an AppKit save panel
+    #    and responds asynchronously from the panel's completion handler, so
+    #    it can't be registered through `register()`/`_wrap` like the rest).
+    #    meetings.copy has no such constraint and is a plain MeetingsBridge
+    #    method instead — see meetings_bridge.py. --------------------------
 
     @objc.python_method
     def _export(self, params, respond):
         from AppKit import NSModalResponseOK, NSSavePanel
 
-        try:
-            meeting = self._bridge.library.get_meeting(str(params.get("id", "")))
-        except MeetingNotFound:
-            respond(error="not_found")
+        # Runs the not_found lookup through the same `_wrap` conversion
+        # every other handler gets (tested in test_meetings_bridge.py),
+        # rather than a bespoke try/except duplicating that logic here.
+        lookup: dict = {}
+
+        def capture_lookup(result=None, error=None):
+            lookup["result"] = result
+            lookup["error"] = error
+
+        MeetingsBridge._wrap(self._bridge.export_meeting)(params, capture_lookup)
+        if lookup.get("error") is not None:
+            respond(error=lookup["error"])
             return
+        meeting = lookup["result"]
         panel = NSSavePanel.savePanel()
         # UTType via lookUpClass: AppKit already loads the system framework,
         # and the pyobjc UniformTypeIdentifiers wrapper isn't a pinned dep.

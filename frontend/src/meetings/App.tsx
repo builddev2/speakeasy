@@ -399,7 +399,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // "select the next row", not always the first (fix round 1, item 8).
   function nextSelectionAfterDelete(id: string, remainingVisible: MeetingMeta[]): string | null {
     const visibleIndex = visibleMetas.findIndex((m) => m.id === id);
-    const nextIndex = Math.min(visibleIndex, remainingVisible.length - 1);
+    // Deleted id wasn't in visibleMetas (shouldn't normally happen — fall
+    // back to the first row rather than clamping -1 into "select nothing".
+    const baseIndex = visibleIndex === -1 ? 0 : visibleIndex;
+    const nextIndex = Math.min(baseIndex, remainingVisible.length - 1);
     return nextIndex >= 0 ? remainingVisible[nextIndex].id : null;
   }
 

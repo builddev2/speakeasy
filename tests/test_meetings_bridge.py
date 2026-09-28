@@ -8,7 +8,9 @@ see task-10-report.md for the deviations and why.
 import json
 from datetime import datetime, timedelta, timezone
 
-from speakeasy.meeting_library import MeetingLibrary, NewMeeting
+import pytest
+
+from speakeasy.meeting_library import MeetingLibrary, MeetingNotFound, NewMeeting
 from speakeasy.meetings import MeetingSegment
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
@@ -171,10 +173,9 @@ def test_library_status(library_path):
 def test_copy_text_registers_and_writes_via_injected_clipboard(library_path):
     # Regression: meetings_window.py's "Copy prompt" fallback (Task 11) posts
     # meetings.copyText with {"text": ...}. The handler lives on the bridge
-    # (pure-Python, unlike _copy/_export which stay ObjC glue) precisely so
-    # its registration and its exact clipboard call are unit-testable here —
-    # a prior round silently renamed the registered method and dropped the
-    # payload without any test catching it.
+    # (pure-Python) precisely so its registration and its exact clipboard
+    # call are unit-testable here — a prior round silently renamed the
+    # registered method and dropped the payload without any test catching it.
     captured = []
     bridge = MeetingsBridge(set_clipboard=captured.append)
     d = BridgeDispatcher()
@@ -184,6 +185,78 @@ def test_copy_text_registers_and_writes_via_injected_clipboard(library_path):
     js = _call(d, "meetings.copyText", {"text": "hello clipboard"})
     assert "_resolve" in js
     assert captured == ["hello clipboard"]
+
+
+def test_copy_payload_registers_and_renders_via_injected_clipboard(library_path):
+    # Regression: meetings_window.py's old bespoke _copy (ObjC glue) had its
+    # own manual try/except MeetingNotFound -> "not_found" that no test
+    # covered; a prior fix round changed it to reject with "MeetingNotFound"
+    # instead and all tests still passed. meetings.copy now lives on
+    # MeetingsBridge and goes through `register()`/`_wrap` like every other
+    # handler, so both the registration and the not_found conversion are
+    # exercised here.
+    lib, mid, bridge = _meeting(
+        library_path, segments=[MeetingSegment("You", 0, 1, "hi there")],
+        started_at=datetime(2026, 9, 24, 9, 0, tzinfo=TZ), title="Copy Me")
+    captured = []
+    bridge = MeetingsBridge(lib, now=NOW, set_clipboard=captured.append)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    assert "meetings.copy" in d._methods
+
+    js = _call(d, "meetings.copy", {"id": mid})
+    assert "_resolve" in js
+    assert len(captured) == 1
+    assert "Copy Me" in captured[0]
+    assert "hi there" in captured[0]
+
+
+def test_copy_payload_missing_meeting_is_not_found_error(library_path):
+    lib, mid, bridge = _meeting(
+        library_path, segments=[MeetingSegment("You", 0, 1, "hi")],
+        started_at=datetime(2026, 9, 24, 9, 0, tzinfo=TZ))
+    lib.delete(mid)
+    captured = []
+    bridge = MeetingsBridge(lib, now=NOW, set_clipboard=captured.append)
+    d = BridgeDispatcher()
+    bridge.register(d)
+
+    js = _call(d, "meetings.copy", {"id": mid})
+    assert "_reject" in js and "not_found" in js
+    assert captured == []
+
+
+def test_export_meeting_returns_the_meeting(library_path):
+    lib, mid, bridge = _meeting(
+        library_path, segments=[MeetingSegment("You", 0, 1, "hi")],
+        started_at=datetime(2026, 9, 24, 9, 0, tzinfo=TZ), title="Export Me")
+    meeting = bridge.export_meeting({"id": mid})
+    assert meeting.meeting_id == mid
+    assert meeting.title == "Export Me"
+
+
+def test_export_meeting_missing_raises_meeting_not_found(library_path):
+    # meetings_window.py's _export can't route the whole call through
+    # `_wrap` (it responds asynchronously, from the NSSavePanel completion
+    # handler), so it runs this lookup through `_wrap` itself for the
+    # synchronous not_found pre-check. Pin both ends of that contract here:
+    # export_meeting raises MeetingNotFound directly...
+    lib, mid, bridge = _meeting(
+        library_path, segments=[MeetingSegment("You", 0, 1, "hi")],
+        started_at=datetime(2026, 9, 24, 9, 0, tzinfo=TZ))
+    lib.delete(mid)
+    with pytest.raises(MeetingNotFound):
+        bridge.export_meeting({"id": mid})
+
+    # ...and wrapping it with the same `_wrap` every other handler uses
+    # converts that into the standard "not_found" rejection — the exact
+    # mechanism meetings_window.py's _export relies on. A mutation that
+    # reverted _export to respond with "MeetingNotFound" (the raw exception
+    # string) instead of "not_found" left the full suite passing before this
+    # test existed; it must fail now.
+    responses = []
+    MeetingsBridge._wrap(bridge.export_meeting)({"id": mid}, lambda result=None, error=None: responses.append((result, error)))
+    assert responses == [(None, "not_found")]
 
 
 def test_apply_status_json_emits_progress_and_changed_when_done(library_path):

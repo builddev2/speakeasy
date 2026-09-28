@@ -2756,7 +2756,7 @@ Scope: `speakeasy/ui/record_prompt.py` hosting `prompt.html` in a **non-activati
 
 ### Phase 1 progress (27–28 Sep 2026, branch `meeting-library-phase1`, worktree `.claude/worktrees/meeting-library-phase1`)
 
-**Done and review-clean (Opus review with mutation checks):** Tasks 1–8, and Task 9 Steps 1–5 (split into 9a and 9b). Python suite: 489 passed. Frontend build is clean. **Stopped at Task 9 Step 6, waiting for the user's design approval.** The screenshots are in the session scratchpad, and they can be regenerated from the dev server with any `?state=` value.
+**Done and review-clean (Opus review with mutation checks):** Tasks 1–8, and Task 9 Steps 1–5 (split into 9a and 9b). Python suite: 489 passed. Frontend build is clean. **Task 9 design approved by the user on 28 Sep 2026** (open questions about search in the Today view and the transcript gap left as-is). The screenshots are in the session scratchpad, and they can be regenerated from the dev server with any `?state=` value.
 
 **Decisions made during execution** (pre-flight scan and reviews; these change the text above):
 - Schema v1: `segments` and `notes` have an explicit `id INTEGER PRIMARY KEY`, used as the FTS `content_rowid` (VACUUM-safe). `notes.meeting_id` is `UNIQUE`.

@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from speakeasy.meeting_export import export_all, render_export_md, safe_filename
@@ -61,6 +62,59 @@ def test_export_disambiguates_same_day_titles(tmp_path, library_path):
     assert first_text != second_text
     assert ("first meeting" in first_text) != ("first meeting" in second_text)
     assert ("second meeting" in first_text) != ("second meeting" in second_text)
+
+
+def test_export_disambiguates_case_insensitive_collisions(tmp_path, library_path):
+    # macOS's default filesystem (APFS) is case-insensitive, so "Standup"
+    # and "standup" name the SAME file on disk even though they're distinct
+    # Python strings; the disambiguation logic must treat them as a
+    # collision too, or the second export silently clobbers the first while
+    # export_all still reports 2 meetings exported.
+    lib = MeetingLibrary()
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 1.0, "first meeting")], duration_seconds=60,
+        started_at=datetime(2026, 9, 24, 9, 0, tzinfo=EDT), title="Standup"))
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 1.0, "second meeting")], duration_seconds=60,
+        started_at=datetime(2026, 9, 24, 15, 0, tzinfo=EDT), title="standup"))
+
+    out = tmp_path / "export"
+    assert export_all(out) == 2
+
+    # Assert against the actual files on disk, not just the return value --
+    # a silent overwrite would still report 2 while leaving only one file.
+    files = list(out.iterdir())
+    assert len(files) == 2
+    contents = [p.read_text(encoding="utf-8") for p in files]
+    assert any("first meeting" in c for c in contents)
+    assert any("second meeting" in c for c in contents)
+
+
+def test_export_disambiguates_unicode_normalisation_collisions(tmp_path, library_path):
+    # APFS also compares filenames after Unicode normalisation, so an NFC
+    # "café" (single precomposed U+00E9) and an NFD "café" (e + combining
+    # acute, U+0065 U+0301) name the same file on disk despite being
+    # different Python strings.
+    nfc_title = unicodedata.normalize("NFC", "café")
+    nfd_title = unicodedata.normalize("NFD", "café")
+    assert nfc_title != nfd_title  # sanity: genuinely different strings
+
+    lib = MeetingLibrary()
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 1.0, "nfc meeting")], duration_seconds=60,
+        started_at=datetime(2026, 9, 24, 9, 0, tzinfo=EDT), title=nfc_title))
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 1.0, "nfd meeting")], duration_seconds=60,
+        started_at=datetime(2026, 9, 24, 15, 0, tzinfo=EDT), title=nfd_title))
+
+    out = tmp_path / "export"
+    assert export_all(out) == 2
+
+    files = list(out.iterdir())
+    assert len(files) == 2
+    contents = [p.read_text(encoding="utf-8") for p in files]
+    assert any("nfc meeting" in c for c in contents)
+    assert any("nfd meeting" in c for c in contents)
 
 
 def test_export_rerun_overwrites_without_suffixes(tmp_path, library_path):

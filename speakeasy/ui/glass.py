@@ -24,10 +24,11 @@ from AppKit import (
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskFullSizeContentView,
     NSWindowStyleMaskMiniaturizable,
+    NSWindowStyleMaskResizable,
     NSWindowStyleMaskTitled,
     NSWindowTitleHidden,
 )
-from Foundation import NSMakeRect
+from Foundation import NSMakeRect, NSMakeSize
 from Quartz import CAGradientLayer
 
 
@@ -71,6 +72,8 @@ def make_glass_window(
     width: float,
     height: float,
     material=NSVisualEffectMaterialUnderWindowBackground,
+    resizable: bool = False,
+    min_size: tuple[float, float] | None = None,
 ) -> tuple[NSWindow, NSVisualEffectView]:
     """A centered titled window whose content view is active frosted glass.
 
@@ -82,6 +85,8 @@ def make_glass_window(
         | NSWindowStyleMaskMiniaturizable
         | NSWindowStyleMaskFullSizeContentView
     )
+    if resizable:
+        style |= NSWindowStyleMaskResizable
     window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
         NSMakeRect(0, 0, width, height), style, NSBackingStoreBuffered, False
     )
@@ -94,6 +99,8 @@ def make_glass_window(
     window.setTitleVisibility_(NSWindowTitleHidden)
     # Windows are created once and reopened; closing must not deallocate.
     window.setReleasedWhenClosed_(False)
+    if min_size is not None:
+        window.setContentMinSize_(NSMakeSize(*min_size))
 
     effect = NSVisualEffectView.alloc().initWithFrame_(
         NSMakeRect(0, 0, width, height)

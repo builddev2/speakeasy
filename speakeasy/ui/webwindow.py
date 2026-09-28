@@ -89,6 +89,8 @@ class WebWindow:
         height: float,
         page: str,
         dispatcher: BridgeDispatcher,
+        resizable: bool = False,
+        min_size: tuple[float, float] | None = None,
     ) -> None:
         from AppKit import (
             NSAppearance,
@@ -107,7 +109,9 @@ class WebWindow:
         self._dispatcher = dispatcher
         self._queue = EvalQueue()
 
-        window, effect = glass.make_glass_window(title, width, height)
+        window, effect = glass.make_glass_window(
+            title, width, height, resizable=resizable, min_size=min_size
+        )
         window.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameDarkAqua))
         self.window = window
 

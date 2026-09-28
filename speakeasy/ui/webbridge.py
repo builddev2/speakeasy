@@ -8,6 +8,7 @@ formatting). The ObjC glue lives in webwindow.py.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 
@@ -133,6 +134,31 @@ def segments_to_lines(segments) -> list[dict]:
                 "segmentIndex": index,
                 "confidence": getattr(seg, "confidence", None),
                 "overlap": getattr(seg, "overlap", False),
+                "start": float(seg.start),
             }
         )
     return lines
+
+
+def day_label(local_start, now) -> str:
+    """List group header in the Mail/Notes style, by *local* calendar day."""
+    days = (now.date() - local_start.date()).days
+    if days <= 0:
+        return "Today"
+    if days == 1:
+        return "Yesterday"
+    if days < 7:
+        return local_start.strftime("%A")
+    return local_start.strftime("%B %Y")
+
+
+def snippet_parts(snippet: str) -> list[dict]:
+    parts, hit = [], False
+    for piece in re.split("([\x02\x03])", snippet):
+        if piece == "\x02":
+            hit = True
+        elif piece == "\x03":
+            hit = False
+        elif piece:
+            parts.append({"text": piece, "hit": hit})
+    return parts

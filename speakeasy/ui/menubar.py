@@ -187,6 +187,7 @@ class StatusItemController(NSObject):
         self.engine = engine
         self.training_window = None  # set lazily by openTraining:
         self.meetings_window = None  # set lazily by openMeetings:
+        self._pending_library_status = None  # replayed into a window created later
         self.dock_window = None  # set by AppDelegate once the dock exists
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
@@ -359,11 +360,8 @@ class StatusItemController(NSObject):
             self.meetings_window.meetingSaved_(meeting_id)
 
     def libraryStatus_(self, payload):
-        # MeetingsWindowController.libraryStatus_ is added in Task 10; guard
-        # with hasattr until then so this doesn't crash on an older window.
-        if self.meetings_window is not None and hasattr(
-            self.meetings_window, "libraryStatus_"
-        ):
+        self._pending_library_status = payload
+        if self.meetings_window is not None:
             self.meetings_window.libraryStatus_(payload)
 
     # -- profile menu -----------------------------------------------------
@@ -457,6 +455,8 @@ class StatusItemController(NSObject):
 
         if self.meetings_window is None:
             self.meetings_window = MeetingsWindowController.alloc().init()
+            if self._pending_library_status is not None:
+                self.meetings_window.libraryStatus_(self._pending_library_status)
         self.meetings_window.show()
 
     # -- training window (wired in training_window.py phase) --------------

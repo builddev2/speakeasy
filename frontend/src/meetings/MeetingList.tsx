@@ -104,6 +104,12 @@ export function MeetingList({ metas, selectedId, onSelect, onRequestSearchFocus,
                 aria-selected={active}
                 tabIndex={-1}
                 className={active ? `${styles.row} ${styles.rowActive}` : styles.row}
+                onMouseDown={(e) => {
+                  // Keep DOM focus on the listbox itself so aria-activedescendant
+                  // stays correct instead of moving to this (tabIndex=-1) button.
+                  e.preventDefault();
+                  listRef.current?.focus();
+                }}
                 onClick={() => onSelect(meta.id)}
               >
                 <div className={styles.rowTop}>

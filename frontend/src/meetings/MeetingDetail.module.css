@@ -378,9 +378,15 @@
   background: color-mix(in srgb, var(--coral-1) 22%, transparent);
 }
 
-.lineFindActive {
-  background: color-mix(in srgb, var(--coral-1) 16%, transparent);
-  box-shadow: inset 2px 0 0 var(--coral-1);
+.mark {
+  background: color-mix(in srgb, var(--coral-1) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.markCurrent {
+  background: color-mix(in srgb, var(--coral-1) 55%, transparent);
+  color: var(--text-hi);
 }
 
 .time {

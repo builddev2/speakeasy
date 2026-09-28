@@ -31,6 +31,11 @@ interface MeetingDetailProps {
   searchFocusToken?: number;
 }
 
+interface FindMatch {
+  segmentIndex: number;
+  partIndex: number;
+}
+
 function initials(name: string): string {
   return name
     .split(' ')
@@ -47,6 +52,26 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** Splits `text` into plain/hit parts for every case-insensitive occurrence of `query`. */
+function splitHighlights(text: string, query: string): { text: string; hit: boolean }[] {
+  if (!query) return [{ text, hit: false }];
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  const parts: { text: string; hit: boolean }[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const idx = lower.indexOf(q, i);
+    if (idx === -1) {
+      parts.push({ text: text.slice(i), hit: false });
+      break;
+    }
+    if (idx > i) parts.push({ text: text.slice(i, idx), hit: false });
+    parts.push({ text: text.slice(idx, idx + q.length), hit: true });
+    i = idx + q.length;
+  }
+  return parts;
 }
 
 export function MeetingDetail({
@@ -80,6 +105,7 @@ export function MeetingDetail({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const speakerRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
@@ -99,6 +125,11 @@ export function MeetingDetail({
     setFindQuery('');
     setFindIndex(0);
     autoOpenedRef.current = false;
+    setHighlightSegment(null);
+    if (highlightTimer.current !== null) {
+      window.clearTimeout(highlightTimer.current);
+      highlightTimer.current = null;
+    }
   }, [detail?.id, forcedTab]);
 
   useEffect(() => {
@@ -107,8 +138,9 @@ export function MeetingDetail({
 
   // Search → Transcript jump: switch tab (Summary for notes hits), scroll the
   // matching line into view (or the nearest by `start` when there's no exact
-  // segment), and flash-highlight it briefly (no animation under Reduce Motion,
-  // handled globally below via the transition-disabling media query).
+  // segment). The 1.2s flash highlight is skipped entirely under Reduce Motion
+  // rather than just losing its transition, since it's a motion effect, not a
+  // static state.
   useEffect(() => {
     if (!jumpTarget || !detail) return;
     if (jumpTarget.kind === 'notes') {
@@ -133,9 +165,11 @@ export function MeetingDetail({
         .get(resolvedIndex)
         ?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
     });
-    setHighlightSegment(resolvedIndex);
-    if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
-    highlightTimer.current = window.setTimeout(() => setHighlightSegment(null), 1200);
+    if (!prefersReducedMotion()) {
+      setHighlightSegment(resolvedIndex);
+      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+      highlightTimer.current = window.setTimeout(() => setHighlightSegment(null), 1200);
+    }
     return () => window.cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpTarget]);
@@ -158,10 +192,6 @@ export function MeetingDetail({
   }, [autoOpenPopover, tab, detail, onSpeakerClick]);
 
   useEffect(() => {
-    setFindIndex(0);
-  }, [findQuery]);
-
-  useEffect(() => {
     if (!menuOpen) return;
     function onDocMouseDown(e: MouseEvent) {
       if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
@@ -169,7 +199,10 @@ export function MeetingDetail({
       }
     }
     function onDocKeyDown(e: globalThis.KeyboardEvent) {
-      if (e.key === 'Escape') setMenuOpen(false);
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        moreButtonRef.current?.focus();
+      }
     }
     document.addEventListener('mousedown', onDocMouseDown);
     document.addEventListener('keydown', onDocKeyDown);
@@ -200,21 +233,39 @@ export function MeetingDetail({
     if (title !== '' && detail && title !== detail.title) onRenameTitle(title);
   }
 
-  function onTranscriptKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+  // ⌘F opens find-in-transcript from anywhere in the detail column (title,
+  // toolbar, summary, transcript...). MeetingList handles its own ⌘F to focus
+  // the toolbar search field instead, since the two components never share a
+  // keydown target.
+  function onDetailKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+      if (!detail) return;
       e.preventDefault();
+      setTab('transcript');
       setFindOpen(true);
     }
   }
 
-  const findMatches: { segmentIndex: number }[] = [];
-  if (detail && findQuery.trim() !== '') {
+  function closeFindBar() {
+    setFindOpen(false);
+    setFindQuery('');
+    transcriptRef.current?.focus();
+  }
+
+  const findMatches: FindMatch[] = [];
+  const lineParts = new Map<number, { text: string; hit: boolean }[]>();
+  if (detail && findOpen && findQuery.trim() !== '') {
     const q = findQuery.trim().toLowerCase();
     detail.lines.forEach((line) => {
-      if (line.text.toLowerCase().includes(q)) findMatches.push({ segmentIndex: line.segmentIndex });
+      const parts = splitHighlights(line.text, q);
+      lineParts.set(line.segmentIndex, parts);
+      parts.forEach((part, partIndex) => {
+        if (part.hit) findMatches.push({ segmentIndex: line.segmentIndex, partIndex });
+      });
     });
   }
-  const currentMatchSegment = findOpen ? findMatches[findIndex]?.segmentIndex ?? null : null;
+  const currentMatch = findMatches[findIndex] ?? null;
+  const currentMatchSegment = currentMatch?.segmentIndex ?? null;
 
   function goToMatch(delta: number) {
     if (findMatches.length === 0) return;
@@ -229,7 +280,7 @@ export function MeetingDetail({
   }, [findOpen, currentMatchSegment]);
 
   return (
-    <div className={styles.detail}>
+    <div className={styles.detail} onKeyDown={onDetailKeyDown}>
       <div className={styles.toolbar}>
         <div className={styles.toolbarSpacer} />
         <div className={styles.searchWrap}>
@@ -402,12 +453,7 @@ export function MeetingDetail({
               )}
             </div>
           ) : (
-            <div
-              ref={transcriptRef}
-              className={styles.transcriptPane}
-              tabIndex={0}
-              onKeyDown={onTranscriptKeyDown}
-            >
+            <div ref={transcriptRef} className={styles.transcriptPane} tabIndex={0}>
               {findOpen && (
                 <div className={styles.findBar}>
                   <input
@@ -416,11 +462,13 @@ export function MeetingDetail({
                     placeholder="Find in transcript"
                     aria-label="Find in transcript"
                     value={findQuery}
-                    onChange={(e) => setFindQuery(e.target.value)}
+                    onChange={(e) => {
+                      setFindQuery(e.target.value);
+                      setFindIndex(0);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') {
-                        setFindOpen(false);
-                        setFindQuery('');
+                        closeFindBar();
                       } else if (e.key === 'Enter') {
                         e.preventDefault();
                         goToMatch(e.shiftKey ? -1 : 1);
@@ -436,13 +484,7 @@ export function MeetingDetail({
                   <button className={styles.findNav} aria-label="Next match" onClick={() => goToMatch(1)}>
                     ›
                   </button>
-                  <button
-                    className={styles.findDone}
-                    onClick={() => {
-                      setFindOpen(false);
-                      setFindQuery('');
-                    }}
-                  >
+                  <button className={styles.findDone} onClick={closeFindBar}>
                     Done
                   </button>
                 </div>
@@ -450,14 +492,8 @@ export function MeetingDetail({
               <div className={styles.lines}>
                 {detail.lines.map((line) => {
                   const isJumpHighlight = highlightSegment === line.segmentIndex;
-                  const isFindActive = currentMatchSegment === line.segmentIndex;
-                  const lineClass = [
-                    styles.line,
-                    isJumpHighlight ? styles.lineHighlight : '',
-                    isFindActive ? styles.lineFindActive : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ');
+                  const parts = lineParts.get(line.segmentIndex);
+                  const lineClass = isJumpHighlight ? `${styles.line} ${styles.lineHighlight}` : styles.line;
                   return (
                     <div
                       key={line.segmentIndex}
@@ -489,7 +525,24 @@ export function MeetingDetail({
                       </span>
                       <span className={styles.lineText}>
                         {line.overlap ? '[overlap] ' : ''}
-                        {line.text}
+                        {parts
+                          ? parts.map((part, partIndex) =>
+                              part.hit ? (
+                                <mark
+                                  key={partIndex}
+                                  className={
+                                    currentMatch?.segmentIndex === line.segmentIndex && currentMatch.partIndex === partIndex
+                                      ? `${styles.mark} ${styles.markCurrent}`
+                                      : styles.mark
+                                  }
+                                >
+                                  {part.text}
+                                </mark>
+                              ) : (
+                                <span key={partIndex}>{part.text}</span>
+                              ),
+                            )
+                          : line.text}
                       </span>
                     </div>
                   );
@@ -505,6 +558,7 @@ export function MeetingDetail({
             <ActionButton onClick={onExport}>Export</ActionButton>
             <div className={styles.menuWrap} ref={menuWrapRef}>
               <button
+                ref={moreButtonRef}
                 className={styles.moreButton}
                 aria-label="More actions"
                 aria-haspopup="menu"

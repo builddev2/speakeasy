@@ -36,6 +36,9 @@
   border-bottom: 0.5px solid var(--hairline-lo);
   background: transparent;
   cursor: pointer;
+  /* Matches the sticky .dayHeader's rendered height, so ↑ never scrolls a
+     row up under the header before it comes to rest. */
+  scroll-margin-top: 29px;
 }
 
 .row:hover {

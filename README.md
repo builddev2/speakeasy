@@ -207,12 +207,47 @@ and Speakeasy processes the recording entirely on-device:
    (or an enrolled name when a confident match exists).
 
 A 2-hour meeting takes several minutes to process; **Cancel Processing** in
-the menu discards it. When it finishes, the transcript appears under
-**Meetings…**, where you can:
+the menu discards it. When it finishes, the transcript is saved to the
+meeting library (below) and appears under **Meetings…**, where you can:
 
+- **Search** across every saved meeting — titles, transcript text, and notes
+  — with ranked, highlighted results,
 - **Copy** it to the clipboard and paste it into any notepad,
 - **Export…** it as a `.txt` or `.md` file,
 - **Rename…** or **Delete** it.
+
+### The meeting library
+
+Meetings are stored in one local SQLite database,
+`~/Library/Application Support/Speakeasy/library.sqlite` (WAL mode; text
+only, same as before — audio is never written to it). It replaces the old
+one-JSON-file-per-meeting store and adds full-text search, tags, people, and
+notes without changing what leaves your Mac: everything still stays local
+and offline.
+
+The first time the library is empty, Speakeasy automatically imports any
+legacy per-meeting JSON files it finds, once, and moves the originals,
+unchanged, into `meetings/legacy-json/` as a backup — an existing archived
+file is never overwritten. A file that fails to import (e.g. hand-edited and
+now malformed) is left where it was and reported by name and category rather
+than blocking the rest of the import. Imported meetings didn't record their
+real start time, so it's estimated as the old "finished" timestamp minus the
+meeting's duration; those meetings are marked approximate and show a **≈**
+next to their time in the list. A legacy meeting that was never renamed gets
+a fresh title generated from that estimated start, instead of importing the
+stale end-time title.
+
+Three CLI commands operate on the library directly (`.venv/bin/python -m
+speakeasy <flag>`):
+
+- `--import-json-meetings` — run the same legacy-JSON import manually,
+- `--rebuild-index` — rebuild the search index and the calendar cache (both
+  are derived from the meetings/segments/notes tables and can always be
+  regenerated),
+- `--export-meetings DIR` — write every saved meeting as one Markdown file
+  into `DIR`; re-running overwrites that run's previous files in place
+  rather than piling up duplicates, and two meetings whose exported names
+  differ only in case or Unicode normalisation still get distinct files.
 
 While a meeting records, hold-to-talk dictation is off (both would fight over
 the mic and the model); it re-arms when meeting processing finishes. The active
@@ -223,8 +258,9 @@ it necessarily applies to every voice audible on the mixed mic track.
 **Privacy: the audio itself is never kept.** During the meeting both tracks
 spool to temporary files, which are deleted as soon as the transcript is saved — and
 also on cancel, on failure, on quit, and (if the app ever crashes mid-meeting)
-swept at the next launch. Transcripts are plain JSON in
-`~/Library/Application Support/Speakeasy/meetings/`. Everything — recording,
+swept at the next launch. Transcripts live in the SQLite meeting library at
+`~/Library/Application Support/Speakeasy/library.sqlite` (see
+[The meeting library](#the-meeting-library) above). Everything — recording,
 transcription, speaker identification — runs offline; nothing leaves your Mac.
 
 During-capture microphone ASR uses the same 120-second chunks and 15-second
@@ -642,9 +678,24 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   microphone HAL lock. The helper is feature-gated, so the app's macOS 14.0
   minimum remains unchanged and unsupported/denied starts fall back visibly
   to mic-only
-- **`meetings.py`** — the meeting store (JSON per meeting, atomic saves like
-  `profiles.py`), `.txt`/`.md` rendering, and the pure `align_speakers()`
-  algorithm that maps diarization turns onto transcribed sentences
+- **`meetings.py`** — meeting-domain logic shared across the library: the
+  legacy `Meeting` JSON loader (import only, see `meeting_import.py`),
+  `.txt`/`.md` rendering, the capture-health whitelist
+  (`filter_capture_health`), and the pure `align_speakers()` /
+  `known_speaker_segments()` algorithms that turn diarization turns and the
+  known mic track into segments
+- **`meeting_store.py`** — SQLite connection setup and schema for the meeting
+  library: WAL mode, busy-timeout retries for the fresh-file race, and the
+  FTS5 tables/triggers kept in sync with `segments`/`notes`
+- **`meeting_library.py`** — `MeetingLibrary`, the read/write API over the
+  database (save, list, get, search, rename, relabel, delete, tags, people,
+  notes); every call opens and closes its own connection
+- **`meeting_import.py`** — the one-time legacy-JSON import: converts each
+  `Meeting` to the library's row shape, estimates the start time as
+  created − duration, and archives the originals to `meetings/legacy-json/`
+- **`meeting_export.py`** — the on-demand Markdown export (`--export-meetings`):
+  one file per meeting, collision-safe on case/Unicode-normalisation, and
+  overwritten in place on re-export
 - **`diarizer.py`** — sherpa-onnx speaker diarization (CPU/onnxruntime, no
   MLX thread-pinning rule); lazily constructed on the first meeting from the
   two bundled ONNX models

@@ -16,8 +16,27 @@ records (up to three hours) to spooled temporary WAVs; "End Meeting" runs
 chunked transcription + speaker diarization (sherpa-onnx, on-device) and saves
 a speaker-labelled transcript. Only the transcript is persisted — audio is
 deleted the moment processing ends (success, cancel, error, or crash-recovery
-sweep at next launch). See `engine.py` (`begin_meeting`/`end_meeting`/
-`_process_meeting`), `meeting_recorder.py`, `meetings.py`, `diarizer.py`.
+sweep at next launch). Meetings persist to a SQLite library at
+`settings.library_path()` via `MeetingLibrary` (`meeting_library.py`,
+`meeting_store.py`); legacy per-meeting JSON is imported once, by
+`meeting_import.py`, and the original files are archived to
+`meetings/legacy-json/`. Never write meeting JSON again. See `engine.py`
+(`begin_meeting`/`end_meeting`/`_process_meeting`), `meeting_recorder.py`,
+`meetings.py`, `diarizer.py`.
+- Every `MeetingLibrary` call opens its own short-lived SQLite connection —
+  never share one across threads or processes (WAL plus a busy timeout make
+  that safe for the app and, later, the MCP server writing concurrently).
+- Full-text search and the calendar cache are derived, not master data, and
+  can always be rebuilt from the meetings/segments/notes tables
+  (`--rebuild-index`).
+- The capture-health whitelist (`meetings.filter_capture_health`) still
+  applies at save — only the fixed privacy-safe schema reaches the database,
+  never raw provenance.
+- The known-source ("You") mic track has no diarization turns to break it up,
+  so it is split on real pauses (>1.5 s) and capped at 60 s per segment
+  (`config.KNOWN_SPEAKER_MAX_GAP_SECONDS` /
+  `KNOWN_SPEAKER_MAX_SEGMENT_SECONDS`, `meetings.known_speaker_segments`) —
+  otherwise a whole meeting would land as one segment timestamped 00:00:00.
 On macOS 14.2+, meetings capture microphone and outgoing system audio as
 separate temporary tracks through a bundled Core Audio process-tap helper.
 Global system audio is the default; the Dock can instead select one eligible

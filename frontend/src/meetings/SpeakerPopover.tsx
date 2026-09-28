@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import styles from './SpeakerPopover.module.css';
+import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 
 interface SpeakerPopoverProps {
   label: string;
@@ -74,6 +75,7 @@ export function SpeakerPopover({ label, anchor, onCancel, onRename }: SpeakerPop
       >
         <input
           ref={inputRef}
+          {...NO_AUTOCORRECT}
           className={styles.input}
           value={name}
           onChange={(e) => setName(e.target.value)}

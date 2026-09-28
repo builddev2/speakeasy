@@ -9,7 +9,7 @@ import { MeetingDetail } from './MeetingDetail';
 import type { JumpTarget } from './MeetingDetail';
 import { SpeakerPopover } from './SpeakerPopover';
 import { ConfirmSheet } from './ConfirmSheet';
-import { LibraryBanner } from './LibraryBanner';
+import { LibraryBanner, useLibraryBannerDismissed } from './LibraryBanner';
 import { EmptyState } from './EmptyState';
 import { TodayView } from './TodayView';
 import type { TodayConnection } from './TodayView';
@@ -140,6 +140,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             : MOCK_STATUS.done;
 
   const libraryStatus: LibraryStatus = isMock ? mockLibraryStatus : embeddedStatus;
+  const bannerDismissed = useLibraryBannerDismissed(libraryStatus);
 
   function filterParams(f: SidebarFilter): Record<string, string> {
     if (f.type === 'tag') return { tag: f.value };
@@ -485,14 +486,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             />
           ) : visibleMetas.length === 0 ? (
             <div className={styles.listColumn}>
-              <LibraryBanner status={libraryStatus} />
+              <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
               {libraryStatus.state !== 'upgrading' && (
                 <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
               )}
             </div>
           ) : (
             <div className={styles.listColumn}>
-              <LibraryBanner status={libraryStatus} />
+              <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
               <MeetingList
                 metas={visibleMetas}
                 selectedId={selectedId}

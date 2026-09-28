@@ -5,6 +5,7 @@ import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
 import { bridge } from '../bridge';
 import styles from './MeetingDetail.module.css';
+import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 
 type Tab = 'summary' | 'transcript';
 
@@ -303,6 +304,7 @@ export function MeetingDetail({
         <div className={styles.searchWrap}>
           <input
             ref={searchInputRef}
+            {...NO_AUTOCORRECT}
             className={styles.searchInput}
             placeholder="Search meetings"
             aria-label="Search meetings"
@@ -332,6 +334,7 @@ export function MeetingDetail({
             {renaming ? (
               <input
                 className={styles.titleInput}
+                {...NO_AUTOCORRECT}
                 value={renameText}
                 autoFocus
                 onChange={(e) => setRenameText(e.target.value)}
@@ -490,6 +493,7 @@ export function MeetingDetail({
                 <div className={styles.findBar}>
                   <input
                     className={styles.findInput}
+                    {...NO_AUTOCORRECT}
                     autoFocus
                     placeholder="Find in transcript"
                     aria-label="Find in transcript"

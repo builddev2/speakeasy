@@ -67,7 +67,7 @@ def main() -> None:
     parser.add_argument("--import-json-meetings", action="store_true",
                         help="import legacy JSON meetings into the library")
     parser.add_argument("--rebuild-index", action="store_true",
-                        help="rebuild meeting search and the calendar cache")
+                        help="rebuild meeting search indexes and clear the calendar cache")
     parser.add_argument("--export-meetings", metavar="DIR",
                         help="write every meeting as Markdown into DIR")
     args = parser.parse_args()

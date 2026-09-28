@@ -968,9 +968,50 @@ def test_upgrade_library_publishes_queued_state_synchronously(meetings_dir, spoo
     engine = _engine(spool_dir)
     statuses = []
     engine.on_library_status = statuses.append
+    # Block the worker before queueing the upgrade job. If the "upgrading"
+    # placeholder were published from inside _upgrade_library (i.e. moved
+    # onto the worker) instead of synchronously by upgrade_library() on the
+    # calling thread, it would not appear until `release` is set below —
+    # this is what makes the "synchronous" claim in the test name actually
+    # checked, rather than merely plausible from timing.
+    release = threading.Event()
+    engine.worker.submit(release.wait)
     engine.upgrade_library()
     assert statuses == [{"state": "upgrading", "done": 0, "total": 3, "skipped": []}]
     assert engine.library_status == statuses[0]
+    release.set()
+    engine.worker.submit(lambda: None).result(timeout=5.0)
+    engine.shutdown()
+
+
+def test_upgrade_library_survives_count_meetings_error_at_queue_time(
+    meetings_dir, spool_dir, monkeypatch
+):
+    # Spec: upgrade_library()'s count_meetings() check runs on the main
+    # thread from applicationDidFinishLaunching_ (ui/menubar.py) -- the
+    # app's very first DB touch at launch, ahead of engineStateChanged_,
+    # main_window.show(), the permissions guidance, and the hotkey. A DB
+    # error there must not raise and abort the rest of launch: skip the
+    # queued placeholder and still submit the worker job, which re-checks
+    # count_meetings() inside its own try and publishes "failed".
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+
+    def boom(self):
+        raise RuntimeError("synthetic db failure")
+
+    monkeypatch.setattr(MeetingLibrary, "count_meetings", boom)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()  # must not raise
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "failed")
+    # No queued placeholder was published: the failed status is the only one.
+    assert statuses == [statuses[-1]]
+    assert statuses[-1]["state"] == "failed"
     engine.shutdown()
 
 

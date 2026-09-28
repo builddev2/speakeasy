@@ -715,7 +715,32 @@ class DictationEngine:
         # waits behind model load. Only when the job will actually run: a
         # non-empty library means _upgrade_library will return early below,
         # so nothing is queued and the state stays idle.
-        if self.library.count_meetings() == 0:
+        #
+        # This runs on the main thread, inside applicationDidFinishLaunching_
+        # (ui/menubar.py) — the app's very first DB touch at launch, well
+        # before engineStateChanged_, main_window.show(), the permissions
+        # guidance, or the hotkey are wired up. A DB error here (corrupt,
+        # locked past the busy timeout, permissions, schema) must not abort
+        # the rest of launch, so it's swallowed: skip the placeholder and
+        # still queue the worker job — _upgrade_library() re-checks
+        # count_meetings() inside its own try and will publish "failed" if
+        # the DB is genuinely broken. Only the exception type is logged
+        # (never the message or a source line, which could carry a path or
+        # transcript text) — same content-free frame logging as
+        # _process_meeting's save-failure handler.
+        try:
+            library_is_empty = self.library.count_meetings() == 0
+        except Exception as err:
+            print("Traceback (most recent call last):", file=sys.stderr)
+            for frame in traceback.extract_tb(err.__traceback__):
+                print(
+                    f'  File "{frame.filename}", line {frame.lineno},'
+                    f" in {frame.name}",
+                    file=sys.stderr,
+                )
+            print(type(err).__name__, file=sys.stderr)
+            library_is_empty = False
+        if library_is_empty:
             self._publish_library_status(
                 {"state": "upgrading", "done": 0, "total": len(legacy_files), "skipped": []})
         self.worker.submit(self._upgrade_library)

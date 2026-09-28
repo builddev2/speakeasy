@@ -79,7 +79,7 @@
 **Interfaces:**
 - Produces: `settings.library_path() -> Path`; `meeting_store.connect(path: Path | None = None) -> sqlite3.Connection` (row factory `sqlite3.Row`, WAL, foreign keys on, busy timeout 5000 ms, migrated); `meeting_store.SCHEMA_VERSION = 1`; `meeting_store.rebuild_derived(conn)`; pytest fixture `library_path`.
 
-- [ ] **Step 1: Add the fixture and write the failing tests**
+- [x] **Step 1: Add the fixture and write the failing tests**
 
 In `tests/conftest.py`, add the fixture and make `meetings_dir` depend on it, so every existing meeting test also gets a throwaway library:
 
@@ -215,12 +215,12 @@ def test_rebuild_derived_restores_search(library_path):
     conn.close()
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_store.py -q` (timeout 300000)
 Expected: FAIL with `ImportError: cannot import name 'meeting_store'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `speakeasy/settings.py`, after `meetings_dir()`:
 
@@ -421,17 +421,17 @@ def rebuild_derived(conn: sqlite3.Connection) -> None:
         conn.execute("DELETE FROM calendar_events")
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_store.py -q` (timeout 300000)
 Expected: 6 passed.
 
-- [ ] **Step 5: Run the full suite** (the `meetings_dir` fixture changed)
+- [x] **Step 5: Run the full suite** (the `meetings_dir` fixture changed)
 
 Run: `.venv/bin/python -m pytest -q` (timeout 300000)
 Expected: all pass (393 before this plan, plus the new tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add speakeasy/settings.py speakeasy/meeting_store.py tests/conftest.py tests/test_meeting_store.py
@@ -458,7 +458,7 @@ git commit -m "Add SQLite meeting library store with FTS and schema v1"
   - `MeetingLibrary(path: Path | None = None)` with `save_meeting(new) -> str`, `get_meeting(id) -> StoredMeeting`, `list_meetings(*, from_date=None, to_date=None, tag=None, person=None, limit=100, offset=0) -> list[MeetingSummary]`, `count_meetings() -> int`, `meeting_ids() -> set[str]`, `transcript_page(id, *, start_seconds=None, end_seconds=None, cursor=0, max_chars=20000) -> TranscriptPage`, `rename(id, title)`, `relabel_speaker(id, segment_index, label, *, all_matching=False)`, `delete(id)`
   - module functions `utc_iso(dt) -> str`, `local_start(started_at, tz_offset_minutes) -> datetime`, `local_day_bounds(from_date, to_date) -> tuple[str | None, str | None]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_meeting_library.py`:
 
@@ -591,12 +591,12 @@ def test_concurrent_writers(library_path):
     assert lib.count_meetings() == 40
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_library.py -q` (timeout 300000)
 Expected: FAIL with `ModuleNotFoundError: speakeasy.meeting_library`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `speakeasy/meeting_library.py`:
 
@@ -1005,12 +1005,12 @@ class MeetingLibrary:
         return TranscriptPage(page, None)
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_library.py -q` (timeout 300000)
 Expected: 9 passed. If the concurrent test reports `database is locked`, confirm that `connect` sets `busy_timeout` *before* `journal_mode`, and that `_SCHEMA_V1` uses `BEGIN IMMEDIATE`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/meeting_library.py tests/test_meeting_library.py
@@ -1028,7 +1028,7 @@ git commit -m "Add MeetingLibrary core API over the SQLite store"
 **Interfaces:**
 - Produces: `save_notes(meeting_id, *, summary=None, action_items=None, tags=None, updated_by="claude") -> Notes`; `link_people(meeting_id, people: list[tuple[str, str | None, str]])` where each tuple is `(display_name, email_or_None, "attendee" | "organizer")`; `list_tags() -> list[tuple[str, int]]`; `list_people(query=None) -> list[tuple[str, int]]`. Limits: tags ≤ 20 per meeting, each ≤ 40 chars; action items ≤ 50, each ≤ 500 chars; summary ≤ 20 000 chars. Exceeding a limit raises `ValueError`.
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/test_meeting_library.py`)
+- [x] **Step 1: Write the failing tests** (append to `tests/test_meeting_library.py`)
 
 ```python
 def test_save_notes_partial_updates_and_tag_normalisation(library_path):
@@ -1073,12 +1073,12 @@ def test_people_link_by_email_then_name(library_path):
     assert lib.get_meeting(a).people == ["Refayet K", "Jason"]  # organizer first
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_library.py -q -k "notes or people"` (timeout 300000)
 Expected: FAIL with `AttributeError: 'MeetingLibrary' object has no attribute 'save_notes'`.
 
-- [ ] **Step 3: Implement** (append inside `class MeetingLibrary`)
+- [x] **Step 3: Implement** (append inside `class MeetingLibrary`)
 
 ```python
     # -- notes, tags, people ---------------------------------------------
@@ -1192,12 +1192,12 @@ def _normalise_tags(tags) -> list[str]:
     return result
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_library.py -q` (timeout 300000)
 Expected: 12 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/meeting_library.py tests/test_meeting_library.py
@@ -1215,7 +1215,7 @@ git commit -m "Add notes, tags and people to the meeting library"
 **Interfaces:**
 - Produces: `HIT_OPEN = "\x02"`, `HIT_CLOSE = "\x03"` (snippet highlight markers; consumers convert them); `fts_query(text, *, any_term=False) -> str | None`; `SearchHit(meeting_id, title, started_at, tz_offset_minutes, kind, speaker, start_seconds, end_seconds, segment_index, snippet, also_speakers, score)` where `kind` is `"transcript"` or `"notes"`; `collapse_echoes(hits) -> list[SearchHit]`; `MeetingLibrary.search(query, *, from_date=None, to_date=None, tag=None, person=None, limit=10) -> list[SearchHit]` (limit clamped to 1..50).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_meeting_search.py`:
 
@@ -1327,14 +1327,14 @@ def test_limit_is_clamped(library_path):
     assert len(lib.search("standup", limit=0)) == 1
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_search.py -q` (timeout 300000)
 Expected: FAIL with `ImportError: cannot import name 'HIT_CLOSE'`.
 
 Note: `test_limit_is_clamped` expects 28 because the result count is capped by the data, not the limit of 50.
 
-- [ ] **Step 3: Implement** (module level in `meeting_library.py`, plus a method)
+- [x] **Step 3: Implement** (module level in `meeting_library.py`, plus a method)
 
 ```python
 import re
@@ -1449,12 +1449,12 @@ Inside `MeetingLibrary`:
 
 Move the `import re` and `from difflib import SequenceMatcher` lines to the module's import block.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_search.py -q` (timeout 300000)
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/meeting_library.py tests/test_meeting_search.py
@@ -1473,7 +1473,7 @@ git commit -m "Add ranked meeting search with safe query quoting and echo collap
 **Interfaces:**
 - Produces: `config.KNOWN_SPEAKER_MAX_GAP_SECONDS = 1.5`, `config.KNOWN_SPEAKER_MAX_SEGMENT_SECONDS = 60.0`; `known_speaker_segments(sentences, speaker="You", *, max_gap_seconds=None, max_segment_seconds=None)`.
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/test_dual_track_meeting.py`; it already defines `Sentence`)
+- [x] **Step 1: Write the failing tests** (append to `tests/test_dual_track_meeting.py`; it already defines `Sentence`)
 
 ```python
 def test_known_track_splits_on_pause_longer_than_gap():
@@ -1493,12 +1493,12 @@ def test_known_track_caps_segment_length():
     assert len(segments) == 3
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_dual_track_meeting.py -q -k known_track` (timeout 300000)
 Expected: FAIL (everything merges into one segment).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `speakeasy/config.py`, append:
 
@@ -1544,12 +1544,12 @@ def known_speaker_segments(
     return segments
 ```
 
-- [ ] **Step 4: Run to verify pass, including the existing test**
+- [x] **Step 4: Run to verify pass, including the existing test**
 
 Run: `.venv/bin/python -m pytest tests/test_dual_track_meeting.py -q` (timeout 300000)
 Expected: all pass (`test_known_mic_track_is_always_you` has a 0.2 s gap and still merges).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/config.py speakeasy/meetings.py tests/test_dual_track_meeting.py
@@ -1569,7 +1569,7 @@ git commit -m "Split the known mic track on pauses and cap segment length"
 - Consumes: `meetings.Meeting.load`, `meetings._ID_RE`, `settings.meetings_dir`, `MeetingLibrary`, `NewMeeting`.
 - Produces: `MeetingLibrary.import_meetings(batch: list[NewMeeting], expected: dict[str, tuple[int, frozenset[str]]]) -> None` (one transaction; raises `ImportVerificationError` and rolls back on mismatch); `meeting_import.ImportVerificationError(RuntimeError)`, defined in `meeting_library` and re-exported; `meeting_import.ImportReport(imported: int, already_present: int, skipped: list[tuple[str, str]])`; `meeting_import.LEGACY_DIR_NAME = "legacy-json"`; `legacy_files() -> list[Path]`; `split_long_segment(segment, *, threshold_seconds=120.0, target_seconds=60.0) -> list[MeetingSegment]`; `import_json_meetings(library=None, progress=None) -> ImportReport`, where `progress(done: int, total: int)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_meeting_import.py`:
 
@@ -1680,12 +1680,12 @@ def test_rerun_after_crash_between_commit_and_archive(meetings_dir):
     assert not path.exists()
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_import.py -q` (timeout 300000)
 Expected: FAIL with `ModuleNotFoundError: speakeasy.meeting_import`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `speakeasy/meeting_library.py`, add near `MeetingNotFound`:
 
@@ -1855,16 +1855,16 @@ def import_json_meetings(library=None, progress=None) -> ImportReport:
 
 The verification-failure test monkeypatches `meeting_import.split_long_segment`. `_convert` looks the name up in the module globals at call time, so the patch takes effect. Keep that reference as a plain module-level name.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_import.py -q` (timeout 300000)
 Expected: 7 passed.
 
-- [ ] **Step 5: Mutation spot-check**
+- [x] **Step 5: Mutation spot-check**
 
 Temporarily change the verification line in `import_meetings` from `if got != (chars, speakers):` to `if False:`. Run the import tests and confirm `test_verification_failure_rolls_back_and_moves_nothing` FAILS. Revert.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add speakeasy/meeting_library.py speakeasy/meeting_import.py tests/test_meeting_import.py
@@ -1886,7 +1886,7 @@ git commit -m "Import legacy JSON meetings with verification and archiving"
 - Consumes: `MeetingLibrary`, `NewMeeting`, `meeting_import.import_json_meetings`, `meeting_import.legacy_files`.
 - Produces: `MeetingRecording.started_at: datetime | None = None`; `engine.library: MeetingLibrary`; `engine.library_status: dict`, shaped `{"state": "idle"|"upgrading"|"done"|"failed", "done": int, "total": int, "skipped": [{"file": str, "reason": str}]}`; `engine.on_library_status: Callable[[dict], None]`; `engine.upgrade_library() -> None`. `on_meeting_saved(meeting_id)` is unchanged.
 
-- [ ] **Step 1: Move the existing tests to the library**
+- [x] **Step 1: Move the existing tests to the library**
 
 ```bash
 sed -i '' 's/meetings\.Meeting\.load(/MeetingLibrary().get_meeting(/g' tests/test_engine_meeting.py
@@ -1894,7 +1894,7 @@ sed -i '' 's/meetings\.Meeting\.load(/MeetingLibrary().get_meeting(/g' tests/tes
 
 Add `from speakeasy.meeting_library import MeetingLibrary` to that file's imports. Run `grep -n "Meeting.load\|meetings_dir.glob\|\.json" tests/test_engine_meeting.py` and convert any remaining JSON-file assertions to `MeetingLibrary().list_meetings()` / `count_meetings()`.
 
-- [ ] **Step 2: Write the failing new tests** (append)
+- [x] **Step 2: Write the failing new tests** (append)
 
 ```python
 def test_meeting_start_time_is_capture_start(meetings_dir, spool_dir):
@@ -1943,12 +1943,12 @@ def test_upgrade_library_is_a_no_op_without_legacy_files(meetings_dir, spool_dir
     engine.shutdown()
 ```
 
-- [ ] **Step 3: Run to verify failure**
+- [x] **Step 3: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_engine_meeting.py -q` (timeout 300000)
 Expected: the three new tests FAIL (`AttributeError: ... 'upgrade_library'`, and the start time is after `after_begin`). Converted older tests FAIL because `get_meeting` raises `MeetingNotFound` (the engine still writes JSON).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `meeting_recorder.py`, add a last field to `MeetingRecording` (import `datetime` at the top):
 
@@ -2066,12 +2066,12 @@ After `engine.start()`, add `engine.upgrade_library()`. Add a `libraryStatus_(se
 
 `MeetingsWindowController.libraryStatus_` is added in Task 10. Until then, guard it with `hasattr`. Add `import json` to menubar if absent.
 
-- [ ] **Step 5: Run the engine tests, then the full suite**
+- [x] **Step 5: Run the engine tests, then the full suite**
 
 Run: `.venv/bin/python -m pytest tests/test_engine_meeting.py -q` then `.venv/bin/python -m pytest -q` (timeout 300000 each)
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add speakeasy/meeting_recorder.py speakeasy/engine.py speakeasy/ui/menubar.py tests/test_engine_meeting.py
@@ -2090,7 +2090,7 @@ git commit -m "Save meetings to the library with their real start time; upgrade 
 **Interfaces:**
 - Produces: `meeting_export.safe_filename(title: str, fallback: str) -> str`; `render_export_md(stored: StoredMeeting) -> str`; `export_all(folder: Path, library=None) -> int`; CLI `--import-json-meetings`, `--rebuild-index`, `--export-meetings DIR`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 from datetime import datetime, timedelta, timezone
@@ -2125,12 +2125,12 @@ def test_export_writes_notes_and_transcript(tmp_path, library_path):
     assert (out / "2026-09-24 1-1 - Refayet.md").read_text(encoding="utf-8") == text
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_export.py -q` (timeout 300000)
 Expected: FAIL (`ModuleNotFoundError`).
 
-- [ ] **Step 3: Implement** `speakeasy/meeting_export.py`
+- [x] **Step 3: Implement** `speakeasy/meeting_export.py`
 
 ```python
 """Plain-text way out of the SQLite library (`--export-meetings`): one
@@ -2224,12 +2224,12 @@ and dispatch right after `args = parser.parse_args()`:
         return
 ```
 
-- [ ] **Step 4: Run tests and a CLI smoke check against a temp library**
+- [x] **Step 4: Run tests and a CLI smoke check against a temp library**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_export.py -q` (timeout 300000). Expected: pass.
 Run: `HOME=$(mktemp -d) .venv/bin/python -m speakeasy --rebuild-index`. Expected: prints the rebuild line and exits 0 (a throwaway `HOME` keeps it off the real library).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/meeting_export.py speakeasy/__main__.py tests/test_meeting_export.py
@@ -2310,13 +2310,13 @@ export interface AgendaEvent {                 // phase 3
 - Accessibility: every icon-only control has `aria-label`; list uses `role="listbox"`/`option` with `aria-selected`; visible `:focus-visible` rings (2 px `--coral-1`); `@media (prefers-reduced-motion: reduce)` disables transitions; `@media (prefers-contrast: more)` raises hairlines to `--hairline`; `@media (prefers-reduced-transparency: reduce)` swaps glass fills for solid `#1b1f1d`.
 - Mock state switch: `?state=` URL parameter read in each `App` when `!bridge.embedded`. Values: `default`, `empty`, `upgrading`, `upgrade-failed`, `search`, `no-summary`, `popover`, `delete`, `today`, `today-denied`, `today-unconnected`, `connect-claude`, `settings` (meetings); `default` (prompt); `recording-linked` (dock).
 
-- [ ] **Step 1: Types and mock data.** Replace the interfaces in `frontend/src/mock/meetings.ts` with the contract above, keep `SPEAKER_PALETTE`/`speakerColor`, and export `MOCK_METAS` (≥ 8 meetings over Today, Yesterday, a weekday and last month; ≥ 2 with summaries/tags/people; 1 approximate), `MOCK_DETAILS`, `MOCK_FILTERS`, `MOCK_RESULTS`, `MOCK_STATUS`, `MOCK_AGENDA`. Use invented names (Alex, Priya, Sam), not people from the reference transcript.
-- [ ] **Step 2: Components.** Build each file listed above following the design rules, with `App.tsx` composing them and reading `?state=`. Keep bridge calls out of this task.
-- [ ] **Step 3: Record banner page.** Add `prompt.html` (copy `meetings.html`, point at `/src/prompt/main.tsx`) and the `prompt` input in `vite.config.ts`.
-- [ ] **Step 4: Build.** Run `npm --prefix frontend run build` (timeout 300000). Expected: no TypeScript errors.
-- [ ] **Step 5: Screenshots.** Start `npm --prefix frontend run dev` as a background process. Open each `?state=` URL in the built-in browser (`mcp__Claude_Browser__preview_start` with the dev URL), resize to 1040×660 (the banner to 360×92 at 2×), and save a screenshot per state to the scratchpad. Also capture `default` with the emulated `prefers-contrast: more` and reduced-transparency states if the browser supports them; otherwise note that it doesn't.
-- [ ] **Step 6: STOP: user design review.** Send all screenshots to the user in one message with a one-line caption each. **Do not start Task 10 until the user approves.** Apply requested changes, rebuild, re-screenshot the changed states, and ask again.
-- [ ] **Step 7: Commit** (after approval; the dev server is stopped)
+- [x] **Step 1: Types and mock data.** Replace the interfaces in `frontend/src/mock/meetings.ts` with the contract above, keep `SPEAKER_PALETTE`/`speakerColor`, and export `MOCK_METAS` (≥ 8 meetings over Today, Yesterday, a weekday and last month; ≥ 2 with summaries/tags/people; 1 approximate), `MOCK_DETAILS`, `MOCK_FILTERS`, `MOCK_RESULTS`, `MOCK_STATUS`, `MOCK_AGENDA`. Use invented names (Alex, Priya, Sam), not people from the reference transcript.
+- [x] **Step 2: Components.** Build each file listed above following the design rules, with `App.tsx` composing them and reading `?state=`. Keep bridge calls out of this task.
+- [x] **Step 3: Record banner page.** Add `prompt.html` (copy `meetings.html`, point at `/src/prompt/main.tsx`) and the `prompt` input in `vite.config.ts`.
+- [x] **Step 4: Build.** Run `npm --prefix frontend run build` (timeout 300000). Expected: no TypeScript errors.
+- [x] **Step 5: Screenshots.** Start `npm --prefix frontend run dev` as a background process. Open each `?state=` URL in the built-in browser (`mcp__Claude_Browser__preview_start` with the dev URL), resize to 1040×660 (the banner to 360×92 at 2×), and save a screenshot per state to the scratchpad. Also capture `default` with the emulated `prefers-contrast: more` and reduced-transparency states if the browser supports them; otherwise note that it doesn't.
+- [x] **Step 6: STOP: user design review.** Send all screenshots to the user in one message with a one-line caption each. **Do not start Task 10 until the user approves.** Apply requested changes, rebuild, re-screenshot the changed states, and ask again.
+- [x] **Step 7: Commit** (after approval; the dev server is stopped)
 
 ```bash
 git add frontend
@@ -2338,7 +2338,7 @@ git commit -m "Design the Apple-style Meetings window, Today view, sheets and re
 - Consumes: `MeetingLibrary` API (Tasks 2–4), `HIT_OPEN/HIT_CLOSE`, Task 9's TS contract.
 - Produces: `day_label(local_start: datetime, now: datetime) -> str`; `snippet_parts(snippet: str) -> list[dict]`; `MeetingsBridge(library=None, now=None)` with `register(dispatcher)` and handler methods for `meetings.list`, `meetings.filters`, `meetings.get`, `meetings.search`, `meetings.rename`, `meetings.relabelSpeaker`, `meetings.delete`, `library.status`; `MeetingsBridge.set_library_status(status: dict)`; `glass.make_glass_window(..., resizable=False, min_size=None)`; `WebWindow(..., resizable=False, min_size=None)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_webbridge.py`, add `"start": 0.0` (the `Seg` start value) to the expected dict in the existing `segments_to_lines` test. Then add:
 
@@ -2448,12 +2448,12 @@ def test_library_status(library_path):
     assert bridge.status_payload({})["done"] == 1
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_webbridge.py tests/test_meetings_bridge.py -q` (timeout 300000)
 Expected: FAIL (imports missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `webbridge.py`: in `segments_to_lines`, add `"start": float(seg.start),` to each dict. Append:
 
@@ -2632,12 +2632,12 @@ Clean-up while implementing: replace the ad-hoc `summary_like` object in `get_pa
 
 Check `self._web.emit`'s signature in `webwindow.py`. If `emit` takes only an event name, add an optional payload argument that is JSON-encoded the same way `_js_call` does. The menubar delegate should then always call `libraryStatus_` when a window exists, and when it doesn't, store the latest status so a newly created window starts with it. Implement this with `self._pending_library_status`, passed to the controller after creation. Remove the Task 7 `hasattr` guard.
 
-- [ ] **Step 4: Run tests, then the full suite**
+- [x] **Step 4: Run tests, then the full suite**
 
 Run: `.venv/bin/python -m pytest tests/test_webbridge.py tests/test_meetings_bridge.py -q`, then `.venv/bin/python -m pytest -q` (timeout 300000 each)
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/ui tests/test_webbridge.py tests/test_meetings_bridge.py
@@ -2654,12 +2654,12 @@ git commit -m "Serve the redesigned Meetings window from the library via a teste
 **Interfaces:**
 - Consumes: bridge methods and events from Task 10 (`meetings.list/filters/get/search/rename/relabelSpeaker/delete/copy/export`, `library.status`; events `meetings.changed`, `library.progress`).
 
-- [ ] **Step 1: Data flow.** When `bridge.embedded`: load `meetings.filters` + `meetings.list` + `library.status` on mount; re-load list and filters on `meetings.changed`; update the banner on `library.progress`. When not embedded, keep the Task 9 mocks and `?state=` switch unchanged.
-- [ ] **Step 2: Selection and detail.** Selecting a row calls `meetings.get`. A rejected call with `not_found` re-lists and selects the first row (Review Focus 2). Sidebar tag/person selection passes `{tag}` / `{person}` to `meetings.list`. Today, Connect Claude and the gear stay hidden because `features` are false.
-- [ ] **Step 3: Search.** 250 ms debounce → `meetings.search`. Choosing a result calls `meetings.get`, switches to Transcript, scrolls the line whose `segmentIndex` matches (or the nearest `start` for notes hits → Summary tab), and adds a 1.2 s highlight class (none under reduced motion). Esc clears and restores the list.
-- [ ] **Step 4: Edits.** Popover Rename → `meetings.relabelSpeaker` → replace detail. Inline title rename → `meetings.rename`. Delete sheet → `meetings.delete` → re-list, select the next row. Copy/Export → existing methods. "Copy prompt" copies with `navigator.clipboard.writeText`. If that is rejected in WKWebView, call `meetings.copyText` instead: add a two-line handler to `meetings_window.py` using `injector.set_clipboard`.
-- [ ] **Step 5: Build.** `npm --prefix frontend run build` (timeout 300000). Expected: no errors.
-- [ ] **Step 6: Commit**
+- [x] **Step 1: Data flow.** When `bridge.embedded`: load `meetings.filters` + `meetings.list` + `library.status` on mount; re-load list and filters on `meetings.changed`; update the banner on `library.progress`. When not embedded, keep the Task 9 mocks and `?state=` switch unchanged.
+- [x] **Step 2: Selection and detail.** Selecting a row calls `meetings.get`. A rejected call with `not_found` re-lists and selects the first row (Review Focus 2). Sidebar tag/person selection passes `{tag}` / `{person}` to `meetings.list`. Today, Connect Claude and the gear stay hidden because `features` are false.
+- [x] **Step 3: Search.** 250 ms debounce → `meetings.search`. Choosing a result calls `meetings.get`, switches to Transcript, scrolls the line whose `segmentIndex` matches (or the nearest `start` for notes hits → Summary tab), and adds a 1.2 s highlight class (none under reduced motion). Esc clears and restores the list.
+- [x] **Step 4: Edits.** Popover Rename → `meetings.relabelSpeaker` → replace detail. Inline title rename → `meetings.rename`. Delete sheet → `meetings.delete` → re-list, select the next row. Copy/Export → existing methods. "Copy prompt" copies with `navigator.clipboard.writeText`. If that is rejected in WKWebView, call `meetings.copyText` instead: add a two-line handler to `meetings_window.py` using `injector.set_clipboard`.
+- [x] **Step 5: Build.** `npm --prefix frontend run build` (timeout 300000). Expected: no errors.
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend speakeasy/ui/meetings_window.py
@@ -2673,9 +2673,9 @@ git commit -m "Wire the Meetings window to the meeting library"
 **Files:**
 - Modify: `AGENTS.md`, `README.md`
 
-- [ ] **Step 1: AGENTS.md.** Replace the "Only the transcript is persisted … `meetings.py`" sentence with: meetings persist to SQLite at `settings.library_path()` via `MeetingLibrary` (`meeting_library.py`, `meeting_store.py`); legacy JSON is imported once by `meeting_import.py` and archived to `meetings/legacy-json/`; never write meeting JSON again. Add bullets: every `MeetingLibrary` call opens its own connection (never share across threads/processes); FTS and the calendar cache are derived (`--rebuild-index`); the capture-health whitelist still applies at save; the mic track is split at 1.5 s pauses / 60 s.
-- [ ] **Step 2: README.** In "Meeting transcription", describe the library, search, `≈` approximate imported times, the three CLI commands, and where the database lives.
-- [ ] **Step 3: Full suite + frontend build**
+- [x] **Step 1: AGENTS.md.** Replace the "Only the transcript is persisted … `meetings.py`" sentence with: meetings persist to SQLite at `settings.library_path()` via `MeetingLibrary` (`meeting_library.py`, `meeting_store.py`); legacy JSON is imported once by `meeting_import.py` and archived to `meetings/legacy-json/`; never write meeting JSON again. Add bullets: every `MeetingLibrary` call opens its own connection (never share across threads/processes); FTS and the calendar cache are derived (`--rebuild-index`); the capture-health whitelist still applies at save; the mic track is split at 1.5 s pauses / 60 s.
+- [x] **Step 2: README.** In "Meeting transcription", describe the library, search, `≈` approximate imported times, the three CLI commands, and where the database lives.
+- [x] **Step 3: Full suite + frontend build**
 
 Run: `.venv/bin/python -m pytest -q` and `npm --prefix frontend run build` (timeout 300000 each). Expected: all pass. Record the test count.
 
@@ -2687,13 +2687,13 @@ cp -R ~/Library/Application\ Support/Speakeasy/meetings /private/tmp/claude-501/
 
 - [ ] **Step 5: Build and install in place, then launch** (`run` skill): `scripts/build_app.sh --install`, open Speakeasy, open the Meetings window. Check and report each item:
   1. The upgrade banner appears; the final count equals the number of legacy files (92 at spec time) minus any reported skipped files; `meetings/legacy-json/` holds the imported files.
-  2. The list is grouped by day; old meetings show `≈`; the window resizes to its 820×520 minimum.
+  2. The list is grouped by day; old meetings show `≈` on the detail header note and transcript times; the window resizes to its 820×520 minimum.
   3. Search "cognos" (or any word from a recent meeting) returns ranked results with highlighted snippets; clicking one jumps to the line.
   4. Clicking a speaker opens the popover, and renaming works (closes review issue 6).
   5. Delete a throwaway test recording through the sheet.
   6. Record a 1-minute test meeting: its title shows the start time, not the end time, and "You" appears in several segments rather than one.
   7. Dictation still works once in TextEdit (smoke check only; insertion code is untouched).
-- [ ] **Step 6: Commit docs**
+- [x] **Step 6: Commit docs**
 
 ```bash
 git add AGENTS.md README.md
@@ -2756,42 +2756,73 @@ Scope: `speakeasy/ui/record_prompt.py` hosting `prompt.html` in a **non-activati
 
 ### Phase 1 progress (27–28 Sep 2026, branch `meeting-library-phase1`, worktree `.claude/worktrees/meeting-library-phase1`)
 
-**Done and review-clean (Opus review with mutation checks):** Tasks 1–8, and Task 9 Steps 1–5 (split into 9a and 9b). Python suite: 489 passed. Frontend build is clean. **Task 9 design approved by the user on 28 Sep 2026** (open questions about search in the Today view and the transcript gap left as-is). The screenshots are in the session scratchpad, and they can be regenerated from the dev server with any `?state=` value.
+**Status:**
+- **Tasks 1–11 done.** Each passed an Opus task review with mutation checks.
+- **Task 9 design approved** by the user on 28 Sep.
+- **Task 12:** docs done (Steps 1–3 and 6).
+- **Final whole-branch review:** "ready to merge with fixes". Its one fix wave and one residual fix were applied and re-reviewed.
+- **Tests:** 514 passed. Frontend build is clean.
+- **Dry run:** the reviewer imported a *copy* of the user's 92 real JSON meetings. All 92 imported, none skipped, and verification passed in 0.95 s.
+- **Remaining:**
+  - Task 12 Step 4: back up the real meetings.
+  - Task 12 Step 5: install over the live app and launch. This needs the user's go-ahead; items 6–7 need the user to speak.
+  - Task 12 Step 7: checkpoint.
+  - Merge.
+- **Not yet done:** the app has **not** been launched or looked at.
 
-**Decisions made during execution** (pre-flight scan and reviews; these change the text above):
-- Schema v1: `segments` and `notes` have an explicit `id INTEGER PRIMARY KEY`, used as the FTS `content_rowid` (VACUUM-safe). `notes.meeting_id` is `UNIQUE`.
-- `connect()` retries the WAL pragma on "locked" when a fresh file is opened concurrently. The file is pre-created with mode 0600.
-- `meetings.filter_capture_health()` is shared by `Meeting` and the library.
-- Search snippets are 30 tokens (the spec), not 24. A `None` or empty query returns `[]`.
-- Import:
-  - A title that exactly equals the old default title (computed from `created`) is regenerated from the estimated start.
-  - Value types are validated per file, so a bad file is skipped rather than blocking the whole import.
-  - An existing archive is never overwritten; a unique name is used instead.
-- Auto-import runs only when the library is empty (per the spec).
+**Decisions made during execution** (they change the text above):
+- **Schema v1.**
+  - `segments` and `notes` have an explicit `id INTEGER PRIMARY KEY`, used as the FTS `content_rowid`, so VACUUM is safe.
+  - `notes.meeting_id` is `UNIQUE`.
+  - `connect()` retries the WAL pragma on "locked" for a fresh file. The file is pre-created 0600.
+- **Shared code.** `meetings.filter_capture_health()` is shared by the importer and the library. `Meeting`'s JSON write paths and `meetings.list_meetings` are deleted; `Meeting.load` stays for the importer.
+- **Search.**
+  - Snippets are 30 tokens (spec), not 24.
+  - A `None` or empty query returns `[]`.
+  - `MeetingSummary.speakers` gives ordered, distinct speakers in the list query. The list never loads transcripts: about 50 ms per 100 long meetings.
+- **Import.**
+  - A title exactly equal to the old default (from `created`) is regenerated from the estimated start.
+  - Values are type-validated per file, so a bad file is skipped rather than blocking the whole import.
+  - An archive is never overwritten; a unique name is used instead.
+- **Auto-import.**
+  - It runs only when the library is empty (spec).
+  - At queue time the engine publishes `upgrading` with the file count, so the page shows the banner instead of "No meetings yet".
+  - The launch-time DB check is guarded.
   - A failed upgrade publishes `skipped=[{"file":"","reason":<ErrorType>}]`.
-  - Skipped files are logged by name and category only.
-- A save failure is logged with frames and the error type only; the exception message is never logged (privacy).
-- Export:
-  - Collisions are tracked per run, keyed on NFC + casefold (APFS is insensitive to case and normalisation).
-  - Re-exporting overwrites the previous export's files.
-- Frontend:
-  - New tokens: `--surface-elevated` (opaque), `--scrim` and others.
-  - A shared `Sheet` component and `useFocusTrap` hook.
-  - Extra mock state `upgrade-skipped`.
+- **Logging.** A save failure logs frames and the error type, never the message.
+- **Export.**
+  - Name collisions are keyed on NFC + casefold (APFS).
+  - A re-export overwrites the earlier export's files.
+  - `--rebuild-index` rebuilds FTS and *clears* the calendar cache.
+- **Bridge.**
+  - Payload formats follow the approved mock: `date` "Thu 24 Sep"; `subtitle` = people, else speakers; line `time` = wall clock. `≈` is drawn by the UI.
+  - `apply_status_json`, `copy_payload`, `export_meeting` and `copy_text_payload` live in the testable `MeetingsBridge`.
+- **Frontend.**
+  - New tokens `--surface-elevated` (opaque), `--scrim` and others.
+  - A shared `Sheet` component and a `useFocusTrap` hook.
+  - An extra mock state, `upgrade-skipped`.
   - Older list groups are headed by month.
-  - `AgendaEvent` gains `endTime` (phase 3 contract).
-  - Mock "now" in the Today view is 4:29 PM.
+  - `AgendaEvent.endTime` added (phase 3 contract).
+  - The Today view's mock "now" is 4:29 PM.
+  - The Dock's event menu shows only in mock mode until phase 3.
+- **Naming deviations from the spec** (no behaviour change): `save_meeting(NewMeeting)` rather than `save_recorded_meeting`; `start_seconds`/`end_seconds`; `notes.action_items_text`; the tokenizer adds `remove_diacritics 2`.
+- **Whitespace in split imports.** The import split keeps the non-whitespace character count. The text of split legacy segments may lose runs of repeated whitespace.
 
-**For Task 10/11 (next session):**
-- 9a removed every bridge call from `meetings/App.tsx`, so the installed window is inert until Tasks 10–11 restore list/get/rename/delete/relabel/copy/export and `meetings.changed`. Do not install before Task 12.
-- Delete the dead `Meeting` JSON write paths (`new`, `save`, `rename`, `delete`, `relabel_speaker`, `list_meetings`) and prune `tests/test_meetings.py`.
-- Open design question for the user: search is not reachable while the Today view is shown.
+**Open design questions for the user** (left as approved):
+- Search is not reachable while the Today view is shown.
+- The transcript speaker column leaves a wide gap before the text.
 
-**Deferred minors, to triage at the final whole-branch review:**
-- `collapse_echoes` inner guard is untested.
-- Extreme hand-edited legacy values (`cluster_id` > int64; year-1 `created`) still abort the whole import batch.
-- `_upgrade_library` still uses `traceback.print_exc()`, whose message may contain a path.
-- ⌘F refocus and editable-target guard.
-- No-op media-query rules in the dock, Switch and ConnectClaude CSS.
-- Pre-existing raw colours in `dock/App.module.css`.
-- The full list is in the SDD ledger (`.superpowers/sdd/2026-09-27-meeting-library-mcp/progress.md`, git-ignored).
+**Parked for later** (the final review found none that must be fixed before merge):
+- `test_upgrade_library_publishes_queued_state_synchronously` releases its Event outside `finally`, so a *failing* run hangs the suite.
+- `_upgrade_library`'s `except` uses `traceback.print_exc()`, which prints the message. It can reach paths or ids, not transcript text. Switch to the frame-only logger.
+- Search tests: `collapse_echoes` inner guard, `actionItems` and `alsoSpeakers`. Add these when phase 2 gives notes a writer.
+- `group_concat` order: use `group_concat(... ORDER BY first_idx)`. `speaker_count` could be `len(speakers)`.
+- The 500-row list cap truncates silently; this must be fixed before the library passes 500 meetings.
+- Hand-edited extreme legacy values (`cluster_id` > int64, year-1 dates) abort the whole batch. It rolls back cleanly, and the real data is fine.
+- Frontend:
+  - ⌘F refocus and editable-target guard;
+  - no-op media-query rules;
+  - pre-existing raw colours in `dock/App.module.css`;
+  - `UpcomingDay` is declared twice.
+- `scripts/uninstall.sh` usage line and prompt still say only "profiles and settings".
+- Earlier `traceback.print_exc()` sites in `engine.py` predate this branch.

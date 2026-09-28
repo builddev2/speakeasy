@@ -1,5 +1,7 @@
 # Handoff: Meeting library, calendar and Claude MCP
 
+> **Superseded (28 Sep 2026):** Phase 1 is implemented on branch `meeting-library-phase1`. The current status, decisions and open items are in the plan's "Execution notes". This file is kept as the original planning handoff.
+
 Session date: 26–27 September 2026. This file is enough to resume in a fresh chat.
 
 ## Read these first (in order)

@@ -54,10 +54,14 @@ def _wallclock_lines(segments, meeting_local_start: datetime) -> list[dict]:
 
 
 class MeetingsBridge:
-    def __init__(self, library=None, now=None):
+    def __init__(self, library=None, now=None, set_clipboard=None):
         self.library = library or MeetingLibrary()
         self._now = now or (lambda: datetime.now().astimezone())
         self._status = dict(_IDLE)
+        # Injectable so this stays pure-Python/unit-testable; meetings_window.py
+        # supplies injector.set_clipboard for the real app (AppKit stays out of
+        # this module, as the module docstring promises).
+        self._set_clipboard = set_clipboard or (lambda text: None)
 
     def register(self, dispatcher) -> None:
         for method, fn in {
@@ -69,6 +73,7 @@ class MeetingsBridge:
             "meetings.relabelSpeaker": self.relabel_payload,
             "meetings.delete": self.delete_payload,
             "library.status": self.status_payload,
+            "meetings.copyText": self.copy_text_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 
@@ -172,6 +177,12 @@ class MeetingsBridge:
 
     def status_payload(self, params) -> dict:
         return dict(self._status)
+
+    def copy_text_payload(self, params) -> bool:
+        # WKWebView can reject navigator.clipboard.writeText; MeetingDetail's
+        # "Copy prompt" fallback lands here instead.
+        self._set_clipboard(str(params.get("text", "")))
+        return True
 
     def set_library_status(self, status: dict) -> None:
         self._status = dict(status)

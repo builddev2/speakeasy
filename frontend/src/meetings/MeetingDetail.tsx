@@ -9,6 +9,11 @@ import styles from './MeetingDetail.module.css';
 type Tab = 'summary' | 'transcript';
 
 export interface JumpTarget {
+  /** The meeting this jump targets — the effect waits for `detail` to catch
+   * up to this id before consuming the jump (embedded mode fetches detail
+   * asynchronously via meetings.get, so it isn't cached yet when the search
+   * result is chosen). */
+  meetingId: string;
   segmentIndex: number | null;
   seconds: number | null;
   kind: 'transcript' | 'notes';
@@ -102,6 +107,7 @@ export function MeetingDetail({
   const searchTimer = useRef<number | null>(null);
   const highlightTimer = useRef<number | null>(null);
   const autoOpenedRef = useRef(false);
+  const consumedJumpNonceRef = useRef<number | null>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -142,8 +148,18 @@ export function MeetingDetail({
   // segment). The 1.2s flash highlight is skipped entirely under Reduce Motion
   // rather than just losing its transition, since it's a motion effect, not a
   // static state.
+  //
+  // In embedded mode `detail` starts out null/stale — App only fetches it
+  // (meetings.get) after setting selectedId — so this effect must also
+  // re-run once `detail` catches up to `jumpTarget.meetingId`, not just when
+  // `jumpTarget` itself changes. `consumedJumpNonceRef` stops it from
+  // re-firing (re-scrolling/re-highlighting) on every later detail update
+  // for the same jump.
   useEffect(() => {
     if (!jumpTarget || !detail) return;
+    if (detail.id !== jumpTarget.meetingId) return;
+    if (consumedJumpNonceRef.current === jumpTarget.nonce) return;
+    consumedJumpNonceRef.current = jumpTarget.nonce;
     if (jumpTarget.kind === 'notes') {
       setTab('summary');
       return;
@@ -173,7 +189,7 @@ export function MeetingDetail({
     }
     return () => window.cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jumpTarget]);
+  }, [jumpTarget, detail?.id]);
 
   // V1 demo state: open the popover on the first real speaker button so the
   // anchor matches an actual click, instead of a hard-coded position.
@@ -446,11 +462,21 @@ export function MeetingDetail({
                     onClick={() => {
                       const prompt = `Summarise and tag my Speakeasy meeting "${detail.title}" (${detail.id}) and save the notes.`;
                       const fallback = () => {
-                        if (bridge.embedded) void bridge.call('meetings.copyText', { text: prompt }).catch(() => {});
+                        if (bridge.embedded) {
+                          void bridge
+                            .call('meetings.copyText', { text: prompt })
+                            .catch((err) => console.error('meetings.copyText failed', err));
+                        }
                       };
-                      const clip = navigator.clipboard?.writeText(prompt);
-                      if (clip) void clip.catch(fallback);
-                      else fallback();
+                      // navigator.clipboard.writeText can both throw synchronously
+                      // and reject its promise in WKWebView, so fallback covers both.
+                      try {
+                        const clip = navigator.clipboard?.writeText(prompt);
+                        if (clip) void clip.catch(fallback);
+                        else fallback();
+                      } catch {
+                        fallback();
+                      }
                     }}
                   >
                     Copy prompt

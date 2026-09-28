@@ -147,28 +147,56 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     return {};
   }
 
+  function isNotFoundError(err: unknown): boolean {
+    return err instanceof Error && err.message === 'not_found';
+  }
+
+  // Shared not_found recovery (Review Focus 2): re-list under the active
+  // filter and select the first row. Guarded by selectedIdRef so a stale
+  // rejection for a selection the user has since moved away from doesn't
+  // yank them back (fix round 1, item 6).
+  function recoverFromNotFound(id: string) {
+    if (selectedIdRef.current !== id) return;
+    void refreshList(filterParams(filterRef.current), false);
+  }
+
+  // Bumped on every refreshList call so an in-flight response that's no
+  // longer the latest request can't clobber a newer one (fix round 1, item 5).
+  const listRequestIdRef = useRef(0);
+
   // Fetches the list for `params`, updates `metas`, then either keeps the
   // current selection (if it's still in the list and `keepSelection`) or
   // selects the first row — fetching that row's detail either way.
   function refreshList(params: Record<string, string>, keepSelection: boolean) {
-    return bridge.call<MeetingMeta[]>('meetings.list', params).then((list) => {
-      setMetas(list);
-      const prev = selectedIdRef.current;
-      const keep = keepSelection && !!prev && list.some((m) => m.id === prev);
-      const nextId = keep ? prev : (list[0]?.id ?? null);
-      if (nextId !== prev) {
-        setSelectedId(nextId);
-        setPopover(null);
-        setJumpTarget(null);
-      }
-      if (nextId) {
-        bridge
-          .call<MeetingDetailType>('meetings.get', { id: nextId })
-          .then((d) => setDetails((p) => ({ ...p, [nextId]: d })))
-          .catch(() => {});
-      }
-      return list;
-    });
+    const requestId = ++listRequestIdRef.current;
+    return bridge
+      .call<MeetingMeta[]>('meetings.list', params)
+      .then((list) => {
+        if (listRequestIdRef.current !== requestId) return list; // superseded by a newer request
+        setMetas(list);
+        const prev = selectedIdRef.current;
+        const keep = keepSelection && !!prev && list.some((m) => m.id === prev);
+        const nextId = keep ? prev : (list[0]?.id ?? null);
+        if (nextId !== prev) {
+          setSelectedId(nextId);
+          setPopover(null);
+          setJumpTarget(null);
+        }
+        if (nextId) {
+          bridge
+            .call<MeetingDetailType>('meetings.get', { id: nextId })
+            .then((d) => {
+              if (listRequestIdRef.current !== requestId) return; // superseded
+              setDetails((p) => ({ ...p, [nextId]: d }));
+            })
+            .catch((err) => console.error('meetings.get failed', err));
+        }
+        return list;
+      })
+      .catch((err) => {
+        console.error('meetings.list failed', err);
+        return [] as MeetingMeta[];
+      });
   }
 
   // Step 1: initial data load + subscriptions, embedded only. Runs once on
@@ -177,12 +205,21 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // selection changes (onSelectFilter already re-lists for that case).
   useEffect(() => {
     if (!embedded) return;
-    void bridge.call<Filters>('meetings.filters').then(setFilters);
+    void bridge
+      .call<Filters>('meetings.filters')
+      .then(setFilters)
+      .catch((err) => console.error('meetings.filters failed', err));
     void refreshList(filterParams(filterRef.current), false);
-    void bridge.call<LibraryStatus>('library.status').then(setEmbeddedStatus);
+    void bridge
+      .call<LibraryStatus>('library.status')
+      .then(setEmbeddedStatus)
+      .catch((err) => console.error('library.status failed', err));
 
     const offChanged = bridge.on('meetings.changed', () => {
-      void bridge.call<Filters>('meetings.filters').then(setFilters);
+      void bridge
+        .call<Filters>('meetings.filters')
+        .then(setFilters)
+        .catch((err) => console.error('meetings.filters failed', err));
       void refreshList(filterParams(filterRef.current), true);
     });
     const offProgress = bridge.on('library.progress', (payload) => {
@@ -235,9 +272,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         .call<MeetingDetailType>('meetings.get', { id })
         .then((d) => setDetails((prev) => ({ ...prev, [id]: d })))
         .catch((err) => {
-          if (err instanceof Error && err.message === 'not_found') {
-            void refreshList(filterParams(filter), false);
-          }
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.get failed', err);
         });
     }
   }
@@ -290,6 +326,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     select(result.meetingId);
     jumpNonceRef.current += 1;
     setJumpTarget({
+      meetingId: result.meetingId,
       segmentIndex: result.segmentIndex,
       seconds: result.seconds,
       kind: result.kind,
@@ -307,7 +344,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           setMetas(list);
           setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title } } : prev));
         })
-        .catch(() => {});
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.rename failed', err);
+        });
       return;
     }
     setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title } } : prev));
@@ -335,7 +375,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           allMatching,
         })
         .then((detail) => setDetails((prev) => ({ ...prev, [id]: detail })))
-        .catch(() => {});
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.relabelSpeaker failed', err);
+        });
       setPopover(null);
       return;
     }
@@ -349,6 +392,15 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       return { ...prev, [id]: { ...current, lines } };
     });
     setPopover(null);
+  }
+
+  // Selects the row after the deleted one in the (pre-delete) visible
+  // order, or the previous row if the deleted one was last — the brief's
+  // "select the next row", not always the first (fix round 1, item 8).
+  function nextSelectionAfterDelete(id: string, remainingVisible: MeetingMeta[]): string | null {
+    const visibleIndex = visibleMetas.findIndex((m) => m.id === id);
+    const nextIndex = Math.min(visibleIndex, remainingVisible.length - 1);
+    return nextIndex >= 0 ? remainingVisible[nextIndex].id : null;
   }
 
   function onConfirmDelete() {
@@ -368,9 +420,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             delete next[id];
             return next;
           });
-          select(list[0]?.id ?? null);
+          // `list` already reflects the active tag/person filter, so it
+          // doubles as the "remaining visible" list.
+          select(nextSelectionAfterDelete(id, list));
         })
-        .catch(() => {});
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.delete failed', err);
+        });
       return;
     }
     const remaining = metas.filter((m) => m.id !== id);
@@ -380,7 +437,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       delete next[id];
       return next;
     });
-    select(remaining[0]?.id ?? null);
+    select(nextSelectionAfterDelete(id, visibleMetas.filter((m) => m.id !== id)));
   }
 
   const selectedDetail = selectedId ? details[selectedId] ?? null : null;
@@ -449,12 +506,26 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             onSpeakerClick={onSpeakerClick}
             onRequestDelete={() => setConfirmOpen(true)}
             onCopy={() => {
-              if (embedded && selectedId) void bridge.call('meetings.copy', { id: selectedId });
-              else console.log('copy', selectedId);
+              if (embedded && selectedId) {
+                const id = selectedId;
+                void bridge.call('meetings.copy', { id }).catch((err) => {
+                  if (isNotFoundError(err)) recoverFromNotFound(id);
+                  else console.error('meetings.copy failed', err);
+                });
+              } else {
+                console.log('copy', selectedId);
+              }
             }}
             onExport={() => {
-              if (embedded && selectedId) void bridge.call('meetings.export', { id: selectedId });
-              else console.log('export', selectedId);
+              if (embedded && selectedId) {
+                const id = selectedId;
+                void bridge.call('meetings.export', { id }).catch((err) => {
+                  if (isNotFoundError(err)) recoverFromNotFound(id);
+                  else console.error('meetings.export failed', err);
+                });
+              } else {
+                console.log('export', selectedId);
+              }
             }}
             jumpTarget={jumpTarget}
             searchFocusToken={searchFocusToken}

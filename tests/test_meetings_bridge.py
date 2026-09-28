@@ -168,6 +168,24 @@ def test_library_status(library_path):
     assert bridge.status_payload({})["done"] == 1
 
 
+def test_copy_text_registers_and_writes_via_injected_clipboard(library_path):
+    # Regression: meetings_window.py's "Copy prompt" fallback (Task 11) posts
+    # meetings.copyText with {"text": ...}. The handler lives on the bridge
+    # (pure-Python, unlike _copy/_export which stay ObjC glue) precisely so
+    # its registration and its exact clipboard call are unit-testable here —
+    # a prior round silently renamed the registered method and dropped the
+    # payload without any test catching it.
+    captured = []
+    bridge = MeetingsBridge(set_clipboard=captured.append)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    assert "meetings.copyText" in d._methods
+
+    js = _call(d, "meetings.copyText", {"text": "hello clipboard"})
+    assert "_resolve" in js
+    assert captured == ["hello clipboard"]
+
+
 def test_apply_status_json_emits_progress_and_changed_when_done(library_path):
     # Ruling 3: the parse/store/emit-decision logic lives in the bridge
     # (unit-tested here), not in meetings_window.py's ObjC glue.

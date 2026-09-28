@@ -173,7 +173,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       }
     }
     function onDocKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setEventMenuOpen(false);
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setEventMenuOpen(false);
+      }
     }
     document.addEventListener('mousedown', onDocMouseDown);
     document.addEventListener('keydown', onDocKeyDown);

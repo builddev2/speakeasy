@@ -362,16 +362,17 @@
 
 .line {
   display: grid;
-  grid-template-columns: 168px 1fr;
+  grid-template-columns: 240px 1fr;
   column-gap: 10px;
   padding: 3px 4px;
   border-radius: 4px;
 }
 
 .lineHead {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
 }
 
 .lineHighlight {
@@ -391,6 +392,8 @@
 
 .time {
   color: color-mix(in srgb, var(--coral-1) 72%, transparent);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .speaker {
@@ -400,6 +403,11 @@
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .speaker:focus-visible {

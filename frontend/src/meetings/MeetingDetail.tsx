@@ -312,7 +312,10 @@ export function MeetingDetail({
             value={searchDraft}
             onChange={(e) => onSearchInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') clearSearch();
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                clearSearch();
+              }
             }}
           />
         </div>
@@ -541,7 +544,7 @@ export function MeetingDetail({
                         <span className={styles.time}>
                           {detail.approximate ? '≈' : ''}
                           {line.time}
-                        </span>{' '}
+                        </span>
                         <button
                           ref={(el) => {
                             if (el) speakerRefs.current.set(line.segmentIndex, el);

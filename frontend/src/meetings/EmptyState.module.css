@@ -1,0 +1,33 @@
+.wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.title {
+  font: 400 13px/1.5 var(--sans);
+  color: var(--text-mid);
+  max-width: 320px;
+}
+
+.body {
+  font: 400 12px/1.5 var(--sans);
+  color: var(--text-lo);
+  max-width: 320px;
+}
+
+.action {
+  margin-top: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrap * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

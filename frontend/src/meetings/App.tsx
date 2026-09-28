@@ -1,217 +1,249 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
-import { ActionButton } from '../components/ActionButton';
-import { MEETINGS, speakerColor } from '../mock/meetings';
-import type { MeetingDetail, MeetingMeta } from '../mock/meetings';
+import { Sidebar } from './Sidebar';
+import type { SidebarFilter } from './Sidebar';
+import { MeetingList } from './MeetingList';
+import { SearchResults } from './SearchResults';
+import { MeetingDetail } from './MeetingDetail';
+import { SpeakerPopover } from './SpeakerPopover';
+import { ConfirmSheet } from './ConfirmSheet';
+import { LibraryBanner } from './LibraryBanner';
+import { EmptyState } from './EmptyState';
+import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS } from '../mock/meetings';
+import type {
+  MeetingMeta,
+  MeetingDetail as MeetingDetailType,
+  TranscriptLine,
+  SearchResult,
+  LibraryStatus,
+  Filters,
+} from '../mock/meetings';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
+
+type MockState =
+  | 'default'
+  | 'empty'
+  | 'upgrading'
+  | 'upgrade-failed'
+  | 'search'
+  | 'no-summary'
+  | 'popover'
+  | 'delete';
+
+const KNOWN_STATES: MockState[] = [
+  'default',
+  'empty',
+  'upgrading',
+  'upgrade-failed',
+  'search',
+  'no-summary',
+  'popover',
+  'delete',
+];
+
+function readMockState(): MockState {
+  const raw = new URLSearchParams(window.location.search).get('state');
+  return (KNOWN_STATES as string[]).includes(raw ?? '') ? (raw as MockState) : 'default';
+}
+
+interface PopoverState {
+  line: TranscriptLine;
+  anchor: { top: number; left: number };
+}
 
 interface MeetingsAppProps {
   colorCodeSpeakers?: boolean;
 }
 
 export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
-  const [list, setList] = useState<MeetingMeta[]>(bridge.embedded ? [] : MEETINGS);
-  const [selectedId, setSelectedId] = useState<string | null>(bridge.embedded ? null : MEETINGS[0].id);
-  const [detail, setDetail] = useState<MeetingDetail | null>(bridge.embedded ? null : MEETINGS[0]);
-  const [renaming, setRenaming] = useState(false);
-  const [renameText, setRenameText] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const confirmTimer = useRef<number | null>(null);
-  const selectedIdRef = useRef<string | null>(bridge.embedded ? null : MEETINGS[0].id);
+  // Mock mode is active whenever the page isn't embedded in the native window.
+  // Task 10 wires the embedded path to the bridge; until then it starts empty.
+  const isMock = !bridge.embedded;
+  const mockState: MockState = isMock ? readMockState() : 'default';
 
-  function select(id: string | null, metas: MeetingMeta[]) {
-    setRenaming(false);
-    setConfirmingDelete(false);
-    const target = id !== null && metas.some((m) => m.id === id) ? id : metas[0]?.id ?? null;
-    selectedIdRef.current = target;
-    setSelectedId(target);
-    if (!bridge.embedded) {
-      setDetail(MEETINGS.find((m) => m.id === target) ?? null);
-      return;
-    }
-    if (target === null) {
-      setDetail(null);
-      return;
-    }
-    void bridge.call<MeetingDetail>('meetings.get', { id: target }).then(setDetail).catch(() => setDetail(null));
-  }
+  const [metas, setMetas] = useState<MeetingMeta[]>(isMock && mockState !== 'empty' ? MOCK_METAS : []);
+  const [details, setDetails] = useState<Record<string, MeetingDetailType>>(isMock ? MOCK_DETAILS : {});
+  const [filters] = useState<Filters>(
+    isMock && mockState !== 'empty' ? MOCK_FILTERS : { total: 0, tags: [], people: [], features: { calendar: false, claude: false, settings: false } },
+  );
+  const [filter, setFilter] = useState<SidebarFilter>({ type: 'all' });
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (!isMock || mockState === 'empty') return null;
+    if (mockState === 'no-summary') return 'm-design-review';
+    return MOCK_METAS[0]?.id ?? null;
+  });
+  const [searching, setSearching] = useState(mockState === 'search');
+  const [searchQuery, setSearchQuery] = useState(mockState === 'search' ? 'sync' : '');
+  const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
+  const [jumpTarget, setJumpTarget] = useState<{ segmentIndex: number } | null>(null);
+  const [searchFocusToken, setSearchFocusToken] = useState<number | undefined>(undefined);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  function refresh(preserveId: string | null) {
-    void bridge.call<MeetingMeta[]>('meetings.list').then((metas) => {
-      setList(metas);
-      select(preserveId, metas);
-    }).catch(() => {});
-  }
+  const libraryStatus: LibraryStatus =
+    mockState === 'upgrading' ? MOCK_STATUS.upgrading : mockState === 'upgrade-failed' ? MOCK_STATUS.failed : MOCK_STATUS.done;
 
+  // Demo state: open the speaker popover on load for `?state=popover`.
   useEffect(() => {
-    if (!bridge.embedded) return;
-    refresh(null);
-    return bridge.on('meetings.changed', () => refresh(selectedIdRef.current));
+    if (mockState !== 'popover' || !selectedId) return;
+    const current = details[selectedId];
+    if (current && current.lines[0]) {
+      setPopover({ line: current.lines[0], anchor: { top: 250, left: 110 } });
+    }
+    // Only on first mount for this mock state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
-    };
-  }, []);
+  const visibleMetas = useMemo(() => {
+    if (filter.type === 'all') return metas;
+    if (filter.type === 'tag') return metas.filter((m) => m.tags.includes(filter.value));
+    return metas.filter((m) => m.people.includes(filter.value));
+  }, [metas, filter]);
 
-  function onDelete() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
-      confirmTimer.current = window.setTimeout(() => setConfirmingDelete(false), 4000);
-      return;
-    }
-    setConfirmingDelete(false);
-    if (bridge.embedded && selectedId !== null) {
-      void bridge.call<MeetingMeta[]>('meetings.delete', { id: selectedId }).then((metas) => {
-        setList(metas);
-        select(null, metas);
-      });
-    } else {
-      console.log('delete', selectedId);
-    }
+  function select(id: string | null) {
+    setSelectedId(id);
+    setPopover(null);
+    setJumpTarget(null);
   }
 
-  function commitRename() {
-    setRenaming(false);
-    const title = renameText.trim();
-    if (title === '' || selectedId === null) return;
-    if (bridge.embedded) {
-      void bridge.call<MeetingMeta[]>('meetings.rename', { id: selectedId, title }).then((metas) => {
-        setList(metas);
-        select(selectedId, metas);
-      });
-    } else {
-      console.log('rename', selectedId, title);
-    }
+  function onSelectFilter(next: SidebarFilter) {
+    setFilter(next);
+    setSearching(false);
+    const list =
+      next.type === 'all'
+        ? metas
+        : metas.filter((m) => (next.type === 'tag' ? m.tags.includes(next.value) : m.people.includes(next.value)));
+    select(list[0]?.id ?? null);
   }
 
-  const selectedMeta = list.find((m) => m.id === selectedId) ?? null;
+  function onSearchChange(value: string) {
+    setSearchQuery(value);
+    setSearching(value.trim() !== '');
+  }
 
-  function relabelSpeaker(line: MeetingDetail['lines'][number]) {
-    if (!bridge.embedded || selectedId === null) return;
-    const label = window.prompt('Speaker name', line.speakerLabel)?.trim();
-    if (!label) return;
-    const allMatching = window.confirm(`Rename every “${line.speakerLabel}” segment?`);
-    void bridge.call<MeetingDetail>('meetings.relabelSpeaker', {
-      id: selectedId,
-      segmentIndex: line.segmentIndex,
-      label,
-      allMatching,
-    }).then((next) => {
-      setDetail(next);
-      setList((current) => current.map((meta) => meta.id === next.id
-        ? { ...meta, subtitle: next.subtitle, speakerCount: next.speakerCount }
-        : meta));
+  function onSelectResult(result: SearchResult) {
+    setSearching(false);
+    setSearchQuery('');
+    select(result.meetingId);
+    if (result.segmentIndex !== null) setJumpTarget({ segmentIndex: result.segmentIndex });
+  }
+
+  function onRenameTitle(title: string) {
+    if (!selectedId) return;
+    setDetails((prev) => (prev[selectedId] ? { ...prev, [selectedId]: { ...prev[selectedId], title } } : prev));
+    setMetas((prev) => prev.map((m) => (m.id === selectedId ? { ...m, title } : m)));
+  }
+
+  function onSpeakerClick(line: TranscriptLine, absoluteAnchor: { top: number; left: number }) {
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const anchor = containerRect
+      ? { top: absoluteAnchor.top - containerRect.top + 6, left: absoluteAnchor.left - containerRect.left }
+      : absoluteAnchor;
+    setPopover({ line, anchor });
+  }
+
+  function onRenameSpeaker(name: string, allMatching: boolean) {
+    if (!selectedId || !popover) return;
+    const target = popover.line;
+    setDetails((prev) => {
+      const current = prev[selectedId];
+      if (!current) return prev;
+      const lines = current.lines.map((l) => {
+        const matches = allMatching ? l.speakerNumber === target.speakerNumber : l.segmentIndex === target.segmentIndex;
+        return matches ? { ...l, speakerLabel: name } : l;
+      });
+      return { ...prev, [selectedId]: { ...current, lines } };
     });
+    setPopover(null);
   }
+
+  function onConfirmDelete() {
+    if (!selectedId) {
+      setConfirmOpen(false);
+      return;
+    }
+    const id = selectedId;
+    setConfirmOpen(false);
+    const remaining = metas.filter((m) => m.id !== id);
+    setMetas(remaining);
+    setDetails((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    select(remaining[0]?.id ?? null);
+  }
+
+  const selectedDetail = selectedId ? details[selectedId] ?? null : null;
 
   return (
-    <GlassPanel width={720} height={480}>
+    <GlassPanel width={1040} height={660}>
       <TitleBar title="Meetings" />
-      <div className={styles.split}>
-        <div className={styles.sidebar}>
-          <span className={styles.heading}>Meetings</span>
-          {list.map((m) => {
-            const active = m.id === selectedId;
-            return (
-              <button
-                key={m.id}
-                className={active ? `${styles.item} ${styles.itemActive}` : styles.item}
-                onClick={() => select(m.id, list)}
-              >
-                <div className={active ? `${styles.itemTitle} ${styles.itemTitleActive}` : styles.itemTitle}>
-                  {m.title}
-                </div>
-                <div className={active ? `${styles.itemSub} ${styles.itemSubActive}` : styles.itemSub}>
-                  {m.subtitle}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <div className={styles.detail}>
-          {selectedMeta === null || detail === null ? (
-            <div className={styles.empty}>No meetings yet — record one from the dock panel.</div>
-          ) : (
-            <>
-              {renaming ? (
-                <input
-                  className={styles.renameInput}
-                  value={renameText}
-                  autoFocus
-                  onChange={(e) => setRenameText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitRename();
-                    if (e.key === 'Escape') setRenaming(false);
-                  }}
-                  onBlur={() => setRenaming(false)}
-                />
-              ) : (
-                <div className={styles.dTitle}>{detail.title}</div>
-              )}
-              <div className={styles.meta}>
-                <span>{detail.date}</span>
-                <span className={styles.sep}>•</span>
-                <span>{detail.duration}</span>
-                <span className={styles.sep}>•</span>
-                <span>{detail.speakerCount} {detail.speakerCount === 1 ? 'speaker' : 'speakers'}</span>
-              </div>
-              <div className={styles.transcript}>
-                <div className={styles.lines}>
-                  {detail.lines.map((ln, index) => (
-                    <div key={index}>
-                      <span className={styles.time}>{ln.time}</span>{' '}
-                      <span
-                        className={styles.speaker}
-                        style={{ color: speakerColor(ln.speakerNumber, colorCodeSpeakers) }}
-                        title="Click to correct this speaker"
-                        onClick={() => relabelSpeaker(ln)}
-                      >
-                        {ln.speakerLabel}:
-                      </span>{' '}
-                      <span className={styles.text}>{ln.overlap ? '[overlap] ' : ''}{ln.text}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className={styles.fade} />
-              </div>
-              <div className={styles.actionRow}>
-                <ActionButton
-                  variant="strong"
-                  onClick={() => {
-                    if (bridge.embedded && selectedId !== null) void bridge.call('meetings.copy', { id: selectedId });
-                    else console.log('copy');
-                  }}
-                >
-                  Copy
-                </ActionButton>
-                <ActionButton
-                  onClick={() => {
-                    if (bridge.embedded && selectedId !== null) void bridge.call('meetings.export', { id: selectedId });
-                    else console.log('export');
-                  }}
-                >
-                  Export
-                </ActionButton>
-                <ActionButton
-                  onClick={() => {
-                    setRenameText(detail.title);
-                    setRenaming(true);
-                  }}
-                >
-                  Rename
-                </ActionButton>
-                <ActionButton variant="danger" className={styles.spacer} onClick={onDelete}>
-                  {confirmingDelete ? 'Confirm delete' : 'Delete'}
-                </ActionButton>
-              </div>
-            </>
-          )}
-        </div>
+      <div className={styles.split} ref={containerRef}>
+        <Sidebar
+          filters={filters}
+          activeFilter={filter}
+          activeToday={false}
+          onSelectFilter={onSelectFilter}
+          onSelectToday={() => {}}
+          onConnectClaude={() => {}}
+          onOpenSettings={() => {}}
+        />
+
+        {searching ? (
+          <SearchResults results={mockState === 'search' ? MOCK_RESULTS : []} onSelect={onSelectResult} />
+        ) : visibleMetas.length === 0 ? (
+          <div className={styles.listColumn}>
+            <LibraryBanner status={libraryStatus} />
+            <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+          </div>
+        ) : (
+          <div className={styles.listColumn}>
+            <LibraryBanner status={libraryStatus} />
+            <MeetingList
+              metas={visibleMetas}
+              selectedId={selectedId}
+              onSelect={select}
+              onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+            />
+          </div>
+        )}
+
+        <MeetingDetail
+          detail={selectedDetail}
+          colorCodeSpeakers={colorCodeSpeakers}
+          searchValue={searchQuery}
+          onSearchChange={onSearchChange}
+          forcedTab={mockState === 'no-summary' ? 'summary' : undefined}
+          onRenameTitle={onRenameTitle}
+          onSpeakerClick={onSpeakerClick}
+          onRequestDelete={() => setConfirmOpen(true)}
+          onCopy={() => console.log('copy', selectedId)}
+          onExport={() => console.log('export', selectedId)}
+          jumpTarget={jumpTarget}
+          searchFocusToken={searchFocusToken}
+        />
+
+        {popover && (
+          <SpeakerPopover
+            label={popover.line.speakerLabel}
+            anchor={popover.anchor}
+            onCancel={() => setPopover(null)}
+            onRename={onRenameSpeaker}
+          />
+        )}
+
+        {confirmOpen && selectedDetail && (
+          <ConfirmSheet
+            title={`Delete ‘${selectedDetail.title}’?`}
+            body="The transcript and notes will be removed. This can't be undone."
+            confirmLabel="Delete"
+            onCancel={() => setConfirmOpen(false)}
+            onConfirm={onConfirmDelete}
+          />
+        )}
       </div>
     </GlassPanel>
   );

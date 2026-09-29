@@ -2959,4 +2959,4 @@ Rules:
    - 10: title-fix dry run on the real library. Apply only if the user says so.
    - 8: revoke Calendar access. Today should show the denied card, and `get_calendar` should return `[]` within 5 minutes or after a wake. Reconnect afterwards.
    - 6: speaker check on a real 1-on-1 against the Step 3 baseline. This can happen after the merge.
-3. Record the results here, mark Phase 3 done in the parent plan, then merge and clean up. Merging means merging to master, pushing, and deleting the branch and worktree. Git push needs the user's credentials: from this session it failed with "could not read Username".
+3. Record the results here, mark Phase 3 done in the parent plan, then merge and clean up. Merging means merging to master, pushing, and deleting the branch and worktree.

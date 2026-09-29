@@ -15,7 +15,7 @@ from dataclasses import replace
 import numpy as np
 
 from . import config
-from .meetings import DiarizationTurn
+from .meetings import DiarizationTurn, flag_overlaps
 
 
 def _as_turn(t) -> DiarizationTurn:
@@ -124,15 +124,7 @@ def merge_speakers(turns, embeddings, *, max_speakers, min_talk_seconds) -> list
     merged = [replace(t, speaker=g.owner[t.speaker]) for t in turns]
     # Overlap marks concurrent *different* voices; merging can make two
     # overlapping turns the same voice, so recompute it.
-    flagged = set()
-    for i, first in enumerate(merged):
-        for j in range(i + 1, len(merged)):
-            second = merged[j]
-            if second.start >= first.end:
-                break
-            if first.speaker != second.speaker and second.end > first.start:
-                flagged.update((i, j))
-    return [replace(t, overlap=i in flagged) for i, t in enumerate(merged)]
+    return flag_overlaps(sorted(merged, key=lambda t: (t.start, t.end)))
 
 
 def _cluster_audio(samples, turns, speaker, max_seconds) -> np.ndarray:
@@ -172,7 +164,7 @@ def tidy_speakers(samples, turns, embed: Callable, *, max_speakers=None,
                 continue
             try:
                 embeddings[speaker] = embed(audio)
-            except (ValueError, RuntimeError, OSError, TypeError):
+            except (ImportError, OSError, RuntimeError, TypeError, ValueError):
                 continue
     return merge_speakers(turns, embeddings, max_speakers=max_speakers,
                           min_talk_seconds=min_talk_seconds)

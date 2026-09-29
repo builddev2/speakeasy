@@ -299,7 +299,7 @@ window titles, audio samples, or other provenance that could reveal content.
 Speakeasy can let Claude read your meeting library through a small local
 [MCP](https://modelcontextprotocol.io) server. It runs on your Mac as a
 separate process started by Claude (Speakeasy itself still makes no network
-calls) and is read-only except for meeting notes. What Claude reads is sent to
+calls) and is read-only except for meeting notes and tags. What Claude reads is sent to
 Anthropic, at your request, as part of your conversation with Claude.
 
 **Claude Desktop.** In Speakeasy open **Meetings → Connect Claude** and choose

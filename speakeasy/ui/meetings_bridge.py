@@ -132,11 +132,11 @@ class MeetingsBridge:
     def poll_changed(self) -> bool:
         """True when another connection committed since the last poll (e.g.
         Claude saved notes through the MCP server, a separate process).
-        The first call only records a baseline. A busy library is skipped
-        this tick. Main thread only (the watcher owns one connection)."""
+        The first call only records a baseline. A busy or unreadable library is
+        skipped this tick. Main thread only (the watcher owns one connection)."""
         try:
             return self._watcher.changed()
-        except sqlite3.OperationalError:
+        except sqlite3.Error:  # busy, or a corrupt file: never raise into the timer
             return False
 
     def stop_polling(self) -> None:

@@ -23,6 +23,7 @@ SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 DEFAULT_VERSION = "2025-06-18"
 SERVER_VERSION = "1.0.0"
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
+INTERNAL_ERROR = -32603
 
 INSTRUCTIONS = (
     "Speakeasy's local meeting library (transcripts recorded on this Mac). "
@@ -50,7 +51,8 @@ class Server:
     def handle_line(self, line: bytes) -> dict | None:
         try:
             message = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            # RecursionError: absurdly nested JSON is just another unparseable line.
             return _error(None, PARSE_ERROR, "Parse error")
         return self.handle(message)
 
@@ -89,8 +91,8 @@ class Server:
         return {"jsonrpc": "2.0", "id": rid, "result": result}
 
     def _call(self, rid, params):
-        if not isinstance(params, dict) or params.get("name") not in self.tools:
-            name = params.get("name") if isinstance(params, dict) else None
+        name = params.get("name") if isinstance(params, dict) else None
+        if not isinstance(name, str) or name not in self.tools:  # a list/dict name is unhashable
             return _error(rid, INVALID_PARAMS, f"Unknown tool: {name}")
         args = params.get("arguments", {})
         if args is None:
@@ -128,12 +130,21 @@ def serve(infile: BinaryIO, outfile: BinaryIO, server: Server) -> None:
     for line in iter(infile.readline, b""):
         if not line.strip():
             continue
-        reply = server.handle_line(line.strip())
+        try:
+            reply = server.handle_line(line.strip())
+        except Exception as err:
+            # A single bad line must never end the session. Type only: the
+            # message could carry meeting text or paths.
+            print(f"mcp: internal error: {type(err).__name__}", file=sys.stderr)
+            reply = _error(None, INTERNAL_ERROR, "Internal error")
         if reply is None:
             continue
         try:
-            outfile.write(json.dumps(reply, ensure_ascii=False,
-                                     separators=(",", ":")).encode("utf-8") + b"\n")
+            # ensure_ascii: a lone surrogate echoed from the request (e.g. in
+            # "Method not found") would make a UTF-8 encode raise; \uXXXX escapes
+            # keep the frame one valid line.
+            outfile.write(json.dumps(reply, ensure_ascii=True,
+                                     separators=(",", ":")).encode("ascii") + b"\n")
             outfile.flush()
         except BrokenPipeError:
             return

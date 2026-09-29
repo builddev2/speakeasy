@@ -161,6 +161,44 @@ def test_serve_skips_blank_lines_and_stops_at_eof(tmp_path):
     assert [json.loads(l).get("result", "err") for l in lines] == [{}, "err"]
 
 
+@pytest.mark.parametrize("name", [["list_meetings"], {"a": 1}, 5, None])
+def test_non_string_tool_name_is_invalid_params(name):
+    s = mcp_server.Server(_tool(lambda a: {}))
+    r = s.handle(_req("tools/call", {"name": name}))
+    assert r["error"]["code"] == -32602
+
+
+def test_deeply_nested_json_is_a_parse_error():
+    r = mcp_server.Server({}).handle_line(b"[" * 100000)
+    assert r["error"]["code"] == -32700
+
+
+def test_serve_survives_lone_surrogate_and_internal_errors(capsys):
+    import io
+    out = io.BytesIO()
+    inp = io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"\\ud800"}\n'
+                     b'{"jsonrpc":"2.0","id":2,"method":"ping"}\n')
+    mcp_server.serve(inp, out, mcp_server.Server({}))
+    lines = [json.loads(l) for l in out.getvalue().decode("ascii").splitlines()]
+    assert lines[0]["error"]["code"] == -32601
+    assert lines[1] == {"jsonrpc": "2.0", "id": 2, "result": {}}
+
+    class Boom(mcp_server.Server):
+        def handle_line(self, line):
+            if b"boom" in line:
+                raise KeyError("secret meeting text")
+            return super().handle_line(line)
+    out = io.BytesIO()
+    inp = io.BytesIO(b'boom\n{"jsonrpc":"2.0","id":2,"method":"ping"}\n')
+    mcp_server.serve(inp, out, Boom({}))
+    lines = [json.loads(l) for l in out.getvalue().decode("ascii").splitlines()]
+    assert lines[0] == {"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32603, "message": "Internal error"}}
+    assert lines[1]["result"] == {}
+    err = capsys.readouterr().err
+    assert "mcp: internal error: KeyError" in err and "secret" not in err
+
+
 # -- subprocess over pipes ------------------------------------------------------
 
 def _env(home):
@@ -274,10 +312,13 @@ def test_stray_output_in_a_tool_never_reaches_stdout(tmp_path):
 def test_mcp_mode_imports_nothing_heavy(tmp_path):
     code = (
         "import sys\n"
-        "from speakeasy import mcp_server\n"
-        "mcp_server.main()\n"
-        "heavy = [m for m in ('AppKit', 'Foundation', 'objc', 'mlx', 'numpy', 'sherpa_onnx',"
-        " 'sounddevice', 'speakeasy.engine') if m in sys.modules]\n"
+        "sys.argv = ['speakeasy', '--mcp']\n"
+        "from speakeasy.__main__ import main\n"
+        "main()\n"
+        # Through the real entry point, so a heavy import added to __main__ is caught too.
+        "heavy = [m for m in sys.modules if m.split('.')[0] in ('AppKit', 'Foundation', 'objc',"
+        " 'mlx', 'numpy', 'sherpa_onnx', 'sounddevice') or m == 'speakeasy.engine'"
+        " or m == 'speakeasy.ui' or m.startswith('speakeasy.ui.')]\n"
         "sys.stderr.write('HEAVY=' + ','.join(heavy))\n"
     )
     proc, _, _ = _run(tmp_path, _session(("list_meetings", {})),

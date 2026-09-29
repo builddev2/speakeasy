@@ -442,6 +442,17 @@ def test_poll_changed_swallows_a_busy_library(library_path, monkeypatch):
     assert bridge.poll_changed() is False
 
 
+def test_poll_changed_swallows_a_corrupt_library(library_path, monkeypatch):
+    import sqlite3
+    bridge = MeetingsBridge()
+    bridge.poll_changed()
+
+    def corrupt():
+        raise sqlite3.DatabaseError("database disk image is malformed")
+    monkeypatch.setattr(bridge._watcher, "changed", corrupt)
+    assert bridge.poll_changed() is False
+
+
 def test_stop_polling_resets_baseline(library_path):
     lib = MeetingLibrary()
     bridge = MeetingsBridge(library=lib)

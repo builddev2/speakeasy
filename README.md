@@ -222,8 +222,9 @@ Meetings are stored in one local SQLite database,
 `~/Library/Application Support/Speakeasy/library.sqlite` (WAL mode; text
 only, same as before — audio is never written to it). It replaces the old
 one-JSON-file-per-meeting store and adds full-text search, plus room for
-tags, people, and notes — set via the Claude connection (phase 2) and
-calendar linking (phase 3), not yet in this phase — without changing what
+tags, people, and notes — set via the Claude connection
+([below](#use-your-meetings-with-claude)) and calendar linking (phase 3, not
+yet available) — without changing what
 leaves your Mac: everything still stays local and offline.
 
 The first time the library is empty, Speakeasy automatically imports any
@@ -292,6 +293,49 @@ signal, dropped-frame counts, writer lag/failure, helper exit, and the explicit
 fallback outcome. Saved meetings retain only that fixed metadata schema plus
 the transcript and timing offsets — never application/device names, PIDs,
 window titles, audio samples, or other provenance that could reveal content.
+
+### Use your meetings with Claude
+
+Speakeasy can let Claude read your meeting library through a small local
+[MCP](https://modelcontextprotocol.io) server. It runs on your Mac as a
+separate process started by Claude (Speakeasy itself still makes no network
+calls) and is read-only except for meeting notes. What Claude reads is sent to
+Anthropic, at your request, as part of your conversation with Claude.
+
+**Claude Desktop.** In Speakeasy open **Meetings → Connect Claude** and choose
+**Install in Claude Desktop**; Claude Desktop shows its own install dialog.
+This needs Speakeasy to be in `/Applications`. Prefer to do it by hand? Under
+"Other ways to connect" the sheet shows the JSON to paste into
+`~/Library/Application Support/Claude/claude_desktop_config.json`, with a
+**Reveal config file** button. Restart Claude Desktop afterwards.
+
+**Claude Code.** Copy the command from the same sheet, or run:
+
+```bash
+claude mcp add speakeasy -- /Applications/Speakeasy.app/Contents/MacOS/Speakeasy --mcp
+```
+
+**From source.** Point the client at `.venv/bin/python -m speakeasy --mcp`
+with `PYTHONPATH=<repo>` set (the sheet fills this in for a source checkout).
+
+What Claude can do:
+
+- `list_meetings` — recent meetings, filterable by day, tag or person; no transcript text.
+- `get_meeting` — one meeting's details, notes, tags, people and calendar event.
+- `search_meetings` — full-text search of transcripts and notes, with snippets.
+- `get_transcript` — a transcript in pages, optionally limited to a time range.
+- `get_calendar` — cached calendar events between two days, linked to meetings.
+- `list_tags` — every tag with its meeting count.
+- `list_people` — people linked to meetings, with counts.
+- `save_notes` — the only tool that writes: replaces just the summary, action
+  items and/or tags you give it, and records that Claude made the change. The
+  Meetings window notices within about 10 seconds.
+
+Claude never sees capture health, device names or audio. The sheet also shows
+when Claude last used the library.
+
+**Turn it off.** In Claude Desktop use **Settings → Extensions** (or remove the
+manual JSON entry); for Claude Code run `claude mcp remove speakeasy`.
 
 ## Development (run from source)
 

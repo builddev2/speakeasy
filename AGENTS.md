@@ -59,6 +59,16 @@ visibly to the original mic-only diarization mode. See README's
   verified) and bundled into the app — never fetched at runtime, same pattern
   as the speech model.
 - **Apple Silicon only** (MLX/Metal).
+- **`--mcp` stdout is JSON-RPC only.** `mcp_server.main()` keeps a private dup
+  of fd 1 for the protocol, then `dup2`s stderr onto fd 1 and sets
+  `sys.stdout = sys.stderr`. Nothing may print to the real stdout (a stray line
+  corrupts the stream); `test_stray_output_in_a_tool_never_reaches_stdout`
+  guards it.
+- **MCP tools never return capture fields** (capture health, device or app
+  names, PIDs): they describe the user's machine, not the meeting. Only
+  `save_notes` writes, only the fields given, with `updated_by` "claude".
+- **`--mcp` stays import-light** (no AppKit, MLX, sherpa-onnx or UI modules);
+  `test_mcp_mode_imports_nothing_heavy` in `tests/test_mcp_server.py` enforces it.
 
 ## Threading model (load-bearing — don't violate)
 
@@ -121,6 +131,11 @@ contexts are intentionally bounded and single-purpose:
   just sets it, and the worker checks it between transcription chunks and
   pipeline phases. No extra executor needed.
 
+The MCP server (`--mcp`) is a separate process with its own short-lived SQLite
+connections. The Meetings window learns of its writes by polling
+`MeetingsBridge.poll_changed()` every 10 s while visible: a `LibraryWatcher`
+checks `PRAGMA data_version` on one main-thread-only connection.
+
 UI objects are main-thread only; engine callbacks hop threads via
 `performSelectorOnMainThread` (see `ui/overlay.py`, `ui/menubar.py`).
 The Dock and menu poll a fixed, privacy-safe capture-health schema: buffer and
@@ -149,6 +164,11 @@ scripts/build_app.sh --install           # build AND update /Applications in pla
   `sherpa_onnx` lazily inside `__init__` specifically so the module (and
   anything importing it, like `engine.py`) stays importable in tests without
   the dependency installed.
+- `build_app.sh` also runs `npm --prefix packaging/mcpb ci`, stages
+  `packaging/mcpb/` and packs it with the pinned, build-time-only
+  `@anthropic-ai/mcpb` (2.1.2) into
+  `Speakeasy.app/Contents/Resources/Speakeasy.mcpb`; the Connect Claude sheet
+  opens that file. It holds only `manifest.json` and `server/speakeasy-mcp`.
 - Use `.venv/bin/python`, not the system python (Quartz/pyobjc etc. live there).
 - `build_app.sh` fails fast if `models/diarization/*.onnx` is missing — run
   the fetch script first on a fresh checkout.

@@ -168,12 +168,13 @@ PRAGMA user_version = 2;
 COMMIT;
 """
 
-# (target version, script). Append; never edit a shipped entry. A later
-# migration script must re-check `PRAGMA user_version` right after its own
-# BEGIN IMMEDIATE: migrate() reads the starting version before it takes the
-# write lock, so a concurrent migration could already have moved the
-# version by the time this one acquires it. v1 is safe unguarded because
-# every statement here is IF NOT EXISTS (a second run is a no-op).
+# (target version, script). Append; never edit a shipped entry. migrate()
+# reads the starting version before it takes the write lock, so two fresh
+# connections can both start from 0 and both run v1 (idempotent: IF NOT
+# EXISTS); the slower one's v1 then sets `user_version` back to 1. Its v2
+# ALTER fails with "duplicate column name" and migrate() repairs the version
+# itself (see below). A later non-idempotent migration needs the same
+# treatment: detect "already applied" from the error and set the version.
 _MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
@@ -239,6 +240,11 @@ def migrate(conn: sqlite3.Connection) -> None:
                 if "duplicate column name" not in str(exc):
                     raise
                 conn.rollback()
+                # The other connection's slower v1 may have set the version
+                # back to 1 after its v2 ran; the duplicate column proves this
+                # script's only statement already applied, so record it, or
+                # every later connection would retry the failing ALTER.
+                conn.execute(f"PRAGMA user_version = {target}")
             version = target
 
 

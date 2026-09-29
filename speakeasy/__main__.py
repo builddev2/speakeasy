@@ -79,6 +79,8 @@ def main() -> None:
                         help="show imported meeting titles that carry the end time; add --apply to fix them")
     parser.add_argument("--apply", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.apply and not args.fix_imported_titles:
+        parser.error("--apply needs --fix-imported-titles")
 
     if (args.import_json_meetings or args.rebuild_index or args.export_meetings
             or args.fix_imported_titles):

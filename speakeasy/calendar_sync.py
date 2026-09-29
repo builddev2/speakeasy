@@ -194,10 +194,26 @@ class CalendarSync:
         self.calendars: list[CalendarInfo] = []
 
     def access(self) -> str:
+        # EKEventStore.authorizationStatusForEntityType_ is a thread-safe class
+        # method that never prompts and builds no store, so it may be called
+        # from the main thread (the one exception to "EventKit only on the
+        # calendar thread").
         status = self._authorization()
         if status == AUTH_FULL:
             return "connected"
         return "unconnected" if status == AUTH_NOT_DETERMINED else "denied"
+
+    def tick(self) -> None:
+        """Launch, wake and timer entry point. Never prompts.
+
+        Syncs whenever access has been decided, including "denied": a revoke
+        must reach `sync_now`, which clears the cache and calendars. That path
+        never builds a store or prompts unless access is connected. Only
+        "unconnected" (never asked) does nothing; this never calls
+        request_access.
+        """
+        if self.access() != "unconnected":
+            self.request_sync()
 
     def request_sync(self) -> None:
         with self._lock:

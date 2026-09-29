@@ -591,8 +591,8 @@ class AppDelegate(NSObject):
 
     def calendarTick_(self, timer):
         sync = getattr(self, "calendar_sync", None)
-        if sync is not None and sync.access() == "connected":
-            sync.request_sync()
+        if sync is not None:
+            sync.tick()
 
     def calendarSynced_(self, _):
         window = getattr(self.controller, "meetings_window", None)
@@ -613,8 +613,7 @@ class AppDelegate(NSObject):
                 b"calendarSynced:", None, False))
         services.calendar_sync = self.calendar_sync
         # Never prompt at launch: only an explicit Connect Calendar click asks.
-        if self.calendar_sync.access() == "connected":
-            self.calendar_sync.request_sync()
+        self.calendar_sync.tick()
         # Backstop for changes EventKit doesn't announce (and missed wakes).
         self._calendar_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             300.0, self, b"calendarTick:", None, True)

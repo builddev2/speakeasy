@@ -275,3 +275,48 @@ def test_shutdown_stops_observing(library_path):
     assert store.observer is not None
     sync.shutdown(wait=True)
     assert store.observer is None
+
+
+def test_tick_after_revoke_clears_cache_and_builds_no_store(library_path):
+    status = {"v": cs.AUTH_FULL}
+    built = []
+    store = FakeStore([WORK], {"work": [Ev("1:1", NOW)]})
+    sync = cs.CalendarSync(
+        library=MeetingLibrary(library_path),
+        store_factory=lambda: built.append(1) or store,
+        authorization=lambda: status["v"], now=lambda: NOW,
+        read_settings=lambda: {"calendar_choices": {}})
+    assert sync.sync_now() == 1
+    assert MeetingLibrary(library_path).calendar_events_between("2026-09-29", "2026-09-29")
+    built.clear()
+    status["v"] = cs.AUTH_DENIED
+    sync.tick()
+    sync.shutdown(wait=True)
+    assert MeetingLibrary(library_path).calendar_events_between("2026-09-29", "2026-09-29") == []
+    assert built == [] and sync.calendars == []
+
+
+def test_tick_when_unconnected_does_nothing(library_path):
+    built = []
+    sync = cs.CalendarSync(
+        library=MeetingLibrary(library_path),
+        store_factory=lambda: built.append(1),
+        authorization=lambda: cs.AUTH_NOT_DETERMINED, now=lambda: NOW,
+        read_settings=lambda: {"calendar_choices": {}})
+    synced = []
+    sync.on_synced = lambda: synced.append(1)
+    sync.tick()
+    sync.shutdown(wait=True)
+    assert built == [] and synced == []
+
+
+@pytest.mark.parametrize("status", [cs.AUTH_FULL, cs.AUTH_DENIED, cs.AUTH_NOT_DETERMINED])
+def test_tick_never_requests_access(library_path, status):
+    store = FakeStore([WORK], {})
+    sync = make_sync(library_path, store, status=status)
+    calls = []
+    sync.request_access = lambda: calls.append(1)
+    sync._request_access = lambda: calls.append(1)
+    sync.tick()
+    sync.shutdown(wait=True)
+    assert calls == [] and store.requested == []

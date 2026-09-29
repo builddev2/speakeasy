@@ -2292,7 +2292,7 @@ git commit -m "Document the local MCP server and Claude setup"
   
   Reviewers must run anything that touches a library with `HOME` pointed at a temp dir, and say so in the report.
 
-- [ ] **Step 5 (controller, needs the user's go-ahead): build and install.** `scripts/build_app.sh --install`, which quits the running app. Then the frozen stdio proof, against a **temp HOME** so the real library is not opened:
+- [x] **Step 5 (controller, needs the user's go-ahead): build and install.** `scripts/build_app.sh --install`, which quits the running app. Then the frozen stdio proof, against a **temp HOME** so the real library is not opened:
 
 ```bash
 T=$(mktemp -d); printf '%s\n' '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_meetings","arguments":{}}}' | HOME="$T" /Applications/Speakeasy.app/Contents/MacOS/Speakeasy --mcp; echo "exit=$?"
@@ -2367,3 +2367,12 @@ Implementers ran on Sonnet 5.5. Every task review, re-review and the final whole
 
 - In a worktree-isolated Claude session, the shell guard refuses any command that sets `HOME=`. Step 5's temp-HOME stdio proof therefore has to run either as a Python `subprocess.run(..., env={"HOME": tmp})` or from a normal shell. Never drop the temp HOME: without it the command opens the real library.
 - `build_app.sh --install` quits the running app, and its `npm --prefix packaging/mcpb ci` needs the network at build time.
+
+### Step 5 results (29 Sep 2026, build `04d52fb`, installed in `/Applications`)
+
+- **Build.** It first failed because the worktree had no `models` link, the same as Phase 1. After adding the symlink to the main checkout's `models/`, `build_app.sh --install` succeeded. The npm step for the `.mcpb` CLI ran at build time only. The bootloader is PyInstaller's windowed `runw`.
+- **Frozen stdio proof.** The installed `Speakeasy --mcp` was run through `subprocess.run` with `env={"HOME": <temp>}`. Result: exit 0 in 0.64 s, with exactly two JSON lines on stdout: `serverInfo.name == "speakeasy"`, protocol `2025-06-18`, then `{"meetings": [], …}`. Nothing went to stderr. The windowed executable passes stdio, so the console-executable fallback is **not** needed. The temp HOME got `library.sqlite` and `mcp_last_used`. The real library was not opened: its size and dates were unchanged.
+- **No Dock icon.** While a `--mcp` process was running, `lsappinfo` showed no Speakeasy app entry. The process exited on stdin EOF.
+- **Extension package.** `unzip -Z1 …/Resources/Speakeasy.mcpb` lists exactly `manifest.json` and `server/speakeasy-mcp`.
+- **Source-mode check.** It passed as well, with the temp HOME: all eight tools are listed, and a hostile search returns `{"results": []}`. The full suite on the branch: 593 passed.
+- **Not relaunched.** The build quit the running app and does not start it again. Step 6 starts with the user launching Speakeasy.

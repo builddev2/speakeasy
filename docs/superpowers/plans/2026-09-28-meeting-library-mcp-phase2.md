@@ -2302,7 +2302,7 @@ Expected: two JSON lines on stdout (`serverInfo.name == "speakeasy"`, then `{"me
 
 Also: `unzip -Z1 /Applications/Speakeasy.app/Contents/Resources/Speakeasy.mcpb` shows only `manifest.json` and `server/speakeasy-mcp`.
 
-- [ ] **Step 6 (user + controller): acceptance with real clients** (spec Acceptance item 3). This uses the user's real library, by design; only the user's own Claude clients read it.
+- [x] **Step 6 (user + controller): acceptance with real clients** (spec Acceptance item 3). This uses the user's real library, by design; only the user's own Claude clients read it.
   1. Meetings → Connect Claude: the sheet shows the installed command, "Not used by Claude yet", and an enabled Install button. Copy works (paste it into TextEdit to check).
   2. **Install in Claude Desktop** → Claude Desktop's own dialog → install. Ask Claude Desktop to list recent meetings, search for a known word, and read a page of one transcript.
   3. Ask it to save a summary for the "1on1 Todd TEST" meeting. With the Meetings window open on that meeting, the summary appears within 10 s, and the selection and filter are unchanged.
@@ -2313,7 +2313,7 @@ Also: `unzip -Z1 /Applications/Speakeasy.app/Contents/Resources/Speakeasy.mcpb` 
   
   Record what was actually done, and by whom, in Execution notes.
 
-- [ ] **Step 7: checkpoint** (per CLAUDE.md): tick the boxes, write deviations into Execution notes, and mark Phase 2 done in the parent plan with a link here. Then merge per the user's instruction, and give the phase-boundary `/clear` block.
+- [x] **Step 7: checkpoint** (per CLAUDE.md): tick the boxes, write deviations into Execution notes, and mark Phase 2 done in the parent plan with a link here. Then merge per the user's instruction, and give the phase-boundary `/clear` block.
 
 ---
 
@@ -2321,7 +2321,11 @@ Also: `unzip -Z1 /Applications/Speakeasy.app/Contents/Resources/Speakeasy.mcpb` 
 
 (Record deviations, surprises and review findings here during execution.)
 
-### Status (28 Sep 2026)
+### Status
+
+**29 Sep 2026: Phase 2 done.** Tasks 1–7 are complete. Step 6 acceptance passed, apart from the items the user chose to skip (listed under "Step 6 results"). The branch was merged to `master`.
+
+### Status at 28 Sep 2026
 
 Tasks 1–6 and Task 7 Steps 1–4 are done on branch `meeting-library-phase2`, commits `0fa2f53..64db821`, base `2c32b53`. The full suite is **593 passed**; the baseline was 517, not the 514 this plan assumed.
 
@@ -2387,7 +2391,7 @@ Implementers ran on Sonnet 5.5. Every task review, re-review and the final whole
 - Item 6: the Claude Code checks passed. Separately, the controller made one read-only `list_meetings` call (limit 3) through the `speakeasy` server in a Claude Code session; it returned the three newest meetings.
 - Item 7: dictation into TextEdit works.
 
-**Not done:**
+**Skipped by the user's decision (29 Sep):**
 - Item 1: the sheet's first-run state and Copy. The first-run state can no longer be seen on the real library, because Claude has now used it.
 - Item 2's "list recent meetings" in Claude Desktop.
 - Item 5: the extension off, then the manual JSON route.

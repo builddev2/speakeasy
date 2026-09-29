@@ -2706,6 +2706,8 @@ git commit -m "Document the SQLite meeting library"
 
 ## Phase 2: Local MCP server (expand at session start)
 
+**DONE 29 Sep 2026.** Merged to `master`. Acceptance results and follow-ups (including speaker over-splitting and MCP efficiency fixes) are in the [Phase 2 plan's Execution notes](2026-09-28-meeting-library-mcp-phase2.md#execution-notes).
+
 **Expanded 28 Sep 2026 → [`2026-09-28-meeting-library-mcp-phase2.md`](2026-09-28-meeting-library-mcp-phase2.md).** That file is the source of truth for Phase 2; the scoped list below is kept for history. Changes from it: the stdout probe of the installed build passed, so the spike moved to Task 7; change detection uses `PRAGMA data_version` (`LibraryWatcher`), not `max(updated_at)`; the `.mcpb` is packed from a staging dir with `manifest_version` 0.3 and `@anthropic-ai/mcpb` 2.1.2.
 
 Scope: `speakeasy/mcp_server.py` (stdlib JSON-RPC 2.0 over stdio), `--mcp` early dispatch in `__main__.py` (before argparse, like `--inference-probe`), a Claude Desktop Extension (`.mcpb`) for one-click install, the Connect Claude sheet, README setup.

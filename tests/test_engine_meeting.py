@@ -1251,3 +1251,54 @@ def test_event_deleted_before_save_uses_held_copy(meetings_dir, spool_dir):
     stored = _finish(engine, saved)
     assert (stored.title, stored.people) == ("Weekly 1:1 \u2014 Refayet", ["Refayet K"])
     engine.shutdown()
+
+
+def test_saved_event_is_reread_at_save_time(meetings_dir, spool_dir):
+    _seed_event(title="Old title")
+    engine = _engine(spool_dir)
+    saved = _record(engine)
+    assert _wait_for(lambda: engine.meeting_event is not None)
+    _seed_event(title="Renamed in Calendar")   # same key, same window: replaces it
+    stored = _finish(engine, saved)
+    assert stored.title == "Renamed in Calendar"
+    engine.shutdown()
+
+
+class ThreeVoiceDiarizer:
+    def diarize(self, samples, progress=lambda f: None):
+        progress(1.0)
+        return [(0.0, 0.3, 0), (0.3, 0.6, 1), (0.6, 0.9, 2)]
+
+
+class ThreeSentenceTranscriber:
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        progress(1.0)
+        result = type("Result", (), {})()
+        result.sentences = [Sentence(0.0, 0.3, "one"), Sentence(0.3, 0.6, "two"),
+                            Sentence(0.6, 0.9, "three")]
+        return result
+
+
+def _mic_only_voices(engine, spool_dir):
+    engine.diarizer = ThreeVoiceDiarizer()
+    engine.transcriber = ThreeSentenceTranscriber()
+    # Fixed embeddings: voices 0 and 1 alike, voice 2 different.
+    vectors = iter([np.array([1.0, 0.0]), np.array([0.9, 0.1]), np.array([0.0, 1.0])])
+    engine.speaker_embedder = lambda audio: next(vectors)
+    stored = _finish(engine, _record(engine))
+    return {s.speaker for s in stored.segments}
+
+
+def test_calendar_cap_applies_to_mic_only(meetings_dir, spool_dir):
+    # other=1 -> mic-only cap 2 (you + 1); dual-track cap 1 would merge to 1.
+    _seed_event(other=1)
+    engine = _engine(spool_dir)
+    voices = _mic_only_voices(engine, spool_dir)
+    assert len(voices) == 2, voices
+    engine.shutdown()
+
+
+def test_no_calendar_cap_leaves_mic_only_voices(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    assert len(_mic_only_voices(engine, spool_dir)) == 3
+    engine.shutdown()

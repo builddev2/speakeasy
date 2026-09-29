@@ -15,7 +15,7 @@ def _tables(conn):
 
 def test_connect_creates_schema_wal_and_private_file(library_path):
     conn = meeting_store.connect()
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert {
@@ -36,7 +36,7 @@ def test_connect_uses_row_factory(library_path):
 def test_connect_twice_is_idempotent(library_path):
     meeting_store.connect().close()
     conn = meeting_store.connect()
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     conn.close()
 
 

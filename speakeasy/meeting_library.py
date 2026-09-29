@@ -104,6 +104,29 @@ def _normalise_tags(tags) -> list[str]:
     return result
 
 
+@dataclass(frozen=True)
+class EventPerson:
+    name: str
+    email: str | None
+    role: str  # "attendee" | "organizer"
+
+
+@dataclass(frozen=True)
+class SyncedEvent:
+    """One Calendar.app occurrence as calendar_sync hands it over. It has no
+    notes, location or URL fields on purpose: those often hold dial-in codes
+    and passwords, and are never stored."""
+    key: str
+    calendar_name: str
+    title: str
+    start: datetime
+    end: datetime
+    all_day: bool
+    declined: bool
+    other_attendees: int | None
+    people: tuple[EventPerson, ...] = ()
+
+
 @dataclass
 class NewMeeting:
     segments: list[MeetingSegment]
@@ -119,6 +142,7 @@ class NewMeeting:
     calendar_event_id: str | None = None
     source: str = "recorded"
     timestamps_approximate: bool = False
+    people: list[EventPerson] = field(default_factory=list)
 
 
 @dataclass
@@ -214,6 +238,8 @@ class CalendarEvent:
     all_day: bool
     declined: bool
     meeting_ids: list[str]
+    other_attendees: int | None = None
+    people: list[EventPerson] = field(default_factory=list)
 
 
 def _plain(snippet: str) -> str:
@@ -342,6 +368,11 @@ class MeetingLibrary:
                 for i, s in enumerate(new.segments)
             ],
         )
+        for person in new.people:
+            conn.execute(
+                "INSERT OR IGNORE INTO meeting_people (meeting_id, person_id, role)"
+                " VALUES (?, ?, ?)",
+                (meeting_id, self._person_id(conn, person.name, person.email), person.role))
         return meeting_id
 
     def import_meetings(self, batch, expected) -> None:
@@ -706,7 +737,91 @@ class MeetingLibrary:
             meeting_ids=[r[0] for r in conn.execute(
                 "SELECT id FROM meetings WHERE calendar_event_id = ?"
                 " ORDER BY started_at, id", (row["event_key"],))],
+            other_attendees=row["other_attendees"],
+            people=[EventPerson(r[0], r[1], r[2]) for r in conn.execute(
+                "SELECT p.display_name, p.email, cep.role FROM calendar_event_people cep"
+                " JOIN people p ON p.id = cep.person_id WHERE cep.event_key = ?"
+                " ORDER BY cep.role DESC, p.display_name COLLATE NOCASE",
+                (row["event_key"],))],
         )
+
+    @staticmethod
+    def _drop_orphan_people(conn) -> None:
+        # People arrive with calendar events; once neither a meeting nor a
+        # cached event refers to them they are just stale contact data.
+        conn.execute(
+            "DELETE FROM people WHERE id NOT IN (SELECT person_id FROM meeting_people)"
+            " AND id NOT IN (SELECT person_id FROM calendar_event_people)")
+
+    def replace_calendar_window(self, events, window_start: datetime,
+                                window_end: datetime) -> None:
+        """Make the cached events starting in [window_start, window_end)
+        exactly `events`. One transaction, so a reader never sees a half-synced
+        window; events outside it (older history) are left alone."""
+        lo, hi = utc_iso(window_start), utc_iso(window_end)
+        now = _now_iso()
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM calendar_events WHERE start_utc >= ? AND start_utc < ?",
+                         (lo, hi))
+            for e in events:
+                if e.start.tzinfo is None or e.end.tzinfo is None:
+                    raise ValueError("Calendar event times must be timezone-aware.")
+                conn.execute(
+                    "INSERT OR REPLACE INTO calendar_events (event_key, calendar_name,"
+                    " title, start_utc, end_utc, all_day, declined, other_attendees,"
+                    " synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (e.key, e.calendar_name, e.title, utc_iso(e.start), utc_iso(e.end),
+                     int(e.all_day), int(e.declined), e.other_attendees, now))
+                # Explicit: REPLACE's implicit delete is not relied on to
+                # cascade to the people rows.
+                conn.execute("DELETE FROM calendar_event_people WHERE event_key = ?", (e.key,))
+                for p in e.people:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO calendar_event_people (event_key, person_id,"
+                        " role) VALUES (?, ?, ?)",
+                        (e.key, self._person_id(conn, p.name, p.email), p.role))
+            self._drop_orphan_people(conn)
+
+    def clear_calendar_cache(self) -> None:
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM calendar_events")
+            self._drop_orphan_people(conn)
+
+    def calendar_events_overlapping(self, start: datetime, end: datetime) -> list[CalendarEvent]:
+        """Cached events with start < `end` and end > `start` (UTC instants)."""
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT * FROM calendar_events WHERE start_utc < ? AND end_utc > ?"
+                " ORDER BY start_utc, event_key", (utc_iso(end), utc_iso(start))).fetchall()
+            return [self._calendar_event(conn, r) for r in rows]
+
+    def link_event(self, meeting_id: str, event_key: str | None) -> None:
+        """Link a meeting to a cached event (taking its title and people), or
+        unlink it. Unlinking keeps the title and people: the user may have
+        renamed it since, and the spec keeps them when an event disappears."""
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+                raise MeetingNotFound(meeting_id)
+            if event_key is None:
+                conn.execute("UPDATE meetings SET calendar_event_id = NULL WHERE id = ?",
+                             (meeting_id,))
+                self._touch(conn, meeting_id)
+                return
+            row = conn.execute("SELECT * FROM calendar_events WHERE event_key = ?",
+                               (event_key,)).fetchone()
+            if row is None:
+                raise ValueError("That calendar event is no longer in the calendar.")
+            event = self._calendar_event(conn, row)
+            conn.execute("UPDATE meetings SET calendar_event_id = ?, title = ? WHERE id = ?",
+                         (event_key, event.title, meeting_id))
+            conn.execute("DELETE FROM meeting_people WHERE meeting_id = ?", (meeting_id,))
+            for p in event.people:
+                conn.execute(
+                    "INSERT OR IGNORE INTO meeting_people (meeting_id, person_id, role)"
+                    " VALUES (?, ?, ?)",
+                    (meeting_id, self._person_id(conn, p.name, p.email), p.role))
+            self._touch(conn, meeting_id)
 
     def calendar_events_between(self, from_date: str, to_date: str) -> list[CalendarEvent]:
         """Cached Calendar.app events overlapping local days [from, to]."""

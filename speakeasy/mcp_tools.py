@@ -158,7 +158,8 @@ def _event(e) -> dict:
         tzinfo=timezone.utc).astimezone().isoformat(timespec="minutes")
     return {"id": e.event_key, "title": e.title, "calendar": e.calendar_name,
             "start": local(e.start_utc), "end": local(e.end_utc),
-            "all_day": e.all_day, "declined": e.declined, "meeting_ids": e.meeting_ids}
+            "all_day": e.all_day, "declined": e.declined, "meeting_ids": e.meeting_ids,
+            "people": [p.name for p in e.people]}
 
 
 # -- "last used by Claude" ---------------------------------------------------

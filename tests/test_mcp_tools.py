@@ -160,7 +160,8 @@ def test_get_calendar_requires_range_and_returns_linked_ids(lib, tools, library_
         tools["get_calendar"].run({"from": "2024-01-01", "to": "2026-01-01"})
     conn = meeting_store.connect(library_path)
     with conn:
-        conn.execute("INSERT INTO calendar_events VALUES ('K1', 'Work', 'Standup',"
+        conn.execute("INSERT INTO calendar_events (event_key, calendar_name, title, start_utc,"
+                     " end_utc, all_day, declined, synced_at) VALUES ('K1', 'Work', 'Standup',"
                      " '2026-09-24T17:00:00Z', '2026-09-24T17:30:00Z', 0, 0, 'x')")
     conn.close()
     ev = tools["get_calendar"].run({"from": "2026-09-01", "to": "2026-09-30"})["events"][0]
@@ -207,3 +208,16 @@ def test_record_and_read_last_used(tmp_path):
     path.write_text("garbage")
     assert read_last_used(path) is None
     record_use(tmp_path / "missing-dir" / "x")  # OSError swallowed: never breaks a call
+
+
+def test_get_calendar_lists_people(library_path):
+    from speakeasy.meeting_library import EventPerson, SyncedEvent
+    lib = MeetingLibrary(library_path)
+    start = datetime.now(timezone.utc).replace(microsecond=0)
+    lib.replace_calendar_window([SyncedEvent(
+        "k", "Work", "1:1", start, start + timedelta(minutes=30), False, False, 1,
+        (EventPerson("Refayet K", None, "organizer"),))],
+        start - timedelta(days=1), start + timedelta(days=1))
+    day = start.astimezone().date().isoformat()
+    out = build_tools(lib)["get_calendar"].run({"from": day, "to": day})
+    assert out["events"][0]["people"] == ["Refayet K"]

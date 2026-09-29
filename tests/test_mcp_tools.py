@@ -58,10 +58,18 @@ def test_list_meetings_shape_and_paging(lib, tools):
     assert last["next_offset"] is None
 
 
-def test_list_meetings_coerces_and_clamps_loose_numbers(lib, tools):
+def test_list_meetings_coerces_and_clamps_loose_numbers(lib, tools, monkeypatch):
     _seed(lib)
     assert len(tools["list_meetings"].run({"limit": "10"})["meetings"]) == 1
     assert tools["list_meetings"].run({"limit": 1000})["meetings"]  # clamped to 100
+    # Pin the clamp itself: the tool asks the library for limit + 1 rows.
+    seen = []
+    real = lib.list_meetings
+    monkeypatch.setattr(lib, "list_meetings",
+                        lambda **kw: seen.append(kw["limit"]) or real(**kw))
+    tools["list_meetings"].run({"limit": 1000})
+    tools["list_meetings"].run({"limit": 0})
+    assert seen == [101, 2]  # 1000 -> 100, 0 -> 1
     assert tools["list_meetings"].run({"offset": -5})["offset"] == 0
     with pytest.raises(ToolError, match="limit"):
         tools["list_meetings"].run({"limit": "ten"})

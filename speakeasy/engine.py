@@ -19,7 +19,9 @@ job's `finally`, whatever happens; cancellation is a polled Event, so it needs
 no extra thread.
 """
 
+import dataclasses
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -27,17 +29,19 @@ import wave
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
 from itertools import count
 from pathlib import Path
 
 import numpy as np
 
-from . import config, injector, meeting_recorder, meetings, settings
+from . import config, injector, meeting_import, meeting_recorder, meetings, settings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_benchmark import MeetingTiming
+from .meeting_library import MeetingLibrary, NewMeeting
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .meeting_stream import MeetingASRSession, MeetingASRStatus
 from .profiles import Profile
@@ -120,6 +124,10 @@ class DictationEngine:
         # status item, and the saved meeting's id.
         self.on_meeting_progress: Callable[[str], None] = lambda text: None
         self.on_meeting_saved: Callable[[str], None] = lambda meeting_id: None
+        self.library = MeetingLibrary()
+        self.library_status = {"state": "idle", "done": 0, "total": 0, "skipped": []}
+        self.on_library_status: Callable[[dict], None] = lambda status: None
+        self._meeting_started_at = None
         self._listener = HotkeyListener(self._on_hold_start, self._on_hold_end)
         self._model_future: Future | None = None
         self._user_paused = False
@@ -696,6 +704,96 @@ class DictationEngine:
 
     # -- meeting flow -------------------------------------------------------
 
+    def upgrade_library(self) -> None:
+        """Import legacy JSON meetings once. Queued on `worker` behind model
+        load so it never races meeting processing, which also runs there."""
+        legacy_files = meeting_import.legacy_files()
+        if not legacy_files:
+            return
+        # Publish the queued state immediately so the UI shows "Importing
+        # meetings…" instead of the empty state during the seconds this job
+        # waits behind model load. Only when the job will actually run: a
+        # non-empty library means _upgrade_library will return early below,
+        # so nothing is queued and the state stays idle.
+        #
+        # This runs on the main thread, inside applicationDidFinishLaunching_
+        # (ui/menubar.py) — the app's very first DB touch at launch, well
+        # before engineStateChanged_, main_window.show(), the permissions
+        # guidance, or the hotkey are wired up. A DB error here (corrupt,
+        # locked past the busy timeout, permissions, schema) must not abort
+        # the rest of launch, so it's swallowed: skip the placeholder and
+        # still queue the worker job — _upgrade_library() re-checks
+        # count_meetings() inside its own try and will publish "failed" if
+        # the DB is genuinely broken. Only the exception type is logged
+        # (never the message or a source line, which could carry a path or
+        # transcript text) — same content-free frame logging as
+        # _process_meeting's save-failure handler.
+        try:
+            library_is_empty = self.library.count_meetings() == 0
+        except Exception as err:
+            print("Traceback (most recent call last):", file=sys.stderr)
+            for frame in traceback.extract_tb(err.__traceback__):
+                print(
+                    f'  File "{frame.filename}", line {frame.lineno},'
+                    f" in {frame.name}",
+                    file=sys.stderr,
+                )
+            print(type(err).__name__, file=sys.stderr)
+            library_is_empty = False
+        if library_is_empty:
+            self._publish_library_status(
+                {"state": "upgrading", "done": 0, "total": len(legacy_files), "skipped": []})
+        self.worker.submit(self._upgrade_library)
+
+    def _publish_library_status(self, status: dict) -> None:
+        self.library_status = status
+        self.on_library_status(status)
+
+    def _upgrade_library(self) -> None:
+        def progress(done, total):
+            self._publish_library_status(
+                {"state": "upgrading", "done": done, "total": total, "skipped": []})
+        try:
+            # Auto-import only runs when the library is empty: otherwise a
+            # single malformed file left in meetings/ would bring the upgrade
+            # banner back on every launch. Manual re-import stays available
+            # separately. count_meetings() lives inside this try so a DB
+            # error here publishes "failed" instead of vanishing silently
+            # inside the worker Future.
+            if self.library.count_meetings() > 0:
+                # A queued placeholder may have published "upgrading" (see
+                # upgrade_library) before this ran on the worker, if a
+                # meeting was saved in the meantime. Clear it explicitly so
+                # the "Importing meetings…" banner never sticks once we know
+                # the job is a no-op. When nothing was queued (state was
+                # never touched), leave it alone.
+                if self.library_status.get("state") == "upgrading":
+                    self._publish_library_status(
+                        {"state": "idle", "done": 0, "total": 0, "skipped": []})
+                return
+            report = meeting_import.import_json_meetings(self.library, progress=progress)
+        except Exception as err:
+            traceback.print_exc()
+            self._publish_library_status({
+                "state": "failed",
+                "done": 0,
+                "total": 0,
+                "skipped": [{"file": "", "reason": type(err).__name__}],
+            })
+            return
+        total = report.imported + report.already_present + len(report.skipped)
+        for name, reason in report.skipped:
+            # Unparseable legacy files are logged by name and error category
+            # only — never file contents — so a bad import is diagnosable
+            # without risking anything private ending up in the log.
+            print(f"  → skipped {name}: {reason}")
+        self._publish_library_status({
+            "state": "done",
+            "done": report.imported + report.already_present,
+            "total": total,
+            "skipped": [{"file": f, "reason": r} for f, r in report.skipped],
+        })
+
     def begin_meeting(self, options: MeetingOptions | None = None) -> None:
         """Start a meeting recording. Only meaningful from READY — the menu
         item is disabled otherwise, and _begin_meeting re-checks on control."""
@@ -774,6 +872,7 @@ class DictationEngine:
         # Mic-only fallback keeps the existing audible cue.
         if getattr(self.meeting_recorder, "capture_mode", "mic_only") != "mic_and_system":
             play_sound(config.SOUND_MEETING_START)
+        self._meeting_started_at = datetime.now().astimezone()
         self._set_state(State.MEETING_RECORDING)
         print("● meeting recording...")
 
@@ -783,6 +882,8 @@ class DictationEngine:
         timing = MeetingTiming()
         timing.start("stop")
         recording = self._stop_meeting_recorder_guarded()
+        if recording is not None and self._meeting_started_at is not None:
+            recording = dataclasses.replace(recording, started_at=self._meeting_started_at)
         timing.finish("stop")
         pretranscription_session = self._meeting_asr_session
         pretranscription = self._meeting_asr_future
@@ -1092,9 +1193,13 @@ class DictationEngine:
                 offsets.get("mic", 0.0) + mic_duration,
                 offsets.get("system", 0.0) + system_duration,
             )
-            meeting = meetings.Meeting.new(
-                segments,
+            started_at = recording.started_at or (
+                datetime.now().astimezone() - timedelta(seconds=duration)
+            )
+            new_meeting = NewMeeting(
+                segments=segments,
                 duration_seconds=duration,
+                started_at=started_at,
                 capture_mode=capture_mode,
                 system_audio_status=system_status,
                 track_offsets_seconds=offsets,
@@ -1109,17 +1214,35 @@ class DictationEngine:
             if timing is not None:
                 timing.start("save")
             try:
-                meeting.save()
+                meeting_id = self.library.save_meeting(new_meeting)
             finally:
                 if timing is not None:
                     timing.finish("save")
-            print(f"  → meeting saved: {meeting.title} ({len(segments)} segments)")
-            self.on_meeting_saved(meeting.meeting_id)
+            print(f"  → meeting saved: {meeting_id} ({len(segments)} segments)")
+            self.on_meeting_saved(meeting_id)
             status = "success"
         except MeetingCancelled:
             print("  → meeting processing cancelled; nothing saved")
             status = "cancelled"
-        except Exception:
+        except Exception as error:
+            # A save failure (library I/O, etc.) must not vanish silently —
+            # the spec forbids a JSON fallback, so this print is the only
+            # remaining record of the loss. Both the exception's message
+            # (traceback.print_exc()/print_exception(value=...)) and a raise
+            # statement's own source line can carry a transcript or a path.
+            # traceback.print_tb (and StackSummary.format(), even with
+            # lookup_lines=False) both read the source line lazily via
+            # FrameSummary.line/linecache at format time, so file/lineno/
+            # function are pulled out with extract_tb and printed directly
+            # instead — the source text is never touched.
+            print("Traceback (most recent call last):", file=sys.stderr)
+            for frame in traceback.extract_tb(error.__traceback__):
+                print(
+                    f'  File "{frame.filename}", line {frame.lineno},'
+                    f" in {frame.name}",
+                    file=sys.stderr,
+                )
+            print(type(error).__name__, file=sys.stderr)
             self.meeting_processing_error = "processing_failed"
         finally:
             for path in recording.paths:

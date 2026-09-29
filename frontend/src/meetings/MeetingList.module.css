@@ -1,0 +1,166 @@
+.list {
+  width: 280px;
+  flex-shrink: 0;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--glass-pane);
+  border-right: 0.5px solid var(--hairline-lo);
+}
+
+.list:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: -2px;
+}
+
+.dayHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 14px;
+  font: 600 11px/1.4 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  background: var(--surface-sticky);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 0.5px solid var(--hairline-lo);
+}
+
+.row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 0.5px solid var(--hairline-lo);
+  background: transparent;
+  cursor: pointer;
+  /* Matches the sticky .dayHeader's rendered height, so ↑ never scrolls a
+     row up under the header before it comes to rest. */
+  scroll-margin-top: 29px;
+}
+
+.row:hover {
+  background: var(--glass-fill-2);
+}
+
+.rowActive {
+  background: var(--coral-1);
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rowTitleLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font: 400 13px/1.3 var(--sans);
+  color: var(--text-hi);
+}
+
+.rowActive .rowTitleLine {
+  color: var(--text-hi);
+}
+
+.time {
+  color: var(--text-mid);
+  flex-shrink: 0;
+}
+
+.rowActive .time {
+  color: var(--text-on-accent);
+}
+
+.dot {
+  color: var(--text-lo);
+  flex-shrink: 0;
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.rowMeta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.duration {
+  font: 400 11px/1 var(--sans);
+  color: var(--text-lo);
+}
+
+.rowActive .duration {
+  color: var(--text-on-accent-mid);
+}
+
+.summaryDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--coral-1);
+}
+
+.rowActive .summaryDot {
+  background: var(--text-hi);
+}
+
+.sub {
+  margin-top: 3px;
+  font: 400 11px/1.4 var(--sans);
+  color: var(--text-lo);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowActive .sub {
+  color: var(--text-on-accent-mid);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .list {
+    border-right-color: var(--hairline);
+  }
+  .row {
+    border-bottom-color: var(--hairline);
+  }
+  .dayHeader {
+    border-bottom-color: var(--hairline);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .list {
+    background: #1b1f1d;
+  }
+  .dayHeader {
+    background: #1b1f1d;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

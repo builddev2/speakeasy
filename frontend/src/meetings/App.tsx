@@ -1,217 +1,581 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
-import { ActionButton } from '../components/ActionButton';
-import { MEETINGS, speakerColor } from '../mock/meetings';
-import type { MeetingDetail, MeetingMeta } from '../mock/meetings';
+import { Sidebar } from './Sidebar';
+import type { SidebarFilter } from './Sidebar';
+import { MeetingList } from './MeetingList';
+import { SearchResults } from './SearchResults';
+import { MeetingDetail } from './MeetingDetail';
+import type { JumpTarget } from './MeetingDetail';
+import { SpeakerPopover } from './SpeakerPopover';
+import { ConfirmSheet } from './ConfirmSheet';
+import { LibraryBanner, useLibraryBannerDismissed } from './LibraryBanner';
+import { EmptyState } from './EmptyState';
+import { TodayView } from './TodayView';
+import type { TodayConnection } from './TodayView';
+import { ConnectClaudeSheet } from './ConnectClaudeSheet';
+import { SettingsSheet } from './SettingsSheet';
+import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS, MOCK_AGENDA, MOCK_UPCOMING } from '../mock/meetings';
+import type {
+  MeetingMeta,
+  MeetingDetail as MeetingDetailType,
+  TranscriptLine,
+  SearchResult,
+  LibraryStatus,
+  Filters,
+} from '../mock/meetings';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
+
+type MockState =
+  | 'default'
+  | 'empty'
+  | 'upgrading'
+  | 'upgrade-failed'
+  | 'upgrade-skipped'
+  | 'search'
+  | 'no-summary'
+  | 'popover'
+  | 'delete'
+  | 'today'
+  | 'today-denied'
+  | 'today-unconnected'
+  | 'connect-claude'
+  | 'settings';
+
+const KNOWN_STATES: MockState[] = [
+  'default',
+  'empty',
+  'upgrading',
+  'upgrade-failed',
+  'upgrade-skipped',
+  'search',
+  'no-summary',
+  'popover',
+  'delete',
+  'today',
+  'today-denied',
+  'today-unconnected',
+  'connect-claude',
+  'settings',
+];
+
+const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected'];
+
+function readMockState(): MockState {
+  const raw = new URLSearchParams(window.location.search).get('state');
+  return (KNOWN_STATES as string[]).includes(raw ?? '') ? (raw as MockState) : 'default';
+}
+
+interface PopoverState {
+  line: TranscriptLine;
+  anchor: { top: number; left: number };
+}
 
 interface MeetingsAppProps {
   colorCodeSpeakers?: boolean;
 }
 
+const IDLE_STATUS: LibraryStatus = { state: 'idle', done: 0, total: 0, skipped: [] };
+
+const EMPTY_FILTERS: Filters = {
+  total: 0,
+  tags: [],
+  people: [],
+  features: { calendar: false, claude: false, settings: false },
+};
+
 export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
-  const [list, setList] = useState<MeetingMeta[]>(bridge.embedded ? [] : MEETINGS);
-  const [selectedId, setSelectedId] = useState<string | null>(bridge.embedded ? null : MEETINGS[0].id);
-  const [detail, setDetail] = useState<MeetingDetail | null>(bridge.embedded ? null : MEETINGS[0]);
-  const [renaming, setRenaming] = useState(false);
-  const [renameText, setRenameText] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const confirmTimer = useRef<number | null>(null);
-  const selectedIdRef = useRef<string | null>(bridge.embedded ? null : MEETINGS[0].id);
+  // Mock mode is active whenever the page isn't embedded in the native window.
+  const isMock = !bridge.embedded;
+  const embedded = bridge.embedded;
+  const mockState: MockState = isMock ? readMockState() : 'default';
 
-  function select(id: string | null, metas: MeetingMeta[]) {
-    setRenaming(false);
-    setConfirmingDelete(false);
-    const target = id !== null && metas.some((m) => m.id === id) ? id : metas[0]?.id ?? null;
-    selectedIdRef.current = target;
-    setSelectedId(target);
-    if (!bridge.embedded) {
-      setDetail(MEETINGS.find((m) => m.id === target) ?? null);
-      return;
-    }
-    if (target === null) {
-      setDetail(null);
-      return;
-    }
-    void bridge.call<MeetingDetail>('meetings.get', { id: target }).then(setDetail).catch(() => setDetail(null));
-  }
-
-  function refresh(preserveId: string | null) {
-    void bridge.call<MeetingMeta[]>('meetings.list').then((metas) => {
-      setList(metas);
-      select(preserveId, metas);
-    }).catch(() => {});
-  }
-
-  useEffect(() => {
-    if (!bridge.embedded) return;
-    refresh(null);
-    return bridge.on('meetings.changed', () => refresh(selectedIdRef.current));
-  }, []);
+  const [metas, setMetas] = useState<MeetingMeta[]>(isMock && mockState !== 'empty' ? MOCK_METAS : []);
+  const [details, setDetails] = useState<Record<string, MeetingDetailType>>(isMock ? MOCK_DETAILS : {});
+  const [filters, setFilters] = useState<Filters>(isMock && mockState !== 'empty' ? MOCK_FILTERS : EMPTY_FILTERS);
+  const [filter, setFilter] = useState<SidebarFilter>({ type: 'all' });
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (!isMock || mockState === 'empty') return null;
+    if (mockState === 'no-summary') return 'm-design-review';
+    return MOCK_METAS[0]?.id ?? null;
+  });
+  const [searching, setSearching] = useState(mockState === 'search');
+  const [searchQuery, setSearchQuery] = useState(mockState === 'search' ? 'sync' : '');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
+  const [today, setToday] = useState(TODAY_STATES.includes(mockState));
+  const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
+  const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
+  const [embeddedStatus, setEmbeddedStatus] = useState<LibraryStatus>(IDLE_STATUS);
+  const todayConnection: TodayConnection =
+    mockState === 'today-denied' ? 'denied' : mockState === 'today-unconnected' ? 'unconnected' : 'connected';
+  const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
+  const [searchFocusToken, setSearchFocusToken] = useState<number | undefined>(undefined);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const jumpNonceRef = useRef(0);
+  const connectClaudeButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const selectedIdRef = useRef<string | null>(selectedId);
+  const filterRef = useRef<SidebarFilter>(filter);
 
   useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    filterRef.current = filter;
+  }, [filter]);
+
+  const mockLibraryStatus: LibraryStatus =
+    mockState === 'empty'
+      ? MOCK_STATUS.idle
+      : mockState === 'upgrading'
+        ? MOCK_STATUS.upgrading
+        : mockState === 'upgrade-failed'
+          ? MOCK_STATUS.failed
+          : mockState === 'upgrade-skipped'
+            ? MOCK_STATUS.doneWithSkips
+            : MOCK_STATUS.done;
+
+  const libraryStatus: LibraryStatus = isMock ? mockLibraryStatus : embeddedStatus;
+  const bannerDismissed = useLibraryBannerDismissed(libraryStatus);
+
+  function filterParams(f: SidebarFilter): Record<string, string> {
+    if (f.type === 'tag') return { tag: f.value };
+    if (f.type === 'person') return { person: f.value };
+    return {};
+  }
+
+  function isNotFoundError(err: unknown): boolean {
+    return err instanceof Error && err.message === 'not_found';
+  }
+
+  // Shared not_found recovery (Review Focus 2): re-list under the active
+  // filter and select the first row. Guarded by selectedIdRef so a stale
+  // rejection for a selection the user has since moved away from doesn't
+  // yank them back (fix round 1, item 6).
+  function recoverFromNotFound(id: string) {
+    if (selectedIdRef.current !== id) return;
+    void refreshList(filterParams(filterRef.current), false);
+  }
+
+  // Bumped on every refreshList call so an in-flight response that's no
+  // longer the latest request can't clobber a newer one (fix round 1, item 5).
+  const listRequestIdRef = useRef(0);
+
+  // Fetches the list for `params`, updates `metas`, then either keeps the
+  // current selection (if it's still in the list and `keepSelection`) or
+  // selects the first row — fetching that row's detail either way.
+  function refreshList(params: Record<string, string>, keepSelection: boolean) {
+    const requestId = ++listRequestIdRef.current;
+    return bridge
+      .call<MeetingMeta[]>('meetings.list', params)
+      .then((list) => {
+        if (listRequestIdRef.current !== requestId) return list; // superseded by a newer request
+        setMetas(list);
+        const prev = selectedIdRef.current;
+        const keep = keepSelection && !!prev && list.some((m) => m.id === prev);
+        const nextId = keep ? prev : (list[0]?.id ?? null);
+        if (nextId !== prev) {
+          setSelectedId(nextId);
+          setPopover(null);
+          setJumpTarget(null);
+        }
+        if (nextId) {
+          bridge
+            .call<MeetingDetailType>('meetings.get', { id: nextId })
+            .then((d) => {
+              if (listRequestIdRef.current !== requestId) return; // superseded
+              setDetails((p) => ({ ...p, [nextId]: d }));
+            })
+            .catch((err) => console.error('meetings.get failed', err));
+        }
+        return list;
+      })
+      .catch((err) => {
+        console.error('meetings.list failed', err);
+        return [] as MeetingMeta[];
+      });
+  }
+
+  // Step 1: initial data load + subscriptions, embedded only. Runs once on
+  // mount; the meetings.changed handler reads the *current* filter via
+  // filterRef so it doesn't need to resubscribe every time the sidebar
+  // selection changes (onSelectFilter already re-lists for that case).
+  useEffect(() => {
+    if (!embedded) return;
+    void bridge
+      .call<Filters>('meetings.filters')
+      .then(setFilters)
+      .catch((err) => console.error('meetings.filters failed', err));
+    void refreshList(filterParams(filterRef.current), false);
+    void bridge
+      .call<LibraryStatus>('library.status')
+      .then(setEmbeddedStatus)
+      .catch((err) => console.error('library.status failed', err));
+
+    const offChanged = bridge.on('meetings.changed', () => {
+      void bridge
+        .call<Filters>('meetings.filters')
+        .then(setFilters)
+        .catch((err) => console.error('meetings.filters failed', err));
+      void refreshList(filterParams(filterRef.current), true);
+    });
+    const offProgress = bridge.on('library.progress', (payload) => {
+      setEmbeddedStatus(payload as LibraryStatus);
+    });
     return () => {
-      if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
+      offChanged();
+      offProgress();
     };
-  }, []);
+    // Mount-only: deliberately excludes `filter` (read via filterRef instead).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded]);
 
-  function onDelete() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
-      confirmTimer.current = window.setTimeout(() => setConfirmingDelete(false), 4000);
+  // Step 3: debounced search already happens in MeetingDetail before
+  // onSearchChange fires; here we just call the bridge once it settles.
+  useEffect(() => {
+    if (!embedded) return;
+    if (!searching || searchQuery.trim() === '') {
+      setSearchResults([]);
       return;
     }
-    setConfirmingDelete(false);
-    if (bridge.embedded && selectedId !== null) {
-      void bridge.call<MeetingMeta[]>('meetings.delete', { id: selectedId }).then((metas) => {
-        setList(metas);
-        select(null, metas);
+    let cancelled = false;
+    bridge
+      .call<SearchResult[]>('meetings.search', { query: searchQuery })
+      .then((results) => {
+        if (!cancelled) setSearchResults(results);
+      })
+      .catch(() => {
+        if (!cancelled) setSearchResults([]);
       });
-    } else {
-      console.log('delete', selectedId);
+    return () => {
+      cancelled = true;
+    };
+  }, [embedded, searching, searchQuery]);
+
+  const visibleMetas = useMemo(() => {
+    if (filter.type === 'all') return metas;
+    if (filter.type === 'tag') return metas.filter((m) => m.tags.includes(filter.value));
+    return metas.filter((m) => m.people.includes(filter.value));
+  }, [metas, filter]);
+
+  // Step 2: selecting a row calls meetings.get. A not_found rejection
+  // (row deleted/renamed elsewhere) re-lists and selects the first row.
+  function select(id: string | null) {
+    setSelectedId(id);
+    setPopover(null);
+    setJumpTarget(null);
+    if (embedded && id) {
+      bridge
+        .call<MeetingDetailType>('meetings.get', { id })
+        .then((d) => setDetails((prev) => ({ ...prev, [id]: d })))
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.get failed', err);
+        });
     }
   }
 
-  function commitRename() {
-    setRenaming(false);
-    const title = renameText.trim();
-    if (title === '' || selectedId === null) return;
-    if (bridge.embedded) {
-      void bridge.call<MeetingMeta[]>('meetings.rename', { id: selectedId, title }).then((metas) => {
-        setList(metas);
-        select(selectedId, metas);
-      });
-    } else {
-      console.log('rename', selectedId, title);
+  function onSelectFilter(next: SidebarFilter) {
+    setFilter(next);
+    setSearching(false);
+    setToday(false);
+    if (embedded) {
+      void refreshList(filterParams(next), false);
+      return;
     }
+    const list =
+      next.type === 'all'
+        ? metas
+        : metas.filter((m) => (next.type === 'tag' ? m.tags.includes(next.value) : m.people.includes(next.value)));
+    select(list[0]?.id ?? null);
   }
 
-  const selectedMeta = list.find((m) => m.id === selectedId) ?? null;
+  function onSelectToday() {
+    setToday(true);
+    setSearching(false);
+    setPopover(null);
+    setConfirmOpen(false);
+  }
 
-  function relabelSpeaker(line: MeetingDetail['lines'][number]) {
-    if (!bridge.embedded || selectedId === null) return;
-    const label = window.prompt('Speaker name', line.speakerLabel)?.trim();
-    if (!label) return;
-    const allMatching = window.confirm(`Rename every “${line.speakerLabel}” segment?`);
-    void bridge.call<MeetingDetail>('meetings.relabelSpeaker', {
-      id: selectedId,
-      segmentIndex: line.segmentIndex,
-      label,
-      allMatching,
-    }).then((next) => {
-      setDetail(next);
-      setList((current) => current.map((meta) => meta.id === next.id
-        ? { ...meta, subtitle: next.subtitle, speakerCount: next.speakerCount }
-        : meta));
+  function onSelectTodayMeeting(meetingId: string) {
+    setToday(false);
+    select(meetingId);
+  }
+
+  function closeConnectClaude() {
+    setConnectClaudeOpen(false);
+    connectClaudeButtonRef.current?.focus();
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    settingsButtonRef.current?.focus();
+  }
+
+  function onSearchChange(value: string) {
+    setSearchQuery(value);
+    setSearching(value.trim() !== '');
+  }
+
+  function onSelectResult(result: SearchResult) {
+    setSearching(false);
+    setSearchQuery('');
+    select(result.meetingId);
+    jumpNonceRef.current += 1;
+    setJumpTarget({
+      meetingId: result.meetingId,
+      segmentIndex: result.segmentIndex,
+      seconds: result.seconds,
+      kind: result.kind,
+      nonce: jumpNonceRef.current,
     });
   }
 
+  function onRenameTitle(title: string) {
+    if (!selectedId) return;
+    const id = selectedId;
+    if (embedded) {
+      bridge
+        .call<MeetingMeta[]>('meetings.rename', { id, title, ...filterParams(filter) })
+        .then((list) => {
+          setMetas(list);
+          setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title } } : prev));
+          // Renaming doesn't fire `meetings.changed` (that's only emitted for
+          // library imports), so the sidebar's tag/people counts and total
+          // would otherwise go stale until the next unrelated refresh.
+          void bridge
+            .call<Filters>('meetings.filters')
+            .then(setFilters)
+            .catch((err) => console.error('meetings.filters failed', err));
+        })
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.rename failed', err);
+        });
+      return;
+    }
+    setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title } } : prev));
+    setMetas((prev) => prev.map((m) => (m.id === id ? { ...m, title } : m)));
+  }
+
+  function onSpeakerClick(line: TranscriptLine, absoluteAnchor: { top: number; left: number }) {
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const anchor = containerRect
+      ? { top: absoluteAnchor.top - containerRect.top + 6, left: absoluteAnchor.left - containerRect.left }
+      : absoluteAnchor;
+    setPopover({ line, anchor });
+  }
+
+  function onRenameSpeaker(name: string, allMatching: boolean) {
+    if (!selectedId || !popover) return;
+    const id = selectedId;
+    const target = popover.line;
+    if (embedded) {
+      bridge
+        .call<MeetingDetailType>('meetings.relabelSpeaker', {
+          id,
+          segmentIndex: target.segmentIndex,
+          label: name,
+          allMatching,
+        })
+        .then((detail) => setDetails((prev) => ({ ...prev, [id]: detail })))
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.relabelSpeaker failed', err);
+        });
+      setPopover(null);
+      return;
+    }
+    setDetails((prev) => {
+      const current = prev[id];
+      if (!current) return prev;
+      const lines = current.lines.map((l) => {
+        const matches = allMatching ? l.speakerNumber === target.speakerNumber : l.segmentIndex === target.segmentIndex;
+        return matches ? { ...l, speakerLabel: name } : l;
+      });
+      return { ...prev, [id]: { ...current, lines } };
+    });
+    setPopover(null);
+  }
+
+  // Selects the row after the deleted one in the (pre-delete) visible
+  // order, or the previous row if the deleted one was last — the brief's
+  // "select the next row", not always the first (fix round 1, item 8).
+  function nextSelectionAfterDelete(id: string, remainingVisible: MeetingMeta[]): string | null {
+    const visibleIndex = visibleMetas.findIndex((m) => m.id === id);
+    // Deleted id wasn't in visibleMetas (shouldn't normally happen — fall
+    // back to the first row rather than clamping -1 into "select nothing".
+    const baseIndex = visibleIndex === -1 ? 0 : visibleIndex;
+    const nextIndex = Math.min(baseIndex, remainingVisible.length - 1);
+    return nextIndex >= 0 ? remainingVisible[nextIndex].id : null;
+  }
+
+  function onConfirmDelete() {
+    if (!selectedId) {
+      setConfirmOpen(false);
+      return;
+    }
+    const id = selectedId;
+    setConfirmOpen(false);
+    if (embedded) {
+      bridge
+        .call<MeetingMeta[]>('meetings.delete', { id, ...filterParams(filter) })
+        .then((list) => {
+          setMetas(list);
+          setDetails((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+          // `list` already reflects the active tag/person filter, so it
+          // doubles as the "remaining visible" list.
+          select(nextSelectionAfterDelete(id, list));
+          // Deleting doesn't fire `meetings.changed` either (see the rename
+          // handler above) — refetch so the sidebar total and tag/people
+          // counts stay correct.
+          void bridge
+            .call<Filters>('meetings.filters')
+            .then(setFilters)
+            .catch((err) => console.error('meetings.filters failed', err));
+        })
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.delete failed', err);
+        });
+      return;
+    }
+    const remaining = metas.filter((m) => m.id !== id);
+    setMetas(remaining);
+    setDetails((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    select(nextSelectionAfterDelete(id, visibleMetas.filter((m) => m.id !== id)));
+  }
+
+  const selectedDetail = selectedId ? details[selectedId] ?? null : null;
+  const forcedTab = mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : undefined;
+
   return (
-    <GlassPanel width={720} height={480}>
+    <GlassPanel width={1040} height={660}>
       <TitleBar title="Meetings" />
-      <div className={styles.split}>
-        <div className={styles.sidebar}>
-          <span className={styles.heading}>Meetings</span>
-          {list.map((m) => {
-            const active = m.id === selectedId;
-            return (
-              <button
-                key={m.id}
-                className={active ? `${styles.item} ${styles.itemActive}` : styles.item}
-                onClick={() => select(m.id, list)}
-              >
-                <div className={active ? `${styles.itemTitle} ${styles.itemTitleActive}` : styles.itemTitle}>
-                  {m.title}
-                </div>
-                <div className={active ? `${styles.itemSub} ${styles.itemSubActive}` : styles.itemSub}>
-                  {m.subtitle}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <div className={styles.detail}>
-          {selectedMeta === null || detail === null ? (
-            <div className={styles.empty}>No meetings yet — record one from the dock panel.</div>
-          ) : (
-            <>
-              {renaming ? (
-                <input
-                  className={styles.renameInput}
-                  value={renameText}
-                  autoFocus
-                  onChange={(e) => setRenameText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitRename();
-                    if (e.key === 'Escape') setRenaming(false);
-                  }}
-                  onBlur={() => setRenaming(false)}
-                />
-              ) : (
-                <div className={styles.dTitle}>{detail.title}</div>
+      <div className={styles.split} ref={containerRef}>
+        <Sidebar
+          filters={filters}
+          activeFilter={filter}
+          activeToday={today}
+          todayCount={isMock && todayConnection === 'connected' ? MOCK_AGENDA.length : undefined}
+          onSelectFilter={onSelectFilter}
+          onSelectToday={onSelectToday}
+          onConnectClaude={() => setConnectClaudeOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          connectClaudeRef={connectClaudeButtonRef}
+          settingsRef={settingsButtonRef}
+        />
+
+        {!today &&
+          (searching ? (
+            <SearchResults
+              results={embedded ? searchResults : mockState === 'search' ? MOCK_RESULTS : []}
+              onSelect={onSelectResult}
+            />
+          ) : visibleMetas.length === 0 ? (
+            <div className={styles.listColumn}>
+              <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
+              {libraryStatus.state !== 'upgrading' && (
+                <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
               )}
-              <div className={styles.meta}>
-                <span>{detail.date}</span>
-                <span className={styles.sep}>•</span>
-                <span>{detail.duration}</span>
-                <span className={styles.sep}>•</span>
-                <span>{detail.speakerCount} {detail.speakerCount === 1 ? 'speaker' : 'speakers'}</span>
-              </div>
-              <div className={styles.transcript}>
-                <div className={styles.lines}>
-                  {detail.lines.map((ln, index) => (
-                    <div key={index}>
-                      <span className={styles.time}>{ln.time}</span>{' '}
-                      <span
-                        className={styles.speaker}
-                        style={{ color: speakerColor(ln.speakerNumber, colorCodeSpeakers) }}
-                        title="Click to correct this speaker"
-                        onClick={() => relabelSpeaker(ln)}
-                      >
-                        {ln.speakerLabel}:
-                      </span>{' '}
-                      <span className={styles.text}>{ln.overlap ? '[overlap] ' : ''}{ln.text}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className={styles.fade} />
-              </div>
-              <div className={styles.actionRow}>
-                <ActionButton
-                  variant="strong"
-                  onClick={() => {
-                    if (bridge.embedded && selectedId !== null) void bridge.call('meetings.copy', { id: selectedId });
-                    else console.log('copy');
-                  }}
-                >
-                  Copy
-                </ActionButton>
-                <ActionButton
-                  onClick={() => {
-                    if (bridge.embedded && selectedId !== null) void bridge.call('meetings.export', { id: selectedId });
-                    else console.log('export');
-                  }}
-                >
-                  Export
-                </ActionButton>
-                <ActionButton
-                  onClick={() => {
-                    setRenameText(detail.title);
-                    setRenaming(true);
-                  }}
-                >
-                  Rename
-                </ActionButton>
-                <ActionButton variant="danger" className={styles.spacer} onClick={onDelete}>
-                  {confirmingDelete ? 'Confirm delete' : 'Delete'}
-                </ActionButton>
-              </div>
-            </>
-          )}
-        </div>
+            </div>
+          ) : (
+            <div className={styles.listColumn}>
+              <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
+              <MeetingList
+                metas={visibleMetas}
+                selectedId={selectedId}
+                onSelect={select}
+                onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+                onRequestDelete={() => setConfirmOpen(true)}
+              />
+            </div>
+          ))}
+
+        {today ? (
+          <TodayView
+            connection={todayConnection}
+            agenda={isMock ? MOCK_AGENDA : []}
+            upcoming={isMock ? MOCK_UPCOMING : []}
+            onSelectMeeting={onSelectTodayMeeting}
+            onRecord={(key) => console.log('record', key)}
+            onConnectCalendar={() => console.log('connect-calendar')}
+            onOpenPrivacySettings={() => console.log('open-privacy-settings')}
+          />
+        ) : (
+          <MeetingDetail
+            detail={selectedDetail}
+            colorCodeSpeakers={colorCodeSpeakers}
+            searchValue={searchQuery}
+            onSearchChange={onSearchChange}
+            forcedTab={forcedTab}
+            autoOpenPopover={mockState === 'popover'}
+            onRenameTitle={onRenameTitle}
+            onSpeakerClick={onSpeakerClick}
+            onRequestDelete={() => setConfirmOpen(true)}
+            onCopy={() => {
+              if (embedded && selectedId) {
+                const id = selectedId;
+                void bridge.call('meetings.copy', { id }).catch((err) => {
+                  if (isNotFoundError(err)) recoverFromNotFound(id);
+                  else console.error('meetings.copy failed', err);
+                });
+              } else {
+                console.log('copy', selectedId);
+              }
+            }}
+            onExport={() => {
+              if (embedded && selectedId) {
+                const id = selectedId;
+                void bridge.call('meetings.export', { id }).catch((err) => {
+                  if (isNotFoundError(err)) recoverFromNotFound(id);
+                  else console.error('meetings.export failed', err);
+                });
+              } else {
+                console.log('export', selectedId);
+              }
+            }}
+            jumpTarget={jumpTarget}
+            searchFocusToken={searchFocusToken}
+          />
+        )}
+
+        {connectClaudeOpen && <ConnectClaudeSheet onClose={closeConnectClaude} />}
+
+        {settingsOpen && (
+          <SettingsSheet onClose={closeSettings} onExportAll={() => console.log('export-all-meetings')} />
+        )}
+
+        {popover && (
+          <SpeakerPopover
+            label={popover.line.speakerLabel}
+            anchor={popover.anchor}
+            onCancel={() => setPopover(null)}
+            onRename={onRenameSpeaker}
+          />
+        )}
+
+        {confirmOpen && selectedDetail && (
+          <ConfirmSheet
+            title={`Delete ‘${selectedDetail.title}’?`}
+            body="The transcript and notes will be removed. This can't be undone."
+            confirmLabel="Delete"
+            onCancel={() => setConfirmOpen(false)}
+            onConfirm={onConfirmDelete}
+          />
+        )}
       </div>
     </GlassPanel>
   );

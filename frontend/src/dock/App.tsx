@@ -43,6 +43,19 @@ interface DockAppProps {
   readyMessage?: string;
 }
 
+interface LinkedEvent {
+  title: string;
+}
+
+/** Browser preview only: reads `?state=recording-linked` to mock the Dock's
+ * "recording, linked to a calendar event" appearance. Real linking is wired
+ * once the bridge sends event data (a later task). */
+function readDockMockState(): 'default' | 'recording-linked' {
+  if (typeof window === 'undefined') return 'default';
+  const raw = new URLSearchParams(window.location.search).get('state');
+  return raw === 'recording-linked' ? 'recording-linked' : 'default';
+}
+
 interface CaptureApplication {
   pid: number;
   name: string;
@@ -119,10 +132,16 @@ function TrainIcon() {
 }
 
 export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: DockAppProps) {
+  const isMock = !bridge.embedded;
+  const dockMockState = isMock ? readDockMockState() : 'default';
+  const mockLinked = dockMockState === 'recording-linked';
+  // "12:03" from the design ruling — 12 * 60 + 3 seconds.
+  const MOCK_LINKED_ELAPSED = 723;
+
   const [app, setApp] = useState<AppState>({
-    mode: 'ready',
+    mode: mockLinked ? 'meeting_recording' : 'ready',
     profileName: operatorName,
-    elapsedSeconds: 0,
+    elapsedSeconds: mockLinked ? MOCK_LINKED_ELAPSED : 0,
     progressText: null,
     canTrain: true,
     voiceProfiles: [],
@@ -137,7 +156,35 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   const [captureApps, setCaptureApps] = useState<CaptureApplication[]>([]);
   const [captureSelection, setCaptureSelection] = useState('global');
   const [tick, setTick] = useState(0);
-  const baselineRef = useRef<number | null>(null);
+  const [linkedEvent, setLinkedEvent] = useState<LinkedEvent | null>(
+    mockLinked ? { title: 'Weekly 1:1 — Alex' } : null,
+  );
+  const [eventMenuOpen, setEventMenuOpen] = useState(false);
+  const eventMenuRef = useRef<HTMLDivElement>(null);
+  const baselineRef = useRef<number | null>(
+    mockLinked ? Date.now() - MOCK_LINKED_ELAPSED * 1000 : null,
+  );
+
+  useEffect(() => {
+    if (!eventMenuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (eventMenuRef.current && !eventMenuRef.current.contains(e.target as Node)) {
+        setEventMenuOpen(false);
+      }
+    }
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setEventMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onDocKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onDocKeyDown);
+    };
+  }, [eventMenuOpen]);
 
   function applyState(next: AppState) {
     if (next.mode === 'meeting_recording') {
@@ -170,6 +217,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       setApp((current) => {
         const recording = current.mode === 'meeting_recording';
         baselineRef.current = recording ? null : Date.now();
+        if (recording) setLinkedEvent(null);
         return { ...current, mode: recording ? 'ready' : 'meeting_recording', elapsedSeconds: 0 };
       });
     }
@@ -207,6 +255,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       setApp((current) => {
         const recording = current.mode === 'meeting_recording';
         baselineRef.current = recording ? null : Date.now();
+        if (recording) setLinkedEvent(null);
         return { ...current, mode: recording ? 'ready' : 'meeting_recording', elapsedSeconds: 0 };
       });
     }
@@ -224,6 +273,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   }
 
   const idleInfo = isRecording ? null : STATUS[app.mode as Exclude<EngineMode, 'meeting_recording'>];
+  // Phase 3 (event linking) is not wired yet. The real, embedded Dock keeps the
+  // pre-phase-3 "Recording meeting" label and no event menu; only the approved
+  // mock `?state=recording-linked` preview shows the new label and menu.
+  const showEventUI = isMock && dockMockState === 'recording-linked';
   const name = bridge.embedded ? app.profileName : operatorName;
   const selectedAppAvailable = captureSelection === 'global'
     || captureApps.some((application) => String(application.pid) === captureSelection);
@@ -238,7 +291,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
           status={
             isRecording ? (
               <>
-                <StatusDot variant="rec" /> Recording meeting{' '}
+                <StatusDot variant="rec" />{' '}
+                {showEventUI
+                  ? <>Recording · {linkedEvent ? linkedEvent.title : 'Untitled meeting'}</>
+                  : 'Recording meeting'}{' '}
                 <span className={styles.timer}>· {formatTimer(elapsed)}</span>
               </>
             ) : (
@@ -272,6 +328,58 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             <span className={app.captureMode === 'mic_and_system' ? styles.captureGood : styles.captureWarning}>
               {liveCaptureStatus(app)}
             </span>
+            {showEventUI && (
+            <div className={styles.eventMenuWrap} ref={eventMenuRef}>
+              <button
+                className={styles.eventMenuButton}
+                aria-label="Event options"
+                aria-haspopup="menu"
+                aria-expanded={eventMenuOpen}
+                onClick={() => setEventMenuOpen((v) => !v)}
+              >
+                ⌄
+              </button>
+              {eventMenuOpen && (
+                <div className={styles.eventMenu} role="menu">
+                  {linkedEvent ? (
+                    <>
+                      <button
+                        role="menuitem"
+                        className={styles.eventMenuItem}
+                        onClick={() => {
+                          setEventMenuOpen(false);
+                          console.log('change-event');
+                        }}
+                      >
+                        Change Event…
+                      </button>
+                      <button
+                        role="menuitem"
+                        className={styles.eventMenuItem}
+                        onClick={() => {
+                          setEventMenuOpen(false);
+                          setLinkedEvent(null);
+                        }}
+                      >
+                        Unlink
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      role="menuitem"
+                      className={styles.eventMenuItem}
+                      onClick={() => {
+                        setEventMenuOpen(false);
+                        console.log('link-to-event');
+                      }}
+                    >
+                      Link to Event…
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            )}
           </div>
         )}
 

@@ -1,0 +1,29 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 48px;
+  background: var(--scrim);
+}
+
+.sheet {
+  border-radius: 14px;
+  background: var(--surface-elevated);
+  border: 0.5px solid var(--hairline);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet * {
+    transition: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .sheet {
+    border-color: var(--hairline);
+  }
+}

@@ -93,6 +93,9 @@ class MeetingRecording:
     system_audio_status: str = "unavailable"
     health: MeetingCaptureHealth | None = None
     capture_scope: str = "mic_only"
+    # Wall-clock capture start (timezone-aware), stamped by the engine; the
+    # saved meeting's start time and calendar match both come from here.
+    started_at: datetime | None = None
 
     @property
     def paths(self) -> tuple[Path, ...]:

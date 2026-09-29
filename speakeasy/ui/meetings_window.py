@@ -1,30 +1,12 @@
-"""Meetings transcript browser — WKWebView hosting frontend meetings.html."""
-
-from datetime import datetime
+"""Meetings library browser — WKWebView hosting frontend meetings.html."""
 
 import objc
 from Foundation import NSObject
 
 from speakeasy import meetings
-from speakeasy.ui.webbridge import BridgeDispatcher, segments_to_lines
+from speakeasy.ui.meetings_bridge import MeetingsBridge
+from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
-
-
-def _meeting_meta(meeting) -> dict:
-    created = meeting.created
-    if isinstance(created, str):
-        created = datetime.fromisoformat(created)
-    minutes = max(1, round(meeting.duration_seconds / 60))
-    speaker_count = len({segment.speaker for segment in meeting.segments})
-    speakers = "speaker" if speaker_count == 1 else "speakers"
-    return {
-        "id": meeting.meeting_id,
-        "title": meeting.title,
-        "subtitle": f"{minutes} min · {speaker_count} {speakers}",
-        "date": created.strftime("%b %-d, %Y · %H:%M"),
-        "duration": f"{minutes} min",
-        "speakerCount": speaker_count,
-    }
 
 
 class MeetingsWindowController(NSObject):
@@ -32,15 +14,18 @@ class MeetingsWindowController(NSObject):
         self = objc.super(MeetingsWindowController, self).init()
         if self is None:
             return None
+        from speakeasy import injector
+
+        # copyText and copy both live on MeetingsBridge itself (pure-Python,
+        # unit-tested); only the clipboard write is injected here.
+        self._bridge = MeetingsBridge(set_clipboard=injector.set_clipboard)
         dispatcher = BridgeDispatcher()
-        dispatcher.register("meetings.list", self._list)
-        dispatcher.register("meetings.get", self._get)
-        dispatcher.register("meetings.rename", self._rename)
-        dispatcher.register("meetings.relabelSpeaker", self._relabel_speaker)
-        dispatcher.register("meetings.delete", self._delete)
-        dispatcher.register("meetings.copy", self._copy)
+        self._bridge.register(dispatcher)
         dispatcher.register("meetings.export", self._export)
-        self._web = WebWindow("Meetings", 720, 480, "meetings", dispatcher)
+        self._web = WebWindow(
+            "Meetings", 1040, 660, "meetings", dispatcher,
+            resizable=True, min_size=(820, 520),
+        )
         self._web.window.setDelegate_(self)
         return self
 
@@ -54,59 +39,36 @@ class MeetingsWindowController(NSObject):
     def meetingSaved_(self, meeting_id):
         self._web.emit("meetings.changed")
 
-    # -- bridge handlers (main thread; store I/O is small local JSON,
-    #    same main-thread pattern the old native window used) ----------------
+    def libraryStatus_(self, payload):
+        # apply_status_json (MeetingsBridge, tested there) decides what to
+        # parse/store and which events to emit; this stays thin ObjC glue.
+        for event, data in self._bridge.apply_status_json(str(payload)):
+            self._web.emit(event, data)
 
-    @objc.python_method
-    def _list(self, params, respond):
-        respond([_meeting_meta(m) for m in meetings.list_meetings()])
-
-    @objc.python_method
-    def _load(self, params):
-        return meetings.Meeting.load(str(params.get("id", "")))
-
-    @objc.python_method
-    def _get(self, params, respond):
-        meeting = self._load(params)
-        detail = _meeting_meta(meeting)
-        detail["lines"] = segments_to_lines(meeting.segments)
-        respond(detail)
-
-    @objc.python_method
-    def _rename(self, params, respond):
-        meeting = self._load(params)
-        meeting.rename(str(params.get("title", "")))
-        self._list({}, respond)
-
-    @objc.python_method
-    def _delete(self, params, respond):
-        self._load(params).delete()
-        self._list({}, respond)
-
-    @objc.python_method
-    def _relabel_speaker(self, params, respond):
-        meeting = self._load(params)
-        meeting.relabel_speaker(
-            int(params.get("segmentIndex", -1)),
-            str(params.get("label", "")),
-            all_matching=bool(params.get("allMatching", False)),
-        )
-        detail = _meeting_meta(meeting)
-        detail["lines"] = segments_to_lines(meeting.segments)
-        respond(detail)
-
-    @objc.python_method
-    def _copy(self, params, respond):
-        from speakeasy import injector
-
-        injector.set_clipboard(meetings.render_txt(self._load(params)))
-        respond(True)
+    # -- Export: not part of MeetingsBridge (it drives an AppKit save panel
+    #    and responds asynchronously from the panel's completion handler, so
+    #    it can't be registered through `register()`/`_wrap` like the rest).
+    #    meetings.copy has no such constraint and is a plain MeetingsBridge
+    #    method instead — see meetings_bridge.py. --------------------------
 
     @objc.python_method
     def _export(self, params, respond):
         from AppKit import NSModalResponseOK, NSSavePanel
 
-        meeting = self._load(params)
+        # Runs the not_found lookup through the same `_wrap` conversion
+        # every other handler gets (tested in test_meetings_bridge.py),
+        # rather than a bespoke try/except duplicating that logic here.
+        lookup: dict = {}
+
+        def capture_lookup(result=None, error=None):
+            lookup["result"] = result
+            lookup["error"] = error
+
+        MeetingsBridge._wrap(self._bridge.export_meeting)(params, capture_lookup)
+        if lookup.get("error") is not None:
+            respond(error=lookup["error"])
+            return
+        meeting = lookup["result"]
         panel = NSSavePanel.savePanel()
         # UTType via lookUpClass: AppKit already loads the system framework,
         # and the pyobjc UniformTypeIdentifiers wrapper isn't a pinned dep.

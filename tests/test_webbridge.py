@@ -2,6 +2,7 @@
 
 import json
 from collections import namedtuple
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -9,11 +10,16 @@ from speakeasy.ui.webbridge import (
     BridgeDispatcher,
     EvalQueue,
     capture_application_options,
+    day_label,
     format_timestamp,
     segments_to_lines,
+    snippet_parts,
 )
 
 Seg = namedtuple("Seg", "speaker start end text")
+
+TZ = timezone(timedelta(hours=-4))
+NOW = datetime(2026, 9, 24, 15, 0, tzinfo=TZ)  # Thursday
 
 
 class RunningApplication:
@@ -147,6 +153,7 @@ class TestFormatting:
             "segmentIndex": 0,
             "confidence": None,
             "overlap": False,
+            "start": 0.0,
         }
 
     def test_non_numeric_labels_supported(self):
@@ -170,6 +177,24 @@ class TestFormatting:
             {"pid": 40, "name": "Browser"},
             {"pid": 20, "name": "Teams"},
         ]
+
+
+@pytest.mark.parametrize("when,label", [
+    (datetime(2026, 9, 24, 0, 5, tzinfo=TZ), "Today"),
+    (datetime(2026, 9, 23, 23, 50, tzinfo=TZ), "Yesterday"),
+    (datetime(2026, 9, 21, 9, 0, tzinfo=TZ), "Monday"),
+    (datetime(2026, 9, 17, 9, 0, tzinfo=TZ), "September 2026"),
+    (datetime(2025, 12, 1, 9, 0, tzinfo=TZ), "December 2025"),
+    (datetime(2026, 9, 25, 9, 0, tzinfo=TZ), "Today"),            # clock skew
+])
+def test_day_label(when, label):
+    assert day_label(when, NOW) == label
+
+
+def test_snippet_parts():
+    assert snippet_parts("…the \x02ACP\x03 is \x02thin\x03") == [
+        {"text": "…the ", "hit": False}, {"text": "ACP", "hit": True},
+        {"text": " is ", "hit": False}, {"text": "thin", "hit": True}]
 
 
 class TestJavaScriptNumberIds:

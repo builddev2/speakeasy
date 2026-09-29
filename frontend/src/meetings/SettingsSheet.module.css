@@ -1,0 +1,100 @@
+.sheet {
+  width: 380px;
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+  padding: 16px 22px 20px;
+}
+
+.title {
+  margin-bottom: 14px;
+  font: 600 15px/1.3 var(--sans);
+  color: var(--text-hi);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--hairline-lo);
+  font: 400 13px/1.4 var(--sans);
+  color: var(--text);
+}
+
+.sectionTitle {
+  margin: 16px 0 6px;
+  font: 600 11px/1.4 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+
+.calendarList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.accountGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.accountName {
+  font: 600 12px/1.6 var(--sans);
+  color: var(--text-mid);
+}
+
+.calendarRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 6px;
+  font: 400 13px/1.5 var(--sans);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.calendarRow:hover {
+  background: var(--glass-fill-2);
+}
+
+.exportButton {
+  margin-top: 18px;
+  height: 30px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 0.5px solid var(--hairline);
+  background: var(--glass-fill);
+  color: var(--text);
+  font: 600 12.5px/1 var(--sans);
+  cursor: pointer;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.doneWrap {
+  width: 104px;
+}
+
+.exportButton:focus-visible,
+.calendarRow input:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: 1px;
+}
+
+@media (prefers-contrast: more) {
+  .toggleRow {
+    border-bottom-color: var(--hairline);
+  }
+  .exportButton {
+    border-color: var(--hairline);
+  }
+}

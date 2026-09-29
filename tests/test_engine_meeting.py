@@ -6,6 +6,8 @@ the transcript saved on success and never on cancel, and the spool WAV
 deleted on every exit path.
 """
 
+import dataclasses
+import json
 import queue
 import threading
 import time
@@ -14,9 +16,10 @@ import wave
 import numpy as np
 import pytest
 
-from speakeasy import config, meeting_benchmark, meetings
+from speakeasy import config, meeting_benchmark, meeting_import, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
+from speakeasy.meeting_library import MeetingLibrary, NewMeeting
 from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
 from speakeasy.meeting_stream import MeetingASRResult, MeetingASRStatus
 from speakeasy.transcriber import MeetingCancelled
@@ -273,7 +276,7 @@ def test_meeting_happy_path(meetings_dir, spool_dir, make_profile):
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     assert saved, "on_meeting_saved never fired"
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert stored.segments[0].speaker == "Speaker 1"
     assert stored.segments[0].text == "Claude says hello"  # profile applied
     assert not list(spool_dir.iterdir())  # spool deleted after processing
@@ -296,7 +299,7 @@ def test_meeting_reuses_during_capture_mic_transcript(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert stored.segments[0].text == "during capture"
     assert transcriber.live_calls == 1
     assert transcriber.batch_calls == 0
@@ -324,7 +327,7 @@ def test_meeting_pretranscription_failure_falls_back_to_spool(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    assert meetings.Meeting.load(saved[0]).segments[0].text == "clod says hello"
+    assert MeetingLibrary().get_meeting(saved[0]).segments[0].text == "clod says hello"
     assert transcriber.live_calls == 1
     assert transcriber.batch_calls == 1
     assert not list(spool_dir.iterdir())
@@ -373,7 +376,7 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert [(s.speaker, s.start) for s in stored.segments] == [
         ("You", 0.1),
         ("Speaker 1", 0.5),
@@ -433,7 +436,7 @@ def test_dual_track_streams_both_transcripts_before_loading_system_for_diarizati
         ("transcribe", recorder.system_path),
         ("full_load", recorder.system_path),
     ]
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert [(segment.speaker, segment.start) for segment in stored.segments] == [
         ("You", 0.1),
         ("Speaker 1", 0.5),
@@ -458,8 +461,8 @@ def test_selected_application_scope_persists_without_pid_or_name(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
-    raw = stored.path.read_text()
+    stored = MeetingLibrary().get_meeting(saved[0])
+    raw = json.dumps(dataclasses.asdict(stored), default=str)
     assert stored.capture_scope == "selected"
     assert stored.capture_health["capture_scope"] == "selected"
     assert "4242" not in raw
@@ -480,7 +483,7 @@ def test_empty_system_track_falls_back_to_existing_mic_diarization(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert stored.capture_mode == "mic_only"
     assert stored.system_audio_status == "empty_track"
     assert stored.segments[0].speaker == "Speaker 1"
@@ -518,7 +521,7 @@ def test_enrolled_profile_matching_applies_only_to_remote_track(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
-    stored = meetings.Meeting.load(saved[0])
+    stored = MeetingLibrary().get_meeting(saved[0])
     assert [s.speaker for s in stored.segments] == ["You", "Alice", "Speaker 2"]
     assert identified_lengths == [config.SAMPLE_RATE * 2]
     engine.shutdown()
@@ -541,7 +544,7 @@ def test_cancel_set_during_remote_diarization_discards_both_tracks(
     assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
-    assert meetings.list_meetings() == []
+    assert MeetingLibrary().count_meetings() == 0
     assert not list(spool_dir.iterdir())
     engine.shutdown()
 
@@ -561,7 +564,7 @@ def test_dual_track_processing_failure_cleans_both_spools(
     assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
-    assert meetings.list_meetings() == []
+    assert MeetingLibrary().count_meetings() == 0
     assert not list(spool_dir.iterdir())
     engine.shutdown()
 
@@ -589,7 +592,7 @@ def test_selected_voice_profile_is_used_locally(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
     assert calls == [(["Alice"], True)]
-    assert meetings.Meeting.load(saved[0]).segments[0].speaker == "Alice"
+    assert MeetingLibrary().get_meeting(saved[0]).segments[0].speaker == "Alice"
     engine.shutdown()
 
 
@@ -649,7 +652,7 @@ def test_cancel_discards_everything(meetings_dir, spool_dir):
     engine.cancel_meeting_processing()
     trap.set()  # release the trapped transcriber; it sees cancel and raises
     assert _wait_for(lambda: engine.state is State.READY)
-    assert meetings.list_meetings() == []  # nothing saved
+    assert MeetingLibrary().count_meetings() == 0  # nothing saved
     assert not list(spool_dir.iterdir())  # spool deleted anyway
     assert engine._listener.running is True
     engine.shutdown()
@@ -767,7 +770,7 @@ def test_meeting_start_failure_is_visible_and_next_attempt_can_start(spool_dir, 
         engine.worker.shutdown(wait=True)
 
 
-def test_processing_failure_is_visible_without_exception_content(meetings_dir, spool_dir):
+def test_processing_failure_is_visible_without_exception_content(meetings_dir, spool_dir, capsys):
     engine = _engine(spool_dir)
     class Broken(FakeTranscriber):
         def transcribe_long(self, *args, **kwargs):
@@ -780,7 +783,10 @@ def test_processing_failure_is_visible_without_exception_content(meetings_dir, s
     try:
         assert engine.meeting_processing_error == 'processing_failed'
         assert not list(spool_dir.iterdir())
-        assert not meetings.list_meetings()
+        assert MeetingLibrary().count_meetings() == 0
+        err = capsys.readouterr().err
+        assert 'Traceback' in err and 'OSError' in err
+        assert 'private transcript' not in err
     finally:
         engine.shutdown()
 
@@ -825,7 +831,269 @@ def test_progress_after_cancel_keeps_cancellation_visible(meetings_dir, spool_di
     assert _wait_for(lambda: engine.state is State.READY)
     try:
         assert messages[-1].startswith('Cancelling')
-        assert not meetings.list_meetings()
+        assert MeetingLibrary().count_meetings() == 0
         assert not list(spool_dir.iterdir())
     finally:
         engine.shutdown()
+
+
+class ShortFakeMeetingRecorder(FakeMeetingRecorder):
+    """Writes far less audio than the wall-clock gap the test sleeps through,
+    so a lost start time (falling back to now() - duration) lands clearly
+    after `after_begin` instead of within noise distance of it."""
+
+    def start(self, *, system_audio_pid=None):
+        assert system_audio_pid is None
+        self._path = self._spool_dir / "meeting-test.wav"
+        with wave.open(str(self._path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(config.SAMPLE_RATE)
+            frames = max(1, int(config.SAMPLE_RATE * 0.1))
+            w.writeframes(np.ones(frames, dtype=np.int16).tobytes())
+
+
+def test_meeting_start_time_is_capture_start(meetings_dir, spool_dir):
+    from datetime import datetime
+
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = ShortFakeMeetingRecorder(spool_dir)
+    saved = []
+    engine.on_meeting_saved = saved.append
+    before = datetime.now().astimezone().replace(microsecond=0)
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    after_begin = datetime.now().astimezone()
+    time.sleep(1.1)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    stored = MeetingLibrary().get_meeting(saved[0])
+    assert before <= stored.local_start <= after_begin
+    assert stored.source == "recorded" and not stored.timestamps_approximate
+    engine.shutdown()
+
+
+def test_process_meeting_uses_recordings_started_at(meetings_dir, spool_dir):
+    from datetime import datetime, timedelta, timezone
+
+    engine = _engine(spool_dir)
+    saved = []
+    engine.on_meeting_saved = saved.append
+    mic = spool_dir / "mic.wav"
+    with wave.open(str(mic), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(config.SAMPLE_RATE)
+        w.writeframes(np.ones(config.SAMPLE_RATE, dtype=np.int16).tobytes())
+    started_at = datetime(2026, 9, 24, 13, 17, 23, tzinfo=timezone(timedelta(hours=-4)))
+    try:
+        engine._process_meeting(MeetingRecording(mic_path=mic, started_at=started_at))
+        assert saved, "on_meeting_saved never fired"
+        stored = MeetingLibrary().get_meeting(saved[0])
+        assert stored.started_at == "2026-09-24T17:17:23Z"
+    finally:
+        engine.shutdown()
+
+
+def test_upgrade_library_imports_and_publishes_status(meetings_dir, spool_dir):
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    # The very first status is published synchronously by upgrade_library()
+    # itself, before the job is even queued on the worker.
+    assert statuses[0] == {"state": "upgrading", "done": 0, "total": 1, "skipped": []}
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "done")
+    assert statuses[-1] == {"state": "done", "done": 1, "total": 1, "skipped": []}
+    assert engine.library_status == statuses[-1]
+    assert MeetingLibrary().count_meetings() == 1
+    engine.shutdown()
+
+
+def test_upgrade_library_reports_skipped_files_without_leaking_content(
+    meetings_dir, spool_dir, capsys
+):
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    bad_name = "20260924-134024-bbbb.json"
+    (meetings_dir / bad_name).write_text("not valid json {{{ private secret content")
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "done")
+    assert statuses[-1]["state"] == "done"
+    assert statuses[-1]["skipped"] == [{"file": bad_name, "reason": "JSONDecodeError"}]
+    assert MeetingLibrary().count_meetings() == 1
+    out = capsys.readouterr().out
+    assert f"skipped {bad_name}:" in out
+    assert "private secret content" not in out
+    engine.shutdown()
+
+
+def test_upgrade_library_is_a_no_op_without_legacy_files(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    # Wait on a sentinel submitted to the same single-worker executor: since
+    # ThreadPoolExecutor(max_workers=1) runs jobs in submission order, this
+    # future only resolves after upgrade_library's job (if any) has already
+    # run, so the test cannot pass before that job would have published.
+    engine.worker.submit(lambda: None).result(timeout=5.0)
+    assert statuses == [] and engine.library_status["state"] == "idle"
+    engine.shutdown()
+
+
+def test_upgrade_library_publishes_queued_state_synchronously(meetings_dir, spool_dir):
+    # Spec: publish the "upgrading" placeholder the moment the job is
+    # queued, not only once the worker (behind model load) gets to it, so
+    # the UI shows "Importing meetings…" instead of the empty state during
+    # the first-launch delay. This is checked with no wait: the publish
+    # must happen synchronously inside upgrade_library() itself.
+    import json as _json
+    for i in range(3):
+        (meetings_dir / f"2026092{i}-134023-aaa{i}.json").write_text(_json.dumps({
+            "id": f"2026092{i}-134023-aaa{i}", "title": "t", "created": "2026-09-24T13:40:23",
+            "duration_seconds": 60, "segments": [
+                {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    # Block the worker before queueing the upgrade job. If the "upgrading"
+    # placeholder were published from inside _upgrade_library (i.e. moved
+    # onto the worker) instead of synchronously by upgrade_library() on the
+    # calling thread, it would not appear until `release` is set below —
+    # this is what makes the "synchronous" claim in the test name actually
+    # checked, rather than merely plausible from timing.
+    release = threading.Event()
+    engine.worker.submit(release.wait)
+    engine.upgrade_library()
+    assert statuses == [{"state": "upgrading", "done": 0, "total": 3, "skipped": []}]
+    assert engine.library_status == statuses[0]
+    release.set()
+    engine.worker.submit(lambda: None).result(timeout=5.0)
+    engine.shutdown()
+
+
+def test_upgrade_library_survives_count_meetings_error_at_queue_time(
+    meetings_dir, spool_dir, monkeypatch
+):
+    # Spec: upgrade_library()'s count_meetings() check runs on the main
+    # thread from applicationDidFinishLaunching_ (ui/menubar.py) -- the
+    # app's very first DB touch at launch, ahead of engineStateChanged_,
+    # main_window.show(), the permissions guidance, and the hotkey. A DB
+    # error there must not raise and abort the rest of launch: skip the
+    # queued placeholder and still submit the worker job, which re-checks
+    # count_meetings() inside its own try and publishes "failed".
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+
+    def boom(self):
+        raise RuntimeError("synthetic db failure")
+
+    monkeypatch.setattr(MeetingLibrary, "count_meetings", boom)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()  # must not raise
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "failed")
+    # No queued placeholder was published: the failed status is the only one.
+    assert statuses == [statuses[-1]]
+    assert statuses[-1]["state"] == "failed"
+    engine.shutdown()
+
+
+def test_upgrade_library_worker_publishes_idle_if_meeting_appears_before_it_runs(
+    meetings_dir, spool_dir
+):
+    # Spec: upgrade_library() decides whether to publish "upgrading" from a
+    # main-thread count_meetings() check at queue time; _upgrade_library()
+    # re-checks count_meetings() when it actually runs on the worker. If a
+    # meeting was saved in between (so the job is now a no-op), the worker
+    # must publish "idle" explicitly so the queued banner doesn't stick.
+    from datetime import datetime, timezone
+
+    import json as _json
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    # Simulate the race directly: the queued placeholder was already
+    # published (as upgrade_library() would when the library was empty)...
+    engine._publish_library_status({"state": "upgrading", "done": 0, "total": 1, "skipped": []})
+    statuses.clear()
+    # ...but by the time the worker job runs, a meeting has appeared.
+    MeetingLibrary().save_meeting(NewMeeting(
+        segments=[], duration_seconds=1.0,
+        started_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+    ))
+    engine._upgrade_library()
+    assert statuses == [{"state": "idle", "done": 0, "total": 0, "skipped": []}]
+    engine.shutdown()
+
+
+def test_upgrade_library_is_a_no_op_when_library_already_has_meetings(
+    meetings_dir, spool_dir
+):
+    # Spec: auto-import only runs when the library is empty. Otherwise a
+    # malformed legacy file left in meetings/ would bring the upgrade banner
+    # back on every launch; manual re-import stays available separately.
+    import json as _json
+    from datetime import datetime, timezone
+
+    library = MeetingLibrary()
+    library.save_meeting(NewMeeting(
+        segments=[], duration_seconds=1.0,
+        started_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+    ))
+    (meetings_dir / "20260924-134023-aaaa.json").write_text(_json.dumps({
+        "id": "20260924-134023-aaaa", "title": "t", "created": "2026-09-24T13:40:23",
+        "duration_seconds": 60, "segments": [
+            {"speaker": "You", "start": 0, "end": 1, "text": "hi"}]}))
+    engine = _engine(spool_dir)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    # See test_upgrade_library_is_a_no_op_without_legacy_files: waiting on a
+    # sentinel submitted after upgrade_library's own job guarantees that job
+    # (which does run here, since a legacy file exists) has already
+    # completed before the assertion below.
+    engine.worker.submit(lambda: None).result(timeout=5.0)
+    assert statuses == []
+    engine.shutdown()
+
+
+def test_upgrade_library_publishes_failed_status_with_details(
+    meetings_dir, spool_dir, monkeypatch
+):
+    (meetings_dir / "20260924-134023-aaaa.json").write_text("not json meeting data")
+    engine = _engine(spool_dir)
+
+    def boom(library=None, progress=None):
+        raise RuntimeError("synthetic import failure")
+
+    monkeypatch.setattr(meeting_import, "import_json_meetings", boom)
+    statuses = []
+    engine.on_library_status = statuses.append
+    engine.upgrade_library()
+    assert _wait_for(lambda: statuses and statuses[-1]["state"] == "failed")
+    assert statuses[-1] == {
+        "state": "failed", "done": 0, "total": 0,
+        "skipped": [{"file": "", "reason": "RuntimeError"}],
+    }
+    engine.shutdown()

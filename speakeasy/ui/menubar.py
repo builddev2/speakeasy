@@ -13,6 +13,7 @@ applicationShouldHandleReopen_hasVisibleWindows_. The status item remains the
 primary interface; the Dock window is a fallback, not a replacement.
 """
 
+import json
 import sys
 
 import objc
@@ -186,6 +187,7 @@ class StatusItemController(NSObject):
         self.engine = engine
         self.training_window = None  # set lazily by openTraining:
         self.meetings_window = None  # set lazily by openMeetings:
+        self._pending_library_status = None  # replayed into a window created later
         self.dock_window = None  # set by AppDelegate once the dock exists
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
@@ -357,6 +359,11 @@ class StatusItemController(NSObject):
         if self.meetings_window is not None:
             self.meetings_window.meetingSaved_(meeting_id)
 
+    def libraryStatus_(self, payload):
+        self._pending_library_status = payload
+        if self.meetings_window is not None:
+            self.meetings_window.libraryStatus_(payload)
+
     # -- profile menu -----------------------------------------------------
 
     @objc.python_method
@@ -448,6 +455,8 @@ class StatusItemController(NSObject):
 
         if self.meetings_window is None:
             self.meetings_window = MeetingsWindowController.alloc().init()
+            if self._pending_library_status is not None:
+                self.meetings_window.libraryStatus_(self._pending_library_status)
         self.meetings_window.show()
 
     # -- training window (wired in training_window.py phase) --------------
@@ -619,13 +628,20 @@ class AppDelegate(NSObject):
                 b"meetingSaved:", meeting_id, False
             )
 
+        def on_library_status(status):
+            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"libraryStatus:", json.dumps(status), False
+            )
+
         engine.on_state_changed = on_state_changed
         engine.on_meeting_progress = on_meeting_progress
         engine.on_meeting_saved = on_meeting_saved
+        engine.on_library_status = on_library_status
 
         # Start first: the model warms up on its worker thread while the
         # user reads the (modal) first-run permissions guidance.
         engine.start()
+        engine.upgrade_library()
         controller.engineStateChanged_(engine.state.value)
         main_window.engineStateChanged_(engine.state.value)
         # Cold launch from the Dock counts as "the user clicked the icon" —

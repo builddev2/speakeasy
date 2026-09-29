@@ -3,6 +3,7 @@ import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
+import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 
 interface TrainingAppProps {
   operatorName?: string;
@@ -158,6 +159,7 @@ export function TrainingApp({ operatorName = 'Jason' }: TrainingAppProps) {
           <div className={styles.inputRow}>
             <input
               className={styles.textInput}
+              {...NO_AUTOCORRECT}
               type="text"
               placeholder="Your own word or phrase…"
               value={practiceText}

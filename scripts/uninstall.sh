@@ -4,10 +4,10 @@
 # Always removes: the Speakeasy.app bundle (from /Applications, ~/Applications,
 # or this repo's dist/) and ~/Library/Logs/Speakeasy.log.
 #
-# Your data — profiles and settings in
-# ~/Library/Application Support/Speakeasy — is KEPT by default so a reinstall
-# picks up where you left off. Pass --purge (or answer the prompt) to delete it
-# too, along with the ~2.3 GB cached speech model.
+# Your data — profiles, settings, and the meeting library
+# (library.sqlite) in ~/Library/Application Support/Speakeasy — is KEPT by
+# default so a reinstall picks up where you left off. Pass --purge (or answer
+# the prompt) to delete it too, along with the ~2.3 GB cached speech model.
 #
 # Usage:
 #   scripts/uninstall.sh            # remove app + log, ask about data/model

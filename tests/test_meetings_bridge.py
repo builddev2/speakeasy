@@ -484,9 +484,58 @@ def test_features_follow_calendar_presence(library_path):
     assert plain.filters_payload({})["features"]["calendar"] is False
 
 
-def test_today_without_access_is_empty(library_path):
-    b = _calendar_bridge(library_path, calendar=FakeCalendar("denied"))
-    assert b.calendar_today_payload({}) == {"access": "denied", "agenda": []}
+def _seed_today_and_tomorrow(library_path):
+    from speakeasy.meeting_library import SyncedEvent
+    noon = datetime.now().astimezone().replace(hour=12, minute=0, second=0, microsecond=0)
+    events = [SyncedEvent(key, "Work", title, start, start + timedelta(minutes=30),
+                          False, False, 1, ())
+              for key, title, start in (("today1", "Standup", noon),
+                                        ("tmrw1", "Planning", noon + timedelta(days=1)))]
+    MeetingLibrary(library_path).replace_calendar_window(
+        events, noon - timedelta(days=2), noon + timedelta(days=3))
+
+
+@pytest.mark.parametrize("access", ["denied", "unconnected"])
+def test_today_and_upcoming_are_gated_on_access(library_path, access):
+    _seed_today_and_tomorrow(library_path)
+    b = _calendar_bridge(library_path, calendar=FakeCalendar(access))
+    assert b.calendar_today_payload({}) == {"access": access, "agenda": []}
+    assert b.calendar_upcoming_payload({}) == {"days": []}
+
+
+def test_today_and_upcoming_show_cached_events_when_connected(library_path):
+    _seed_today_and_tomorrow(library_path)
+    b = _calendar_bridge(library_path)
+    today = b.calendar_today_payload({})
+    assert today["access"] == "connected"
+    assert [r["key"] for r in today["agenda"]] == ["today1"]
+    days = b.calendar_upcoming_payload({})["days"]
+    assert [[e["key"] for e in d["events"]] for d in days] == [["tmrw1"]]
+
+
+def test_only_the_connect_click_requests_access(library_path, tmp_path, monkeypatch):
+    from speakeasy import settings
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    started = []
+    cal = FakeCalendar()
+    b = _calendar_bridge(library_path, calendar=cal, begin_meeting=started.append,
+                         open_url=lambda url: None)
+    lib = MeetingLibrary(library_path)
+    mid = lib.save_meeting(NewMeeting(segments=[MeetingSegment("You", 0, 1, "hi")],
+                                      duration_seconds=60,
+                                      started_at=datetime.now().astimezone()))
+    b.calendar_today_payload({})
+    b.calendar_upcoming_payload({})
+    b.settings_get_payload({})
+    b.settings_set_payload({"offerToRecord": True, "calendars": {"w": True}})
+    b.calendar_record_payload({"key": "ev1"})
+    b.calendar_privacy_payload({})
+    b.events_for_day_payload({"id": mid})
+    b.link_event_payload({"id": mid, "key": None})
+    b.filters_payload({})
+    assert cal.asked == 0
+    assert b.calendar_request_access_payload({}) is True
+    assert cal.asked == 1
 
 
 def test_record_passes_event_key(library_path):

@@ -21,15 +21,20 @@ class MeetingsWindowController(NSObject):
         from speakeasy.ui import services
 
         engine = services.engine
+
+        def recording_event_key():
+            # Read once: the control thread can clear meeting_event between
+            # two reads, and the bridge doesn't catch AttributeError.
+            event = engine.meeting_event if engine is not None else None
+            return event.event_key if event is not None else None
+
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
         self._bridge = MeetingsBridge(
             set_clipboard=injector.set_clipboard, open_path=self._open_path,
             calendar=services.calendar_sync,
             begin_meeting=engine.begin_meeting if engine is not None else None,
-            recording_event_key=lambda: (
-                engine.meeting_event.event_key
-                if engine is not None and engine.meeting_event is not None else None),
+            recording_event_key=recording_event_key,
             open_url=lambda url: NSWorkspace.sharedWorkspace().openURL_(
                 NSURL.URLWithString_(url)),
         )

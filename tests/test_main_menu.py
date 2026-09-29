@@ -66,5 +66,4 @@ def test_edit_menu_items_in_order_with_nil_targets():
         assert item.action() == action
         assert item.keyEquivalent() == key
         assert item.target() is None
-        if title == "Paste and Match Style":
-            assert item.keyEquivalentModifierMask() & CMD_OPT_SHIFT == CMD_OPT_SHIFT
+        assert item.keyEquivalentModifierMask() == mask

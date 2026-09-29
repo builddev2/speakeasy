@@ -2379,13 +2379,18 @@ Implementers ran on Sonnet 5.5. Every task review, re-review and the final whole
 
 ### Step 6 results (29 Sep 2026, user-reported unless stated)
 
-**Passed** (reported by the user, who ran these in their own Claude client):
-- Item 2: a search for "dashboard" returned results, and the first few minutes of the "1on1 Todd TEST" transcript were read.
-- Item 3: Claude saved a one-paragraph summary and the tag `test` for "1on1 Todd TEST". It appeared in the open Meetings window within about 10 s, and the selection did not jump.
-- Item 4: Meetings → Connect Claude then showed "Last used by Claude" as just now.
-- The controller made one read-only `list_meetings` call (limit 3) from a Claude Code session through the `claude mcp add` server (`speakeasy`). It returned the three newest meetings. This covers only the "list" part of item 6.
+**Passed** (reported by the user):
+- In Claude Desktop:
+  - Item 2: a search for "dashboard" returned results, and Claude read the first few minutes of the "1on1 Todd TEST" transcript.
+  - Item 3: Claude saved a one-paragraph summary and the tag `test` for "1on1 Todd TEST". The summary appeared in the open Meetings window within about 10 s, and the selection did not jump.
+  - Item 4: Meetings → Connect Claude then showed "Last used by Claude" as just now.
+- Item 6: the Claude Code checks passed. Separately, the controller made one read-only `list_meetings` call (limit 3) through the `speakeasy` server in a Claude Code session; it returned the three newest meetings.
+- Item 7: dictation into TextEdit works.
 
-**Not reported:** item 1 (the sheet's first-run state and Copy), item 2's "list recent meetings", item 5 (extension off, manual JSON route), the search, read and save parts of item 6 in Claude Code, and item 7 (dictation in TextEdit).
+**Not done:**
+- Item 1: the sheet's first-run state and Copy. The first-run state can no longer be seen on the real library, because Claude has now used it.
+- Item 2's "list recent meetings" in Claude Desktop.
+- Item 5: the extension off, then the manual JSON route.
 
 **Observed:** that Claude Code session had Speakeasy connected twice, as `speakeasy` (`claude mcp add`) and as `Speakeasy Meetings` (the extension), so it saw 16 tools instead of 8.
 

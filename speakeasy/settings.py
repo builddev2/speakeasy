@@ -117,6 +117,42 @@ def set_last_profile(name: str | None) -> None:
     _write(data)
 
 
+# -- meetings (phase 3) ------------------------------------------------------
+
+
+def get_meeting_settings() -> dict:
+    """Offer-to-record toggle and per-calendar include choices. A calendar
+    missing from calendar_choices uses its default (calendar_sync)."""
+    raw = _read().get("meetings")
+    raw = raw if isinstance(raw, dict) else {}
+    offer = raw.get("offer_to_record")
+    choices = raw.get("calendar_choices")
+    return {
+        "offer_to_record": offer if isinstance(offer, bool) else True,
+        "calendar_choices": {
+            k: v for k, v in choices.items() if isinstance(k, str) and isinstance(v, bool)
+        } if isinstance(choices, dict) else {},
+    }
+
+
+def set_meeting_settings(*, offer_to_record=None, calendar_choices=None) -> dict:
+    current = get_meeting_settings()
+    if offer_to_record is not None:
+        if not isinstance(offer_to_record, bool):
+            raise ValueError("Offer to record must be on or off.")
+        current["offer_to_record"] = offer_to_record
+    if calendar_choices is not None:
+        if (not isinstance(calendar_choices, dict) or len(calendar_choices) > 500
+                or not all(isinstance(k, str) and 0 < len(k) <= 300 and isinstance(v, bool)
+                           for k, v in calendar_choices.items())):
+            raise ValueError("Calendar choices must be on or off for each calendar.")
+        current["calendar_choices"] = {**current["calendar_choices"], **calendar_choices}
+    data = _read()
+    data["meetings"] = current
+    _write(data)
+    return current
+
+
 # -- model location --------------------------------------------------------
 
 

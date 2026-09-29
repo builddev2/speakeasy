@@ -156,6 +156,18 @@
   z-index: 10;
 }
 
+.eventMenuList {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  max-height: 320px;
+}
+
+.eventMenuDivider {
+  height: 0;
+  margin: 4px 2px;
+  border-top: 0.5px solid var(--hairline);
+}
+
 .eventMenuHeader {
   padding: 6px 10px 8px;
   font: 600 11px/1.4 var(--sans);

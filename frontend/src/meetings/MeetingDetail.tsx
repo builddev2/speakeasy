@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { EventChip, MeetingDetail as MeetingDetailType, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
@@ -122,6 +122,8 @@ export function MeetingDetail({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
+  const eventListRef = useRef<HTMLDivElement>(null);
+  const [eventListMax, setEventListMax] = useState<number | undefined>(undefined);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const eventWrapRef = useRef<HTMLSpanElement>(null);
   const eventButtonRef = useRef<HTMLButtonElement>(null);
@@ -255,6 +257,16 @@ export function MeetingDetail({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventMenuOpen, detail?.id]);
+
+  // Cap the list to the window and show the linked event; Unlink sits above it.
+  useLayoutEffect(() => {
+    if (!eventMenuOpen) return;
+    const list = eventListRef.current;
+    if (!list) return;
+    const top = list.getBoundingClientRect().top;
+    setEventListMax(Math.max(96, window.innerHeight - top - 12 - 6));
+    list.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [eventMenuOpen, eventChoices]);
 
   useEffect(() => {
     if (!eventMenuOpen) return;
@@ -453,39 +465,48 @@ export function MeetingDetail({
                     )}
                     {eventMenuOpen && onLinkEvent && (
                       <div className={styles.eventMenu} role="menu">
-                        {detail.event && <div className={styles.eventMenuHeader}>{detail.event.time}</div>}
-                        {eventChoices.map((choice) => {
-                          const current = detail.event?.key === choice.key;
-                          return (
+                        {detail.event && (
+                          <>
                             <button
-                              key={choice.key}
-                              role="menuitemradio"
-                              aria-checked={current}
+                              role="menuitem"
                               className={styles.menuItem}
                               onClick={() => {
                                 setEventMenuOpen(false);
-                                if (!current) onLinkEvent(choice.key);
+                                onLinkEvent(null);
                               }}
                             >
-                              <span className={styles.eventCheck} aria-hidden="true">
-                                {current ? '✓' : ''}
-                              </span>
-                              {choice.time} · {choice.title}
+                              Unlink
                             </button>
-                          );
-                        })}
-                        {detail.event && (
-                          <button
-                            role="menuitem"
-                            className={styles.menuItem}
-                            onClick={() => {
-                              setEventMenuOpen(false);
-                              onLinkEvent(null);
-                            }}
-                          >
-                            Unlink
-                          </button>
+                            <div className={styles.eventMenuDivider} role="separator" />
+                            <div className={styles.eventMenuHeader}>{detail.event.time}</div>
+                          </>
                         )}
+                        <div
+                          className={styles.eventMenuList}
+                          ref={eventListRef}
+                          style={eventListMax ? { maxHeight: eventListMax } : undefined}
+                        >
+                          {eventChoices.map((choice) => {
+                            const current = detail.event?.key === choice.key;
+                            return (
+                              <button
+                                key={choice.key}
+                                role="menuitemradio"
+                                aria-checked={current}
+                                className={styles.menuItem}
+                                onClick={() => {
+                                  setEventMenuOpen(false);
+                                  if (!current) onLinkEvent(choice.key);
+                                }}
+                              >
+                                <span className={styles.eventCheck} aria-hidden="true">
+                                  {current ? '✓' : ''}
+                                </span>
+                                {choice.time} · {choice.title}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </span>

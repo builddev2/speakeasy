@@ -183,6 +183,18 @@
   box-shadow: var(--shadow-panel);
 }
 
+.eventMenuList {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  max-height: 240px;
+}
+
+.eventMenuDivider {
+  height: 0;
+  margin: 4px 2px;
+  border-top: 0.5px solid var(--hairline);
+}
+
 .eventMenuItem {
   display: block;
   width: 100%;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
 import { AppIdentity } from '../components/AppIdentity';
@@ -177,6 +177,8 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   const [calendarAvailable, setCalendarAvailable] = useState(false);
   const [eventMenuOpen, setEventMenuOpen] = useState(false);
   const eventMenuRef = useRef<HTMLDivElement>(null);
+  const eventListRef = useRef<HTMLDivElement>(null);
+  const [eventListMax, setEventListMax] = useState<number | undefined>(undefined);
   const baselineRef = useRef<number | null>(
     mockLinked ? Date.now() - MOCK_LINKED_ELAPSED * 1000 : null,
   );
@@ -201,6 +203,17 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       document.removeEventListener('keydown', onDocKeyDown);
     };
   }, [eventMenuOpen]);
+
+  // Cap the list so the whole menu fits inside the (small) Dock window, then
+  // bring the linked event into view. Unlink sits above the list, always reachable.
+  useLayoutEffect(() => {
+    if (!eventMenuOpen) return;
+    const list = eventListRef.current;
+    if (!list) return;
+    const top = list.getBoundingClientRect().top;
+    setEventListMax(Math.max(72, window.innerHeight - top - 8 - 4));
+    list.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [eventMenuOpen, eventChoices]);
 
   function loadEventChoices() {
     if (!bridge.embedded) {
@@ -405,29 +418,38 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
               </button>
               {eventMenuOpen && (
                 <div className={styles.eventMenu} role="menu">
-                  {eventChoices.length === 0 && !linkedEvent && (
-                    <div className={styles.eventMenuEmpty}>No events today</div>
-                  )}
-                  {eventChoices.map((choice) => {
-                    const current = linkedEvent?.key === choice.key;
-                    return (
-                      <button
-                        key={choice.key}
-                        role="menuitemradio"
-                        aria-checked={current}
-                        className={styles.eventMenuItem}
-                        onClick={() => linkEvent(current ? null : choice.key)}
-                      >
-                        <span className={styles.eventMenuCheck} aria-hidden="true">{current ? '✓' : ''}</span>
-                        {choice.time} · {choice.title}
-                      </button>
-                    );
-                  })}
                   {linkedEvent && (
-                    <button role="menuitem" className={styles.eventMenuItem} onClick={() => linkEvent(null)}>
-                      Unlink
-                    </button>
+                    <>
+                      <button role="menuitem" className={styles.eventMenuItem} onClick={() => linkEvent(null)}>
+                        Unlink
+                      </button>
+                      <div className={styles.eventMenuDivider} role="separator" />
+                    </>
                   )}
+                  <div
+                    className={styles.eventMenuList}
+                    ref={eventListRef}
+                    style={eventListMax ? { maxHeight: eventListMax } : undefined}
+                  >
+                    {eventChoices.length === 0 && !linkedEvent && (
+                      <div className={styles.eventMenuEmpty}>No events today</div>
+                    )}
+                    {eventChoices.map((choice) => {
+                      const current = linkedEvent?.key === choice.key;
+                      return (
+                        <button
+                          key={choice.key}
+                          role="menuitemradio"
+                          aria-checked={current}
+                          className={styles.eventMenuItem}
+                          onClick={() => linkEvent(current ? null : choice.key)}
+                        >
+                          <span className={styles.eventMenuCheck} aria-hidden="true">{current ? '✓' : ''}</span>
+                          {choice.time} · {choice.title}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

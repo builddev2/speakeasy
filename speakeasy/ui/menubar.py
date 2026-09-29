@@ -27,6 +27,9 @@ from AppKit import (
     NSCompositingOperationClear,
     NSControlStateValueOff,
     NSControlStateValueOn,
+    NSEventModifierFlagCommand,
+    NSEventModifierFlagOption,
+    NSEventModifierFlagShift,
     NSGraphicsContext,
     NSImage,
     NSMenu,
@@ -673,9 +676,14 @@ class AppDelegate(NSObject):
 
 
 def _build_main_menu(quit_target) -> NSMenu:
-    """A minimal system menu bar (just Quit) so Cmd+Q works with the main
-    window focused. Regular-policy apps don't get one for free without
-    Interface Builder; StatusItemController already implements quitApp_."""
+    """A minimal system menu bar: the app menu (Quit, so Cmd+Q works with the
+    main window focused) and an Edit menu. Regular-policy apps don't get
+    either for free without Interface Builder; StatusItemController already
+    implements quitApp_.
+
+    The Edit items deliberately have no target: AppKit then sends the action
+    down the responder chain to the first responder, which is what makes
+    Cmd+A/C/V/X/Z work in WKWebView text fields."""
     menu = NSMenu.alloc().init()
     app_menu_item = NSMenuItem.alloc().init()
     menu.addItem_(app_menu_item)
@@ -686,6 +694,38 @@ def _build_main_menu(quit_target) -> NSMenu:
     quit_item.setTarget_(quit_target)
     app_menu.addItem_(quit_item)
     app_menu_item.setSubmenu_(app_menu)
+
+    edit_menu_item = NSMenuItem.alloc().init()
+    menu.addItem_(edit_menu_item)
+    edit_menu = NSMenu.alloc().initWithTitle_("Edit")
+    # (title, action, key equivalent, extra modifiers); None is a separator.
+    # A capital key equivalent implies Shift (Cmd+Shift+Z for Redo).
+    for spec in (
+        ("Undo", b"undo:", "z", None),
+        ("Redo", b"redo:", "Z", None),
+        None,
+        ("Cut", b"cut:", "x", None),
+        ("Copy", b"copy:", "c", None),
+        ("Paste", b"paste:", "v", None),
+        (
+            "Paste and Match Style",
+            b"pasteAsPlainText:",
+            "V",
+            NSEventModifierFlagCommand
+            | NSEventModifierFlagOption
+            | NSEventModifierFlagShift,
+        ),
+        ("Delete", b"delete:", "", None),
+        ("Select All", b"selectAll:", "a", None),
+    ):
+        if spec is None:
+            edit_menu.addItem_(NSMenuItem.separatorItem())
+            continue
+        title, action, key, modifiers = spec
+        item = edit_menu.addItemWithTitle_action_keyEquivalent_(title, action, key)
+        if modifiers is not None:
+            item.setKeyEquivalentModifierMask_(modifiers)
+    edit_menu_item.setSubmenu_(edit_menu)
     return menu
 
 

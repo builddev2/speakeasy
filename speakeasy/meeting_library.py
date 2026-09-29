@@ -416,6 +416,39 @@ class MeetingLibrary:
             self._touch(conn, meeting_id)
             conn.execute("UPDATE meetings SET title = ? WHERE id = ?", (title, meeting_id))
 
+    def imported_title_fixes(self) -> list[tuple[str, str, str]]:
+        """Imported titles ending in the recording's *end* time (the old app
+        stamped titles when processing finished), with that time replaced by
+        the start. Preview only; apply_title_fixes writes."""
+        def stamp(d: datetime) -> str:
+            return d.strftime("%b %-d, %-I:%M %p")
+
+        fixes = []
+        with self._transaction() as conn:
+            for r in conn.execute(
+                    "SELECT id, title, started_at, tz_offset_minutes, duration_seconds"
+                    " FROM meetings WHERE source = 'imported_json' ORDER BY started_at"):
+                start = local_start(r["started_at"], r["tz_offset_minutes"])
+                end = start + timedelta(seconds=r["duration_seconds"])
+                suffix = " — " + stamp(end)
+                if stamp(end) != stamp(start) and r["title"].endswith(suffix):
+                    fixes.append((r["id"], r["title"],
+                                  r["title"][: -len(suffix)] + " — " + stamp(start)))
+        return fixes
+
+    def apply_title_fixes(self, fixes) -> int:
+        """Rename only where the title still equals the previewed one, so a
+        title the user edited after the preview is never overwritten."""
+        changed = 0
+        with self._transaction() as conn:
+            for meeting_id, old, new in fixes:
+                cur = conn.execute("UPDATE meetings SET title = ? WHERE id = ? AND title = ?",
+                                   (new, meeting_id, old))
+                if cur.rowcount:
+                    self._touch(conn, meeting_id)
+                    changed += 1
+        return changed
+
     def relabel_speaker(self, meeting_id: str, segment_index: int, label: str,
                         *, all_matching: bool = False) -> None:
         """Relabel one segment, or every segment sharing its current label."""

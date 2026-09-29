@@ -376,7 +376,7 @@ def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, mo
     import threading
     from speakeasy import injector
     entered, release = threading.Event(), threading.Event()
-    def delayed(diagnostics=None):
+    def delayed(diagnostics=None, **kwargs):
         entered.set()
         assert release.wait(2)
         return object()
@@ -527,3 +527,44 @@ def test_target_status_pending_cancelled_and_error(engine):
     record = _stopped_timing(engine, failed).record("success")
     assert record["target_status"] == "error"
     assert record["target_first_ax_error"] is None
+
+
+def test_resolve_target_passes_grace_deadline_and_engine_clock(engine, monkeypatch):
+    from speakeasy import injector
+    seen = []
+    monkeypatch.setattr(
+        injector, "focused_target",
+        lambda diagnostics=None, **kwargs: seen.append(kwargs) or object())
+    generation = engine._dictation_generation
+    engine._resolve_dictation_target(generation, hold_started_ns=5_000)
+    engine._resolve_dictation_target(generation, None)
+    engine._resolve_dictation_target(generation)
+    assert seen[0]["deadline_ns"] == 5_000 + 300_000_000
+    assert seen[0]["clock_ns"] == engine._dictation_clock_ns
+    assert seen[1]["deadline_ns"] is None
+    assert seen[2]["deadline_ns"] is None
+
+
+def test_start_recording_submits_hold_started_ns(engine):
+    submitted = []
+    original = engine.worker.submit
+    def submit(function, *args):
+        if function.__name__ == "_resolve_dictation_target":
+            submitted.append(args)
+        return original(function, *args)
+    engine.worker.submit = submit
+    engine._hold_started_ns = 123_456
+    engine._start_recording()
+    assert submitted == [(engine._dictation_generation, 123_456)]
+
+
+def test_paste_last_dictation_lookup_makes_no_retries(engine, monkeypatch):
+    from speakeasy import injector
+    seen = []
+    monkeypatch.setattr(
+        injector, "focused_target",
+        lambda diagnostics=None, **kwargs: seen.append(kwargs) or object())
+    engine.last_dictation_text = "recovered"
+    engine.state = State.READY
+    engine.paste_last_dictation()
+    assert seen == [{"retry_attempts": 0}]

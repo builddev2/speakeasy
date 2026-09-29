@@ -127,12 +127,19 @@ def insert_text(text: str, *, timing: DictationTiming | None = None, target=None
         timing.mark("paste_dispatched")
 
 
-def focused_target(diagnostics: dict | None = None):
+def focused_target(diagnostics: dict | None = None, *,
+                   deadline_ns: int | None = None,
+                   clock_ns=time.perf_counter_ns,
+                   retry_attempts: int | None = None):
     """Only AX element identity/role metadata; never fetch value or selection.
 
     ``diagnostics``, when given, is filled with content-free lookup facts
     (AX error codes, whether accessibility was enabled, whether the frontmost
     app changed, its bundle identifier). It never affects the result.
+
+    ``deadline_ns`` (on ``clock_ns``) stops further retries once another
+    retry interval would pass it; ``retry_attempts`` overrides the configured
+    attempt count (0 = a single query, no sleeps).
     """
     import ApplicationServices as ax
     if diagnostics is not None:
@@ -140,7 +147,7 @@ def focused_target(diagnostics: dict | None = None):
             target_first_ax_error=None, target_ax_enabled=False,
             target_retry_ax_error=None, target_retry_count=0,
             target_app_switched=False,
-            target_app=None,
+            target_app=None, target_deadline_stop=False,
         )
     workspace = NSWorkspace.sharedWorkspace()
     application = workspace.frontmostApplication()
@@ -173,7 +180,14 @@ def focused_target(diagnostics: dict | None = None):
         # Fresh Electron apps answer NoValue until their accessibility tree is
         # built, and enabling can report False yet still work: retry regardless.
         # Never substitute an application/window for an unidentified field.
-        for attempt in range(1, config.DICTATION_TARGET_RETRY_ATTEMPTS + 1):
+        attempts = (config.DICTATION_TARGET_RETRY_ATTEMPTS
+                    if retry_attempts is None else retry_attempts)
+        interval_ns = int(config.DICTATION_TARGET_RETRY_INTERVAL_SECONDS * 1_000_000_000)
+        for attempt in range(1, attempts + 1):
+            if deadline_ns is not None and clock_ns() + interval_ns > deadline_ns:
+                if diagnostics is not None:
+                    diagnostics["target_deadline_stop"] = True
+                break
             time.sleep(config.DICTATION_TARGET_RETRY_INTERVAL_SECONDS)
             error, element = ax.AXUIElementCopyAttributeValue(
                 owner, "AXFocusedUIElement", None)

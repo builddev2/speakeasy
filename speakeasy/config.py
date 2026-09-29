@@ -48,7 +48,12 @@ DICTATION_TARGET_GRACE_SECONDS = 0.3
 
 # Fresh Electron apps (Codex, Teams) answer AXFocusedUIElement with NoValue
 # until their accessibility tree is built. Retry the lookup this many times,
-# sleeping the interval before each attempt (worst case well under 0.6 s).
+# sleeping the interval before each attempt. Without a deadline the worst case
+# is about 1.06 s for an unresponsive app (0.1 s first query + up to 4 x 0.1 s
+# enable calls + 4 x (0.04 + 0.1) s retries) and about 0.2 s for a freshly
+# launched Electron app. At key-down the retries stop at the grace deadline
+# (key-down + 0.3 s), so the worst case is about 0.5 s; the recovery paste on
+# the main thread makes no retries.
 DICTATION_TARGET_RETRY_ATTEMPTS = 4
 DICTATION_TARGET_RETRY_INTERVAL_SECONDS = 0.04
 

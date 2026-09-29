@@ -59,7 +59,7 @@ def test_restore_does_not_overwrite_newer_clipboard(monkeypatch):
 def test_delivery_matrix_and_1000_attempt_soak(monkeypatch):
     import ApplicationServices as ax
     target = object()
-    monkeypatch.setattr(injector, "focused_target", lambda: target)
+    monkeypatch.setattr(injector, "focused_target", lambda **kwargs: target)
     posts = []
     writes = []
     monkeypatch.setattr(injector, "insert_text", lambda text, **k: posts.append(text))
@@ -102,7 +102,7 @@ def test_copy_during_inference_is_the_clipboard_restored(monkeypatch):
 
 
 def test_permission_or_missing_focus_never_inserts(monkeypatch):
-    monkeypatch.setattr(injector, "focused_target", lambda: None)
+    monkeypatch.setattr(injector, "focused_target", lambda **kwargs: None)
     monkeypatch.setattr(injector, "insert_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
     assert injector.deliver_final("final", None) == "permission_or_focus_unavailable"
 
@@ -114,7 +114,7 @@ def test_focus_change_during_clipboard_settle_never_posts(monkeypatch):
     posts = []
     monkeypatch.setattr(injector, "_pasteboard", lambda: pb)
     monkeypatch.setattr(injector, "_make_item", lambda values: Item(dict(values)))
-    monkeypatch.setattr(injector, "focused_target", lambda: focus[0])
+    monkeypatch.setattr(injector, "focused_target", lambda **kwargs: focus[0])
     monkeypatch.setattr(injector, "_post_cmd_v", lambda: posts.append(1))
     monkeypatch.setattr(injector.time, "sleep", lambda seconds: focus.__setitem__(0, object()))
     assert injector.deliver_final("final", target) == "focus_changed"
@@ -237,6 +237,7 @@ def test_diagnostics_record_direct_success_without_enabling(monkeypatch):
         "target_first_ax_error": 0, "target_ax_enabled": False,
         "target_retry_ax_error": None, "target_retry_count": 0,
         "target_app_switched": False, "target_app": "com.example.Electron",
+        "target_deadline_stop": False,
     }
 
 
@@ -347,3 +348,62 @@ def test_diagnostics_record_app_switch_and_no_enable(monkeypatch):
     assert diagnostics["target_app_switched"] is True
     assert diagnostics["target_ax_enabled"] is False
     assert diagnostics["target_retry_ax_error"] is None
+
+
+def _clock(values):
+    iterator = iter(values)
+    return lambda: next(iterator)
+
+
+def test_deadline_stops_retries_before_second_sleep(monkeypatch):
+    # A target would be returned on attempt 2, but the deadline cuts it off.
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (-25212, None), (0, object())],
+        [_app()] * 6)
+    diagnostics = {}
+    result = query_focused_target(
+        diagnostics, deadline_ns=1_000_000_000,
+        clock_ns=_clock([0, 999_000_000]))
+    assert result is None
+    assert diagnostics["target_deadline_stop"] is True
+    assert diagnostics["target_retry_count"] == 1
+    assert sleeps == [.04]
+    assert len(queries) == 2
+
+
+def test_deadline_already_past_makes_no_retry(monkeypatch):
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (0, object())], [_app()] * 4)
+    diagnostics = {}
+    result = query_focused_target(
+        diagnostics, deadline_ns=100, clock_ns=lambda: 1_000)
+    assert result is None
+    assert diagnostics["target_deadline_stop"] is True
+    assert diagnostics["target_retry_count"] == 0
+    assert sleeps == []
+    assert len(queries) == 1
+
+
+def test_no_deadline_keeps_four_attempts_and_no_stop_flag(monkeypatch):
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None)] * 5, [_app()] * 8)
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is None
+    assert diagnostics["target_deadline_stop"] is False
+    assert diagnostics["target_retry_count"] == 4
+    assert sleeps == [.04] * 4
+
+
+def test_retry_attempts_zero_queries_once_but_still_enables(monkeypatch):
+    import ApplicationServices as ax
+    enabled = []
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (0, object())], [_app()] * 4)
+    monkeypatch.setattr(injector, "_enable_accessibility",
+                        lambda owner: enabled.append(1) or False)
+    diagnostics = {}
+    assert query_focused_target(diagnostics, retry_attempts=0) is None
+    assert len(queries) == 1
+    assert sleeps == []
+    assert enabled == [1]
+    assert diagnostics["target_retry_count"] == 0

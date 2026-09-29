@@ -281,7 +281,9 @@ class DictationEngine:
             previous_target = getattr(self, "_target_future", None)
             if previous_target is not None:
                 previous_target.cancel()
-            self._target_future = self.worker.submit(self._resolve_dictation_target, generation)
+            self._target_future = self.worker.submit(
+                self._resolve_dictation_target, generation,
+                getattr(self, "_hold_started_ns", None))
         session = (
             StreamingSession(
                 clock_ns=self._dictation_clock_ns,
@@ -329,11 +331,14 @@ class DictationEngine:
         self._set_state(State.RECORDING)
         print("● recording...")
 
-    def _resolve_dictation_target(self, generation):
+    def _resolve_dictation_target(self, generation, hold_started_ns=None):
         if self._shutting_down or generation != self._dictation_generation:
             return None, self._dictation_clock_ns(), {}
         diagnostics: dict = {}
-        target = injector.focused_target(diagnostics)
+        deadline = (None if hold_started_ns is None else
+                    hold_started_ns + int(config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000))
+        target = injector.focused_target(
+            diagnostics, deadline_ns=deadline, clock_ns=self._dictation_clock_ns)
         return target, self._dictation_clock_ns(), diagnostics
 
     def _transcribe_stream_with_fallback(
@@ -1590,7 +1595,12 @@ class DictationEngine:
         # Explicit recovery shares the model worker's serialized insertion path.
         if self.state not in {State.READY, State.MIC_FAILED}:
             return
-        target = injector.focused_target()
+        # Runs on the AppKit main thread. The lookup stays at click time so it
+        # binds the field the user meant (on the worker it would bind whatever
+        # is focused when the worker frees up, possibly mid streaming decode).
+        # No retries/sleeps: the main thread blocks at most the AX timeouts
+        # (~0.5 s), typically a few ms; a take already made the app build its tree.
+        target = injector.focused_target(retry_attempts=0)
         generation = self._dictation_generation
         self.worker.submit(self._paste_last_dictation, target, generation)
 

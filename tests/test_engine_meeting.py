@@ -12,6 +12,8 @@ import queue
 import threading
 import time
 import wave
+from datetime import datetime, timedelta, timezone as _tz
+import sqlite3 as _sqlite3
 
 import numpy as np
 import pytest
@@ -19,7 +21,7 @@ import pytest
 from speakeasy import config, meeting_benchmark, meeting_import, meetings
 from speakeasy.coreaudio import RecorderBusy
 from speakeasy.engine import DictationEngine, MeetingOptions, State
-from speakeasy.meeting_library import MeetingLibrary, NewMeeting
+from speakeasy.meeting_library import EventPerson, MeetingLibrary, NewMeeting, SyncedEvent
 from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
 from speakeasy.meeting_stream import MeetingASRResult, MeetingASRStatus
 from speakeasy.transcriber import MeetingCancelled
@@ -1126,4 +1128,126 @@ def test_manual_speaker_count_skips_merging(spool_dir):
     turns = engine._diarize_track(audio, lambda f: None, max_speakers=1)
     # Manual count: turns come back exactly as the diarizer gave them.
     assert turns == [(0.0, 0.8, 4), (1.0, 1.8, 9)]
+    engine.shutdown()
+
+
+_REF = EventPerson("Refayet K", "refayet@example.com", "organizer")
+
+
+def _seed_events(specs):
+    """Seed several events in ONE window: a later replace_calendar_window
+    call deletes events the earlier one wrote."""
+    now = datetime.now(_tz.utc).replace(microsecond=0)
+    events = []
+    for key, minutes_ago, title, other in specs:
+        start = now - timedelta(minutes=minutes_ago)
+        events.append(SyncedEvent(key, "Work", title, start, start + timedelta(minutes=30),
+                                  False, False, other, (_REF,)))
+    MeetingLibrary().replace_calendar_window(
+        events, now - timedelta(hours=2), now + timedelta(hours=2))
+
+
+def _seed_event(key="ev-now", minutes_ago=3, title="Weekly 1:1 \u2014 Refayet", other=1):
+    _seed_events([(key, minutes_ago, title, other)])
+
+
+def _record(engine, options=None):
+    saved = []
+    engine.on_meeting_saved = saved.append
+    engine.begin_meeting(options)
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    return saved
+
+
+def _finish(engine, saved):
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    return MeetingLibrary().get_meeting(saved[0])
+
+
+def test_recording_takes_the_matching_event(meetings_dir, spool_dir):
+    _seed_event()
+    engine = _engine(spool_dir)
+    saved = _record(engine)
+    assert _wait_for(lambda: engine.meeting_event is not None)
+    stored = _finish(engine, saved)
+    assert (stored.title, stored.calendar_event_id, stored.people) == (
+        "Weekly 1:1 \u2014 Refayet", "ev-now", ["Refayet K"])
+    assert engine.meeting_event is None
+    engine.shutdown()
+
+
+def test_explicit_event_key_wins(meetings_dir, spool_dir):
+    _seed_events([("near", 1, "Near", 1), ("chosen", 20, "Chosen", 1)])
+    engine = _engine(spool_dir)
+    stored = _finish(engine, _record(engine, MeetingOptions(calendar_event_key="chosen")))
+    assert stored.title == "Chosen"
+    engine.shutdown()
+
+
+def test_no_event_keeps_default_title(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    stored = _finish(engine, _record(engine))
+    assert stored.title.startswith("Meeting \u2014 ") and stored.calendar_event_id is None
+    engine.shutdown()
+
+
+def test_calendar_cap_merges_remote_speakers(meetings_dir, spool_dir):
+    _seed_event(other=1)
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = FakeDualTranscriber()
+    engine.diarizer = FakeRemoteDiarizer()
+    stored = _finish(engine, _record(engine))
+    assert [s.speaker for s in stored.segments] == ["You", "Speaker 1"]
+    engine.shutdown()
+
+
+def test_manual_count_beats_calendar(meetings_dir, spool_dir):
+    _seed_event(other=1)
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = FakeDualTranscriber()
+    engine.diarizer = FakeRemoteDiarizer()
+    engine._diarizer_speaker_count = 2
+    stored = _finish(engine, _record(engine, MeetingOptions(expected_speaker_count=2)))
+    assert [s.speaker for s in stored.segments] == ["You", "Speaker 1", "Speaker 2"]
+    engine.shutdown()
+
+
+def test_link_and_unlink_while_recording(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    states = []
+    engine.on_state_changed = states.append
+    saved = _record(engine)
+    _seed_event("later")
+    engine.link_meeting_event("later")
+    assert _wait_for(lambda: engine.meeting_event is not None)
+    assert states.count(State.MEETING_RECORDING) >= 2   # Dock refreshed
+    engine.link_meeting_event(None)
+    assert _wait_for(lambda: engine.meeting_event is None)
+    assert _finish(engine, saved).calendar_event_id is None
+    engine.shutdown()
+
+
+def test_busy_library_at_start_records_unlinked(meetings_dir, spool_dir, monkeypatch):
+    _seed_event()
+    engine = _engine(spool_dir)
+
+    def busy(*a, **k):
+        raise _sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(engine.library, "calendar_events_overlapping", busy)
+    stored = _finish(engine, _record(engine))
+    assert stored.calendar_event_id is None
+    engine.shutdown()
+
+
+def test_event_deleted_before_save_uses_held_copy(meetings_dir, spool_dir):
+    _seed_event()
+    engine = _engine(spool_dir)
+    saved = _record(engine)
+    assert _wait_for(lambda: engine.meeting_event is not None)
+    MeetingLibrary().clear_calendar_cache()
+    stored = _finish(engine, saved)
+    assert (stored.title, stored.people) == ("Weekly 1:1 \u2014 Refayet", ["Refayet K"])
     engine.shutdown()

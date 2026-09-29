@@ -20,6 +20,7 @@ no extra thread.
 """
 
 import dataclasses
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -36,7 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config, injector, meeting_import, meeting_recorder, meetings, settings
+from . import calendar_match, config, injector, meeting_import, meeting_recorder, meetings, settings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
@@ -56,6 +57,7 @@ class MeetingOptions:
     expected_speaker_count: int | None = None
     expected_voice_profile_names: tuple[str, ...] = ()
     system_audio_pid: int | None = None
+    calendar_event_key: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -69,6 +71,11 @@ class MeetingOptions:
             or self.system_audio_pid <= 0
         ):
             raise ValueError("Selected application is no longer available.")
+        if self.calendar_event_key is not None and (
+            not isinstance(self.calendar_event_key, str)
+            or not 0 < len(self.calendar_event_key) <= 300
+        ):
+            raise ValueError("Unknown calendar event.")
 
 
 @dataclass(frozen=True)
@@ -139,6 +146,9 @@ class DictationEngine:
         self.meeting_processing_error = None
         self._meeting_cancel = threading.Event()
         self._meeting_options = MeetingOptions()
+        # The calendar event this recording belongs to (cached copy). UI
+        # threads read it; it is only ever replaced whole, never mutated.
+        self.meeting_event = None
         self._meeting_asr_session: MeetingASRSession | None = None
         self._meeting_asr_future: Future | None = None
         self._diarizer_speaker_count: int | None = None
@@ -805,6 +815,48 @@ class DictationEngine:
     def end_meeting(self) -> None:
         self.control.submit(self._end_meeting)
 
+    def link_meeting_event(self, event_key: str | None) -> None:
+        """Change or clear the current recording's event (Dock menu)."""
+        self.control.submit(self._link_meeting_event, event_key)
+
+    def _link_meeting_event(self, event_key: str | None) -> None:
+        if self.state is not State.MEETING_RECORDING:
+            return
+        event = None
+        if event_key is not None:
+            try:
+                event = self.library.calendar_event(event_key)
+            except sqlite3.Error:
+                return
+            if event is None:
+                return
+        self.meeting_event = event
+        self.on_state_changed(self.state)
+
+    def _resolve_meeting_event(self, event_key, started_at):
+        try:
+            if event_key is not None:
+                return self.library.calendar_event(event_key)
+            return calendar_match.pick_event(
+                self.library.calendar_events_overlapping(
+                    started_at,
+                    started_at + calendar_match.MATCH_EARLY_JOIN + timedelta(seconds=1)),
+                started_at)
+        except (sqlite3.Error, ValueError, RuntimeError):
+            print("  → calendar match skipped (library unavailable)")
+            return None
+
+    def _saved_meeting_event(self):
+        """The event re-read at save time (renamed since?), else the copy
+        held since the start (deleted from Calendar since?)."""
+        held = self.meeting_event
+        if held is None:
+            return None
+        try:
+            return self.library.calendar_event(held.event_key) or held
+        except sqlite3.Error:
+            return held
+
     def cancel_meeting_processing(self) -> None:
         """Abort processing and discard the meeting. Just sets the event —
         the worker polls it between transcription chunks and phases, so no
@@ -818,6 +870,7 @@ class DictationEngine:
         self.meeting_start_error = reason
         self._cancel_meeting_pretranscription()
         self._meeting_active = False
+        self.meeting_event = None
         if not self._user_paused and not self._shutting_down:
             self._listener.resume()
         try:
@@ -878,6 +931,13 @@ class DictationEngine:
         self._meeting_started_at = datetime.now().astimezone()
         self._set_state(State.MEETING_RECORDING)
         print("● meeting recording...")
+        # Only after capture is running: a busy library can hold a read for
+        # up to 5 s, and that must never delay the recording itself.
+        self.meeting_event = self._resolve_meeting_event(
+            options.calendar_event_key if options is not None else None,
+            self._meeting_started_at)
+        if self.meeting_event is not None:
+            self.on_state_changed(self.state)   # the Dock shows the title
 
     def _end_meeting(self) -> None:
         if not self._meeting_active or self.state is not State.MEETING_RECORDING:
@@ -898,6 +958,7 @@ class DictationEngine:
                 pretranscription_session.cancel()
             # Nothing made it to disk; back to dictation.
             self._meeting_active = False
+            self.meeting_event = None
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
@@ -1084,6 +1145,9 @@ class DictationEngine:
                 timing.mic_frames = mic_frames
                 timing.system_frames = system_frames
             dual_track = recording.capture_mode == "mic_and_system" and system_frames
+            event = self._saved_meeting_event()
+            speaker_cap = calendar_match.remote_speaker_cap(
+                event, "mic_and_system" if dual_track else "mic_only")
             if not mic_frames and not system_frames:
                 raise ValueError("Meeting contained no readable audio")
 
@@ -1133,6 +1197,7 @@ class DictationEngine:
                         f"Identifying remote speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
+                    max_speakers=speaker_cap,
                 )
                 del system_audio
                 if self._meeting_cancel.is_set():
@@ -1192,6 +1257,7 @@ class DictationEngine:
                         f"Identifying speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
+                    max_speakers=speaker_cap,
                 )
                 del audio
                 if self._meeting_cancel.is_set():
@@ -1233,6 +1299,9 @@ class DictationEngine:
                     recording.health.to_dict() if recording.health else {}
                 ),
                 capture_scope=recording.capture_scope,
+                title=event.title if event is not None else None,
+                calendar_event_id=event.event_key if event is not None else None,
+                people=list(event.people) if event is not None else [],
             )
             if self._meeting_cancel.is_set():
                 raise MeetingCancelled
@@ -1280,6 +1349,7 @@ class DictationEngine:
                 finally:
                     meeting_recorder.release_spool(path)
             self._meeting_active = False
+            self.meeting_event = None
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())

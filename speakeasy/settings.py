@@ -60,6 +60,12 @@ def library_path() -> Path:
     return app_support_dir() / "library.sqlite"
 
 
+def mcp_last_used_path() -> Path:
+    """UTC timestamp of the MCP server's last tool call, shown in the
+    Connect Claude sheet ("Last used by Claude: 2 min ago")."""
+    return app_support_dir() / "mcp_last_used"
+
+
 def voice_profiles_dir() -> Path:
     """Versioned local speaker embeddings; enrollment audio is never stored."""
     d = app_support_dir() / "voice_profiles"

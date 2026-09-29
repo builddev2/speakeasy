@@ -51,6 +51,9 @@ a = Analysis(
             "speakeasy.ui.webbridge",
             "speakeasy.cli",
             "speakeasy.diarizer",
+            "speakeasy.mcp_server",
+            "speakeasy.mcp_tools",
+            "speakeasy.mcp_setup",
             "WebKit",
         ]
     ),

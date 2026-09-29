@@ -2827,6 +2827,92 @@ git commit -m "Add a previewable fix for imported titles that carry the end time
 
 (Record deviations, surprises and review findings here during execution.)
 
+### Status (29 Sep 2026)
+
+- **Tasks 1–9 done**, each reviewed with mutation checks. **Task 10:** Steps 1–3 done. Steps 4–6 (build and install, acceptance with the user, final notes) are **not done**.
+- Branch `meeting-library-phase3`, worktree `.claude/worktrees/meeting-library-phase3`, head `e4afaf2` at the final fix wave. Nothing is merged.
+- **Test results (not launched):** full suite **697 passed**, against a baseline of 593 on master. `npm --prefix frontend run build` is clean. The mock screens were checked in the browser pane: Today in all three access states, Settings, the event-chip menu and the Dock event menu.
+- **Final whole-branch review (Opus):**
+  - Critical: revoking Calendar access never cleared the cache, because the plan's menubar code only synced when access was "connected". Fixed with `CalendarSync.tick()`, which runs on launch, wake and the 5-minute timer and syncs whenever access is not "unconnected".
+  - Important: a fresh library opened by two connections at once could leave `user_version` stuck at 1. Fixed in `migrate`.
+  - Both fixes were re-reviewed, and mutation checks caught both.
+- **Step 2 measurement (Task 8):** `transcript_page` took **1.02 ms** per page (3600 segments, 20 000 chars). That is under 20 ms, so connections stay per-call.
+- **Step 3 re-measure** on a read-only `.backup` copy (92 imported and 2 recorded meetings). Each figure is total labels / labels that hold at least 15 s of talk; the second number estimates the fold with no calendar:
+  - Canada expansion: 144/27 (26 Aug), 139/34 (19 Aug), 112/27 (12 Aug)
+  - 1on1 Jim: 74/17
+  - 1on1 Victor: 69/30
+  - 1on1 Bing: 57/20, 50/18, 39/13
+
+  Imported meetings don't change, because no audio is kept. This is the "before" baseline for acceptance step 6.
+- **Title-fix dry run on the copy:** 74 fixes, which matches the plan. For example, `Mesa Meeting — Jul 13, 12:28 PM → 12:05 PM`. Nothing has been applied.
+
+### Surprises
+
+- **A test wrote into real user data.** `test_add_word_updates_fuzzy_index_without_reload` (which predates this phase) saved `profiles/t.json` into the real App Support folder on every suite run. It now uses the `profiles_dir` fixture. An autouse `isolated_home` fixture in `tests/conftest.py` points HOME and `settings.app_support_dir` at a tmp dir for every test. The junk `t.json` was moved to the Trash at the user's request.
+- **Stale `.pyc` after a mutation.** A same-length mutation (`!=` → `==`) that was restored within the same second left a stale `.pyc`, and later runs failed on it. Mutation runs now use `python -B`, and `__pycache__` is cleared afterwards.
+- **Empty `node_modules`.** The main checkout's `frontend/node_modules` was empty, so `npm ci` was run in the worktree. `pyobjc-framework-EventKit==12.2.1` was installed into the shared `.venv`.
+- **Install note (Step 4):** after installing, restart Claude Desktop and Claude Code. An MCP server process started before the install still expects schema v1, and it refuses the v2 library until it is relaunched.
+
+### Rulings made during execution (the cost if wrong is in brackets)
+
+- R1. Task 5's "explicit event wins" test seeds both events in one window. [none]
+- R2. `get_payload` looks up an event only when the meeting is linked. [none]
+- R3. v2 uses `BEGIN IMMEDIATE` framing. [none]
+- R5. Commit trailers name the model that wrote the commit. [cosmetic]
+- R6. One shared `meetings.flag_overlaps` replaces the overlap loop that was duplicated in `diarizer.py`. [a small refactor]
+- R7. `tidy_speakers` catches the same errors as `identify`. [none]
+- R8. `event_from_ek` never undercounts. An unnameable attendee makes the count unknown, and people with the same name are counted individually. [some caps become None]
+- R9. Added post-grant fresh-store resync, observer removal and quiet shutdown. [extra code]
+- R10. The bridge reads `meeting_event` once. [none]
+- R11. The Dock `app.meetingEvents` errors with `calendar_unavailable` when Calendar is off, and the Dock re-probes when a recording starts. [the Dock UI is hidden if the probe fails for another reason]
+- R12. Three frontend fixes: Settings reset on a failed load, the token colour, and "No calendars found." shown only while connected. [none]
+- R13. Two plan tests that could not detect regressions were strengthened. [none]
+- R14. Test isolation from the real App Support folder. [none]
+- R15. The revoke-clears-cache fix, through `CalendarSync.tick()`. [a cheap store-less sync every 5 min while denied]
+- R16. Fixed the stale migration comment. `--apply` alone is now an error. Added a comment on the thread-safety of `access()`. [none]
+- R17. Parked: `migrate` records the target version on any duplicate-column error. That is safe for v2, which has a single statement. **A multi-statement v3 must guard it** with a target check or a column-exists check. [a v3 could be marked done early]
+- R18. Parked: after a revoke, a store built while connected keeps observing until quit or the next grant. [harmless]
+
+### Deferred minors (final review: all can wait)
+
+- **Calendar cache and matching**
+  - Moving an event in Calendar changes its key, so a meeting linked to it loses its chip. Its title and people are kept.
+  - Today's list and the day chips include events that started the previous evening.
+  - An equal-distance tie can pick an event that hasn't started yet over the running one.
+  - `link_event` doesn't drop orphaned people (the next sync does).
+  - Naive datetimes are not rejected in the window and overlap helpers.
+  - An attendee name that contains `\x1f` would split in `list_meetings`.
+- **Recording and speakers**
+  - Record on a Today row does nothing visible when the engine isn't READY.
+  - The event is re-read before ASR, not exactly at save.
+  - Partial embeddings can leave an unembedded cluster standing during the cap merge.
+  - `tidy_speakers` time is untimed.
+- **Search:** echo collapse can leave two notes hits adjacent.
+- **Frontend**
+  - `bridge.call<T>` is an unchecked cast. No key-set contract test ties the Python payloads to the TS types.
+  - Settings toggles are not optimistic.
+  - The chip menu shows the previous list while loading and has no empty state.
+  - Clicking the checked event behaves differently in the Dock and in the chip menu.
+  - Dock link errors are swallowed.
+  - Mock mode cannot preview the Dock speaker hint.
+- **Test gaps**
+  - Organizer-first event people order.
+  - The window-end boundary.
+  - The observer firing a coalesced sync.
+  - The engine's embedding path and the 15 s anchor boundary.
+  - Clearing `meeting_event` on start failure.
+  - The title fix in a non-machine time zone, and its sub-minute guard.
+  - Upcoming, the privacy URL, the Dock handlers and the menubar wiring.
+  - The isolation test hard-codes `/Users/jchiu`.
+- **Title fix:** truncated import seconds can make the end stamp a minute early, which can only cause a missed fix.
+- **Threading:** `shutdown()` drops the store off the executor. `access()` runs on the main thread (a documented exception).
+
+### Remaining (Task 10 Steps 4–6)
+
+1. `scripts/build_app.sh --install`. This needs the user's go-ahead because it quits the running app. Check `NSCalendarsFullAccessUsageDescription` and EventKit in the bundle, then restart Claude Desktop and Claude Code.
+2. Acceptance items 1–10 with the user, including dictation into TextEdit, Codex and Teams, and the speaker before/after comparison against the Step 3 baseline.
+3. Record the results here, mark Phase 3 done in the parent plan, then merge.
+
 ### Carried in from Phase 2
 
 - The duplicate MCP connection in Claude Code (`speakeasy` via `claude mcp add` and `Speakeasy Meetings` via the extension, so 16 tools) needs no code change. The user should remove one with `claude mcp remove speakeasy`, or turn off the extension there. Task 10 adds the README note.

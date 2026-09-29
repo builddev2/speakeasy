@@ -104,6 +104,17 @@ echo "==> Bundling system-audio helper"
 mkdir -p "$APP/Contents/Resources/native"
 rsync -a build/native/SpeakeasySystemAudioCapture "$APP/Contents/Resources/native/"
 
+echo "==> Packing Claude Desktop extension"
+npm --prefix packaging/mcpb ci
+MCPB_CLI=packaging/mcpb/node_modules/.bin/mcpb
+MCPB_STAGE=build/mcpb-stage
+rm -rf "$MCPB_STAGE" && mkdir -p "$MCPB_STAGE/server"
+cp packaging/mcpb/manifest.json "$MCPB_STAGE/"
+cp packaging/mcpb/server/speakeasy-mcp "$MCPB_STAGE/server/"
+chmod 755 "$MCPB_STAGE/server/speakeasy-mcp"
+"$MCPB_CLI" validate "$MCPB_STAGE/manifest.json"
+"$MCPB_CLI" pack "$MCPB_STAGE" "$APP/Contents/Resources/Speakeasy.mcpb"
+
 BUILD_COMMIT=$(git rev-parse HEAD)
 if [ -n "$(git status --porcelain)" ]; then
     BUILD_COMMIT="${BUILD_COMMIT}-dirty"
@@ -129,6 +140,10 @@ SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
 [ -f "$APP/Contents/Resources/frontend/dock.html" ] || { echo "error: frontend missing from bundle"; exit 1; }
 [ -x "$APP/Contents/Resources/native/SpeakeasySystemAudioCapture" ] \
     || { echo "error: system-audio helper missing from bundle"; exit 1; }
+[ -f "$APP/Contents/Resources/Speakeasy.mcpb" ] || { echo "error: Claude extension missing from bundle"; exit 1; }
+MCPB_FILES=$(unzip -Z1 "$APP/Contents/Resources/Speakeasy.mcpb" | grep -v '/$' | sort | tr '\n' ' ')
+[ "$MCPB_FILES" = "manifest.json server/speakeasy-mcp " ] \
+    || { echo "error: unexpected files in Speakeasy.mcpb: $MCPB_FILES"; exit 1; }
 [ -s "$APP/Contents/Resources/build-commit.txt" ] \
     || { echo "error: build provenance missing from bundle"; exit 1; }
 LEFTOVERS=$(find "$APP" \( -iname "*librosa*" -o -iname "*numba*" -o -iname "*llvmlite*" \) | head -3)

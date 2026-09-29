@@ -1,0 +1,57 @@
+{
+  "manifest_version": "0.3",
+  "name": "speakeasy",
+  "display_name": "Speakeasy Meetings",
+  "version": "1.0.0",
+  "description": "Search and read your Speakeasy meeting transcripts and save summaries back. Runs locally from the installed Speakeasy app.",
+  "author": {
+    "name": "jchiu"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/speakeasy-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/speakeasy-mcp",
+      "args": []
+    }
+  },
+  "tools": [
+    {
+      "name": "list_meetings",
+      "description": "List saved meetings, newest first, with date, duration, speakers, tags and whether a summary exists. No transcript text."
+    },
+    {
+      "name": "get_meeting",
+      "description": "Get one meeting's details, notes (summary, action items), tags, people and calendar event. No transcript: use get_transcript for that."
+    },
+    {
+      "name": "search_meetings",
+      "description": "Full-text search across transcripts and notes. Returns ranked snippets (matches in **bold**) with the meeting id and time offset."
+    },
+    {
+      "name": "get_transcript",
+      "description": "Read part of a meeting transcript as lines '[hh:mm:ss] Speaker: text'. Narrow with start_seconds/end_seconds; pass next_cursor as cursor to continue."
+    },
+    {
+      "name": "get_calendar",
+      "description": "Calendar events (from the Mac's Calendar app, cached by Speakeasy) between two local days, with the ids of meetings recorded for them."
+    },
+    {
+      "name": "list_tags",
+      "description": "All meeting tags with how many meetings use each."
+    },
+    {
+      "name": "list_people",
+      "description": "People linked to meetings, with meeting counts."
+    },
+    {
+      "name": "save_notes",
+      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced; tags replace the meeting's whole tag list."
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ]
+  }
+}

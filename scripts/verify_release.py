@@ -30,6 +30,8 @@ def main():
     manifest = json.loads((resources / 'release-build.json').read_text())
     if manifest['revision'] != revision or manifest['dirty'] or manifest['kind'] != 'release':
         parser.error('bundle is not a release build')
+    if not (resources / 'Speakeasy.mcpb').is_file():
+        parser.error('Claude Desktop extension (Speakeasy.mcpb) missing from bundle')
     for relative, expected in manifest['assets'].items():
         path = resources / relative
         digest = hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()

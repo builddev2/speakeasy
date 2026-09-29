@@ -83,7 +83,7 @@ def test_watcher_baseline_then_sees_every_kind_of_change(library_path):
     watcher.close()
 
 
-def test_watcher_sees_a_write_from_another_process(library_path):
+def test_watcher_sees_a_write_from_another_process(library_path, tmp_path):
     # The MCP server is a separate process; prove the signal crosses it.
     import os, subprocess, sys
     from pathlib import Path
@@ -95,7 +95,8 @@ def test_watcher_sees_a_write_from_another_process(library_path):
             " MeetingLibrary(sys.argv[1]).save_notes(sys.argv[2], summary='From Claude')")
     repo = Path(__file__).resolve().parents[1]
     subprocess.run([sys.executable, "-c", code, str(library_path), mid], check=True,
-                   cwd=repo, env={**os.environ, "PYTHONPATH": str(repo)}, timeout=60)
+                   cwd=repo, env={**os.environ, "PYTHONPATH": str(repo),
+                        "HOME": str(tmp_path)}, timeout=60)
     assert watcher.changed() is True
     assert lib.get_meeting(mid).notes.summary == "From Claude"
     watcher.close()
@@ -106,6 +107,9 @@ def test_watcher_close_resets_the_baseline(library_path):
     watcher = LibraryWatcher(lib)
     watcher.changed()
     lib.save_meeting(_new())
+    # Advance the baseline first: a close() that kept the stale version would
+    # otherwise look identical to a fresh connection's first reading.
+    assert watcher.changed() is True
     watcher.close()
     assert watcher.changed() is False  # reopened: new baseline
     watcher.close()

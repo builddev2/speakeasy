@@ -50,3 +50,14 @@ def test_render_md(meetings_dir):
     assert md.startswith("# Standup\n")
     assert "*2026-07-08T14:32:12  ·  3 min*" in md
     assert "**Speaker 1** [00:00:00]: Hello." in md
+
+
+def _sentence(start, end, text):
+    tok = type("Tok", (), {"start": start, "end": end, "duration": end - start, "text": " " + text})
+    return type("S", (), {"start": start, "end": end, "text": text, "tokens": [tok]})()
+
+
+def test_diarised_segments_split_at_sixty_seconds():
+    sentences = [_sentence(0, 25, "a"), _sentence(26, 50, "b"), _sentence(51, 75, "c")]
+    segments = meetings.align_speakers(sentences, [(0.0, 80.0, 0)])
+    assert [(s.start, s.end) for s in segments] == [(0, 50), (51, 75)]

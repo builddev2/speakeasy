@@ -88,6 +88,20 @@ DIARIZATION_MIN_OFF = 0.5
 # it splits an ASR sentence. Shorter runs are treated as boundary jitter.
 DIARIZATION_SPLIT_MIN_SECONDS = 0.6
 
+# Diarization over-splits real meetings. In the imported library, 1-on-1s
+# (two voices) came out with up to 74 speaker labels. In 1on1 Jim (58 min),
+# 57 of 74 labels held under 15 s of talk each, while the two largest (You
+# and one remote voice) held 74% of it. Clusters with less total talk than
+# this are folded into the nearest real voice. The cost: a genuinely quiet
+# participant (<15 s in the whole meeting) may be labelled as someone else.
+SPEAKER_MIN_TALK_SECONDS = 15.0
+# Audio per cluster fed to the embedding model when merging (longest turns
+# first). Enough for a stable embedding without re-embedding whole meetings.
+SPEAKER_MERGE_EMBED_SECONDS = 10.0
+# Diarised (system/remote) segments split at this length, like the mic track,
+# so search can cite a moment; the TEST meeting had one 71.9 s segment.
+DIARIZED_MAX_SEGMENT_SECONDS = 60.0
+
 # Cosine-similarity floor for attaching an enrolled local voice profile to a
 # diarized cluster. Below this, keep the anonymous "Speaker N" label.
 SPEAKER_MATCH_THRESHOLD = 0.65

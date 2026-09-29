@@ -53,6 +53,10 @@ class VoiceProfileStore:
             raise ValueError("Speaker embedding model returned an invalid result.")
         return [float(value) for value in embedding]
 
+    def embed(self, samples: np.ndarray) -> np.ndarray:
+        """Public embedding for speaker_merge (same model and checks)."""
+        return np.asarray(self._embedding(samples), dtype=np.float32)
+
     def enroll(self, name: str, samples: np.ndarray) -> None:
         name = name.strip()
         if not _NAME_RE.fullmatch(name):

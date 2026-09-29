@@ -1097,3 +1097,33 @@ def test_upgrade_library_publishes_failed_status_with_details(
         "skipped": [{"file": "", "reason": "RuntimeError"}],
     }
     engine.shutdown()
+
+
+class SplitRemoteDiarizer:
+    """One real remote voice split into a big and a small cluster."""
+    def diarize(self, samples, progress=lambda f: None):
+        progress(1.0)
+        return [(0.0, 0.8, 4), (1.0, 1.8, 9)]
+
+
+def test_diarize_track_caps_speakers(spool_dir):
+    engine = _engine(spool_dir)
+    engine.diarizer = SplitRemoteDiarizer()
+    engine._meeting_options = MeetingOptions()
+    audio = np.zeros(config.SAMPLE_RATE * 2, dtype=np.float32)
+    turns = engine._diarize_track(audio, lambda f: None, max_speakers=1)
+    # Equal talk (0.8 s each): the tie goes to the lower cluster id.
+    assert {t.speaker for t in turns} == {4}
+    engine.shutdown()
+
+
+def test_manual_speaker_count_skips_merging(spool_dir):
+    engine = _engine(spool_dir)
+    engine.diarizer = SplitRemoteDiarizer()
+    engine._diarizer_speaker_count = 2
+    engine._meeting_options = MeetingOptions(expected_speaker_count=2)
+    audio = np.zeros(config.SAMPLE_RATE * 2, dtype=np.float32)
+    turns = engine._diarize_track(audio, lambda f: None, max_speakers=1)
+    # Manual count: turns come back exactly as the diarizer gave them.
+    assert turns == [(0.0, 0.8, 4), (1.0, 1.8, 9)]
+    engine.shutdown()

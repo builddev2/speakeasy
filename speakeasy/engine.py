@@ -115,6 +115,9 @@ class DictationEngine:
         self.control = ThreadPoolExecutor(max_workers=1)
         self.transcriber: Transcriber | None = None
         self.diarizer = None  # built lazily on the first meeting (loads ONNX)
+        # Speaker embedding for cluster merging; built lazily (loads ONNX).
+        # Tests inject a fake.
+        self.speaker_embedder = None
         self.profile: Profile | None = None
         self.overlay = None
         self.state = State.LOADING
@@ -990,7 +993,14 @@ class DictationEngine:
             cancel=self._meeting_cancel,
         )
 
-    def _diarize_track(self, audio, progress, timing: MeetingTiming | None = None):
+    def _diarize_track(
+        self,
+        audio,
+        progress,
+        timing: MeetingTiming | None = None,
+        *,
+        max_speakers: int | None = None,
+    ):
         expected_count = self._meeting_options.expected_speaker_count
         if self.diarizer is None or self._diarizer_speaker_count != expected_count:
             from .diarizer import Diarizer
@@ -1004,6 +1014,15 @@ class DictationEngine:
         finally:
             if timing is not None:
                 timing.finish("diarization")
+        if expected_count is None:
+            # The user's own count is exact and wins. Otherwise fold the
+            # over-split clusters (and apply the calendar cap) before naming
+            # voices, so profile matching sees whole voices.
+            from . import speaker_merge
+
+            turns = speaker_merge.tidy_speakers(
+                audio, turns, self._speaker_embedding, max_speakers=max_speakers,
+                cancelled=self._meeting_cancel.is_set)
         if timing is not None:
             timing.start("voice_identification")
         if self._meeting_options.expected_voice_profile_names:
@@ -1018,6 +1037,13 @@ class DictationEngine:
         if timing is not None:
             timing.finish("voice_identification")
         return turns
+
+    def _speaker_embedding(self, samples):
+        if self.speaker_embedder is None:
+            from .voice_profiles import VoiceProfileStore
+
+            self.speaker_embedder = VoiceProfileStore().embed
+        return self.speaker_embedder(samples)
 
     def _process_meeting(
         self,

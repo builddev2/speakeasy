@@ -356,6 +356,7 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
             segments
             and segments[-1].speaker == labels[speaker]
             and segments[-1].overlap == overlap
+            and end - segments[-1].start <= config.DIARIZED_MAX_SEGMENT_SECONDS
         ):
             segments[-1].text = (segments[-1].text + " " + text).strip()
             segments[-1].end = end

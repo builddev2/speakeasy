@@ -18,7 +18,9 @@ class MeetingsWindowController(NSObject):
 
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
-        self._bridge = MeetingsBridge(set_clipboard=injector.set_clipboard)
+        self._bridge = MeetingsBridge(set_clipboard=injector.set_clipboard,
+                                      open_path=self._open_path)
+        self._poll_timer = None
         dispatcher = BridgeDispatcher()
         self._bridge.register(dispatcher)
         dispatcher.register("meetings.export", self._export)
@@ -30,11 +32,31 @@ class MeetingsWindowController(NSObject):
         return self
 
     def show(self):
+        self._bridge.poll_changed()  # baseline; the emit below re-lists anyway
         self._web.emit("meetings.changed")  # page re-lists (old reload()-on-show)
         self._web.show()
+        if self._poll_timer is None:
+            from Foundation import NSTimer
+            # MCP writes come from another process (Claude's), so nothing in
+            # this app hears about them; poll a cheap marker while visible.
+            self._poll_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                10.0, self, "pollLibrary:", None, True)
+
+    def pollLibrary_(self, timer):
+        if self._web.window.isVisible() and self._bridge.poll_changed():
+            self._web.emit("meetings.changed")
 
     def windowWillClose_(self, notification):
-        pass
+        if self._poll_timer is not None:
+            self._poll_timer.invalidate()
+            self._poll_timer = None
+        self._bridge.stop_polling()
+
+    @objc.python_method
+    def _open_path(self, path):
+        from AppKit import NSWorkspace
+        from Foundation import NSURL
+        NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(str(path)))
 
     def meetingSaved_(self, meeting_id):
         self._web.emit("meetings.changed")

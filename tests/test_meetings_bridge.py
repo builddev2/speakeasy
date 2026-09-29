@@ -89,7 +89,7 @@ def test_filters_and_search(library_path):
     lib, mid, bridge, d = _setup(library_path)
     f = bridge.filters_payload({})
     assert f["total"] == 1 and f["tags"] == [{"name": "VFA", "count": 1}]
-    assert f["features"] == {"calendar": False, "claude": False, "settings": False}
+    assert f["features"] == {"calendar": False, "claude": True, "settings": False}
 
     # Whole search result, not just a couple of fields.
     res = bridge.search_payload({"query": "cognos"})
@@ -365,3 +365,87 @@ def test_rename_and_delete_apply_the_active_filter(library_path):
 
     metas = bridge.delete_payload({"id": other, "tag": "VFA"})
     assert [m["id"] for m in metas] == [mid]
+
+
+# -- phase 2: Connect Claude + change poller ---------------------------------
+
+def _new():
+    return NewMeeting(
+        segments=[MeetingSegment("You", 0, 5, "hello")], duration_seconds=60,
+        started_at=datetime(2026, 9, 24, 13, 17, tzinfo=TZ), title="Polled")
+
+
+def _bcall(bridge, method, params=None):
+    d = BridgeDispatcher()
+    bridge.register(d)
+    got = {}
+    d._methods[method](params or {}, lambda result=None, error=None: got.update(r=result, e=error))
+    return got
+
+
+def test_features_claude_is_on(library_path):
+    assert MeetingsBridge().filters_payload({})["features"]["claude"] is True
+
+
+def test_claude_setup_info_registered(library_path, monkeypatch):
+    from speakeasy import mcp_setup
+    monkeypatch.setattr(mcp_setup, "current_setup_info", lambda now: {"command": "c"})
+    assert _bcall(MeetingsBridge(), "claude.setupInfo") == {"r": {"command": "c"}, "e": None}
+
+
+def test_install_extension_opens_bundle_or_errors(library_path, monkeypatch, tmp_path):
+    from speakeasy import mcp_setup
+    opened = []
+    bridge = MeetingsBridge(open_path=opened.append)
+    monkeypatch.setattr(mcp_setup, "current_setup_info",
+                        lambda now: {"extensionAvailable": False})
+    assert _bcall(bridge, "claude.installExtension")["e"] == "extension_unavailable"
+    mcpb = tmp_path / "Speakeasy.mcpb"
+    monkeypatch.setattr(mcp_setup, "current_setup_info",
+                        lambda now: {"extensionAvailable": True})
+    monkeypatch.setattr(mcp_setup, "current_mcpb_path", lambda: mcpb)
+    assert _bcall(bridge, "claude.installExtension") == {"r": True, "e": None}
+    assert opened == [mcpb]
+
+
+def test_reveal_config_opens_folder_or_errors(library_path, monkeypatch, tmp_path):
+    opened = []
+    bridge = MeetingsBridge(open_path=opened.append)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert _bcall(bridge, "claude.revealConfig")["e"] == "claude_desktop_not_found"
+    folder = tmp_path / "Library/Application Support/Claude"
+    folder.mkdir(parents=True)
+    assert _bcall(bridge, "claude.revealConfig") == {"r": True, "e": None}
+    assert opened == [folder]
+
+
+def test_poll_changed_detects_mcp_writes_only_after_baseline(library_path):
+    lib = MeetingLibrary()
+    bridge = MeetingsBridge(library=lib)
+    assert bridge.poll_changed() is False  # first call only sets the baseline
+    assert bridge.poll_changed() is False
+    mid = lib.save_meeting(_new())
+    assert bridge.poll_changed() is True
+    assert bridge.poll_changed() is False
+    MeetingLibrary().save_notes(mid, summary="From Claude")  # another "process"
+    assert bridge.poll_changed() is True
+
+
+def test_poll_changed_swallows_a_busy_library(library_path, monkeypatch):
+    import sqlite3
+    bridge = MeetingsBridge()
+    bridge.poll_changed()
+
+    def locked():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(bridge._watcher, "changed", locked)
+    assert bridge.poll_changed() is False
+
+
+def test_stop_polling_resets_baseline(library_path):
+    lib = MeetingLibrary()
+    bridge = MeetingsBridge(library=lib)
+    bridge.poll_changed()
+    lib.save_meeting(_new())
+    bridge.stop_polling()
+    assert bridge.poll_changed() is False  # window reopened: fresh baseline

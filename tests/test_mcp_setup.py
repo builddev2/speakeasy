@@ -51,6 +51,14 @@ def test_extension_available_when_installed_and_bundled(tmp_path, monkeypatch):
     assert info["extensionAvailable"] is True and info["extensionNote"] is None
 
 
+def test_extension_unavailable_when_installed_but_built_without_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(mcp_setup, "mcpb_path", lambda frozen, exe: tmp_path / "missing.mcpb")
+    info = mcp_setup.setup_info(frozen=True, executable=mcp_setup.INSTALLED_EXECUTABLE,
+                                repo_root=SRC_ROOT, last_used=None, now=NOW)
+    assert info["extensionAvailable"] is False
+    assert "without the extension" in info["extensionNote"]
+
+
 def test_mcpb_path():
     assert mcp_setup.mcpb_path(False, "/x/python") is None
     assert mcp_setup.mcpb_path(True, mcp_setup.INSTALLED_EXECUTABLE) == Path(

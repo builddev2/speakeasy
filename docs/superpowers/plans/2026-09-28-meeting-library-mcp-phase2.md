@@ -2376,3 +2376,28 @@ Implementers ran on Sonnet 5.5. Every task review, re-review and the final whole
 - **Extension package.** `unzip -Z1 …/Resources/Speakeasy.mcpb` lists exactly `manifest.json` and `server/speakeasy-mcp`.
 - **Source-mode check.** It passed as well, with the temp HOME: all eight tools are listed, and a hostile search returns `{"results": []}`. The full suite on the branch: 593 passed.
 - **Not relaunched.** The build quit the running app and does not start it again. Step 6 starts with the user launching Speakeasy.
+
+### Step 6 results (29 Sep 2026, user-reported unless stated)
+
+**Passed** (reported by the user, who ran these in their own Claude client):
+- Item 2: a search for "dashboard" returned results, and the first few minutes of the "1on1 Todd TEST" transcript were read.
+- Item 3: Claude saved a one-paragraph summary and the tag `test` for "1on1 Todd TEST". It appeared in the open Meetings window within about 10 s, and the selection did not jump.
+- Item 4: Meetings → Connect Claude then showed "Last used by Claude" as just now.
+- The controller made one read-only `list_meetings` call (limit 3) from a Claude Code session through the `claude mcp add` server (`speakeasy`). It returned the three newest meetings. This covers only the "list" part of item 6.
+
+**Not reported:** item 1 (the sheet's first-run state and Copy), item 2's "list recent meetings", item 5 (extension off, manual JSON route), the search, read and save parts of item 6 in Claude Code, and item 7 (dictation in TextEdit).
+
+**Observed:** that Claude Code session had Speakeasy connected twice, as `speakeasy` (`claude mcp add`) and as `Speakeasy Meetings` (the extension), so it saw 16 tools instead of 8.
+
+### Follow-ups from the post-implementation eval (29 Sep 2026)
+
+Not blockers for merge. Plan them in a new session.
+
+- **Speaker over-splitting (highest value).** Real 1-on-1s show 9 and 14 speakers (for example "1on1 Refayet", 23 min), even with `DIARIZATION_THRESHOLD = 0.7`, so Claude's summaries can't say who said what. Options: merge low-talk-time clusters into their nearest centroid, and in Phase 3 pass the calendar attendee count as `expected_speaker_count` (`diarizer.py` already accepts it).
+- **Cap system-track segments at 60 s** too. The TEST meeting had a single 71.9 s "Speaker 1" segment. This was already noted in Phase 1.
+- **`get_transcript` loads the whole meeting.** It calls `library.get_meeting()` just for the title and the approximate flag (`mcp_tools.py`), which loads every segment and opens a second connection. `transcript_page` also reads every row after the cursor and then trims in Python. Fix: return the meta from `transcript_page` in one transaction, and stop fetching once the character budget is spent. The `get_meeting` tool also loads all segments only to count them and list the speakers; use SQL instead.
+- **`list_meetings` does 2 queries per row** for tags and people. Use `group_concat` subqueries.
+- **Search sorts notes and transcript hits by raw `bm25`** across two FTS tables, whose scores are not comparable. Interleave them or normalise per table before notes become common.
+- **Connections.** Each library call opens a connection and runs `migrate()`. The single-threaded MCP server could keep one. Measure before changing it.
+- **Imported titles.** When the user renamed a legacy meeting, its title keeps the old end time ("…1:17 PM" for a 12:54 start).
+- **Duplicate connection.** Recommend the user keep only one Speakeasy MCP connection in Claude Code.

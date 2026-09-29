@@ -98,7 +98,7 @@
   - `class LibraryWatcher(library: MeetingLibrary)` with `changed() -> bool` and `close() -> None`. `changed()` is True when any *other* connection committed since the previous call; the first call after construction or `close()` only records a baseline and returns False. It owns one connection, used only by the thread that created it (the Meetings window's main-thread timer).
   - Why not compare `max(updated_at)`: timestamps have one-second resolution, so a rename, or a second notes save in the same second as an earlier change, would be missed. `PRAGMA data_version` counts commits by other connections exactly, and needs no schema change, so an older build can still open the library.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_meeting_library_mcp.py
@@ -215,12 +215,12 @@ def test_watcher_close_resets_the_baseline(library_path):
     watcher.close()  # idempotent
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_library_mcp.py -q` (timeout 300000)
 Expected: FAIL (`AttributeError: … has no attribute 'mcp_last_used_path'` / `calendar_events_between`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `speakeasy/settings.py`, after `library_path()`:
 
@@ -326,12 +326,12 @@ Check `MeetingLibrary.__init__` for the attribute that holds the path (it is `se
 
 Note: the `calendar_events_between` test relies on `local_day_bounds` using the machine's timezone. The inserted September event is well inside the window in every timezone, and the March one is far outside it.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_meeting_library_mcp.py -q` (timeout 300000). Expected: 7 passed.
 Then the full suite: `.venv/bin/python -m pytest -q` (timeout 300000). Expected: all pass (514 + 7).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/settings.py speakeasy/meeting_library.py tests/test_meeting_library_mcp.py
@@ -368,7 +368,7 @@ Tool results (JSON objects; `start` is the meeting's local ISO time with offset,
 | `list_people` | `{"people": [{name, count}]}` |
 | `save_notes` | `{"id", "summary", "action_items", "tags", "updated_at", "updated_by"}` |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_mcp_tools.py
@@ -575,12 +575,12 @@ def test_record_and_read_last_used(tmp_path):
     record_use(tmp_path / "missing-dir" / "x")  # OSError swallowed: never breaks a call
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_mcp_tools.py -q` (timeout 300000)
 Expected: FAIL with `ModuleNotFoundError: No module named 'speakeasy.mcp_tools'`.
 
-- [ ] **Step 3: Implement `speakeasy/mcp_tools.py`**
+- [x] **Step 3: Implement `speakeasy/mcp_tools.py`**
 
 ```python
 """The MCP server's tools: JSON views over MeetingLibrary for Claude.
@@ -930,11 +930,11 @@ def build_tools(library) -> dict[str, Tool]:
 
 Note on `get_transcript`: it calls `get_meeting` for the title and the approximate flag. That loads every segment, about 20k rows at worst. It is acceptable for now; if profiling shows a problem, add a light `meeting_header(id)` library method later.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_mcp_tools.py -q` (timeout 300000). Expected: all pass. Then the full suite (timeout 300000).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/mcp_tools.py tests/test_mcp_tools.py
@@ -975,7 +975,7 @@ Protocol rules (MCP stdio transport, JSON-RPC 2.0):
   - `sqlite3.OperationalError` whose text contains "locked" or "busy" → `"The meeting library is busy. Try again in a moment."`.
   - Anything else → `"Speakeasy hit an internal error."`, and stderr gets `mcp: <tool> failed: <ExceptionType>` (type only, never the message: it can carry paths or text).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_mcp_server.py
@@ -1266,12 +1266,12 @@ def test_mcp_mode_imports_nothing_heavy(tmp_path):
     assert proc.stderr.decode().rstrip().endswith("HEAVY="), proc.stderr.decode()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_mcp_server.py -q` (timeout 300000)
 Expected: FAIL with `ModuleNotFoundError: No module named 'speakeasy.mcp_server'`.
 
-- [ ] **Step 3: Implement `speakeasy/mcp_server.py`**
+- [x] **Step 3: Implement `speakeasy/mcp_server.py`**
 
 ```python
 """Local MCP server: JSON-RPC 2.0 over stdio for Claude Desktop and Code.
@@ -1441,13 +1441,13 @@ In `speakeasy/__main__.py`, right after the `--inference-probe` block:
 
 In `packaging/Speakeasy.spec` `hiddenimports`, after `"speakeasy.diarizer",`, add `"speakeasy.mcp_server",`, `"speakeasy.mcp_tools"` and `"speakeasy.mcp_setup",`. `mcp_setup` is created in Task 4; the hidden import is harmless until then, because PyInstaller warns, not fails, and nothing builds before Task 7.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_mcp_server.py -q` (timeout 300000). Expected: all pass. Then the full suite (timeout 300000).
 
 If `test_mcp_mode_imports_nothing_heavy` fails, find which import pulls in the heavy module (`python -X importtime`) and fix the import chain. Do not weaken the test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/mcp_server.py speakeasy/__main__.py packaging/Speakeasy.spec tests/test_mcp_server.py
@@ -1477,7 +1477,7 @@ git commit -m "Add stdio MCP server with --mcp dispatch and stdout isolation"
   - Bridge methods: `claude.setupInfo`, `claude.installExtension`, `claude.revealConfig`. `MeetingsBridge.poll_changed() -> bool`, `MeetingsBridge.stop_polling() -> None`.
   - `filters_payload` → `features.claude` is `True`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_mcp_setup.py
@@ -1637,11 +1637,11 @@ Before writing these, read `tests/test_meetings_bridge.py`:
 - Find how it builds a meeting (a helper like `_new` or `_save`), and use that name in `test_poll_changed_detects_mcp_writes_only_after_baseline`.
 - Find how `BridgeDispatcher` stores handlers. If the attribute is not `_handlers`, call through `dispatch()` the way the existing tests do, and adapt `_call`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_mcp_setup.py tests/test_meetings_bridge.py -q` (timeout 300000). Expected: FAIL (`No module named 'speakeasy.mcp_setup'`, `features.claude` False, no `poll_changed`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `speakeasy/mcp_setup.py`:
 
@@ -1811,11 +1811,11 @@ Note: `test_extension_available_when_installed_and_bundled` monkeypatches `mcp_s
 
 `show()` is only ever called on the main thread (menubar action), so the timer is scheduled on the main run loop and `pollLibrary_` runs on the main thread, as the webview emit requires.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_mcp_setup.py tests/test_meetings_bridge.py -q`, then the full suite (both timeout 300000). Expected: all pass. Check the window module still imports: `.venv/bin/python -c "import speakeasy.ui.meetings_window"`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/mcp_setup.py speakeasy/ui/meetings_bridge.py speakeasy/ui/meetings_window.py tests/test_mcp_setup.py tests/test_meetings_bridge.py
@@ -1837,7 +1837,7 @@ git commit -m "Wire Connect Claude bridge methods and poll for MCP writes"
 
 There is no frontend test runner; verification is the type-checked build plus looking at the sheet (Step 4).
 
-- [ ] **Step 1: Add the type and mock** to `frontend/src/mock/meetings.ts`:
+- [x] **Step 1: Add the type and mock** to `frontend/src/mock/meetings.ts`:
 
 ```ts
 export interface ClaudeSetupInfo {
@@ -1866,7 +1866,7 @@ export const MOCK_CLAUDE_SETUP: ClaudeSetupInfo = {
 };
 ```
 
-- [ ] **Step 2: Rewrite `ConnectClaudeSheet.tsx`** so it is presentational:
+- [x] **Step 2: Rewrite `ConnectClaudeSheet.tsx`** so it is presentational:
 
 ```tsx
 import { useEffect, useRef, useState } from 'react';
@@ -1991,7 +1991,7 @@ export function ConnectClaudeSheet({ onClose, info, onCopy, onInstall, onRevealC
 
 In `ConnectClaudeSheet.module.css`, add `.note` and `.error`, and a disabled style for `.installButton`/`.copyButton`. Use only existing tokens: read `frontend/src/styles/tokens.css`, and match the existing `.privacyNote`/`.status` rules for font size and secondary text colour. `.error` uses the existing danger/red token that `ConfirmSheet.module.css` uses; find it there. The disabled style is `opacity: 0.45; cursor: default;`.
 
-- [ ] **Step 3: Wire `App.tsx`**:
+- [x] **Step 3: Wire `App.tsx`**:
 - `import { MOCK_CLAUDE_SETUP, type ClaudeSetupInfo } from '../mock/meetings';` (merge into the existing import from that module).
 - State: `const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);`
 - An effect keyed on `connectClaudeOpen`: when it opens, if `embedded`, `bridge.call<ClaudeSetupInfo>('claude.setupInfo').then(setClaudeInfo).catch((err) => console.error('claude.setupInfo failed', err))`; else `setClaudeInfo(MOCK_CLAUDE_SETUP)`. When it closes, `setClaudeInfo(null)` so the next open shows a fresh "last used".
@@ -2012,12 +2012,12 @@ In `ConnectClaudeSheet.module.css`, add `.note` and `.error`, and a disabled sty
 - Render: `{connectClaudeOpen && <ConnectClaudeSheet onClose={closeConnectClaude} info={claudeInfo} onCopy={copyForClaude} onInstall={installClaudeExtension} onRevealConfig={revealClaudeConfig} />}`
 - Check how `bridge._reject` builds the Error: it must be `new Error(message)`, so that `err.message === 'extension_unavailable'`. It is, per `frontend/src/bridge.ts`; confirm it.
 
-- [ ] **Step 4: Build and look**
+- [x] **Step 4: Build and look**
 
 Run: `npm --prefix frontend run build`. Expected: exit 0, no type errors.
 Then report the files changed. The controller looks at the sheet in mock mode (`connect-claude` state) in the browser pane before approving.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/mock/meetings.ts frontend/src/meetings/ConnectClaudeSheet.tsx frontend/src/meetings/ConnectClaudeSheet.module.css frontend/src/meetings/App.tsx
@@ -2047,7 +2047,7 @@ MCPB facts, checked 28 Sep 2026 against `github.com/anthropics/mcpb` `MANIFEST.m
 
 **Verify with the pinned CLI in Step 3.** If `mcpb validate` rejects a field, follow the schema the pinned CLI ships in `node_modules/@anthropic-ai/mcpb`. Record the difference in this plan's Execution notes.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_mcpb.py
@@ -2132,11 +2132,11 @@ def test_launcher_execs_the_app_with_mcp(tmp_path):
     assert proc.returncode == 0 and proc.stdout == b"args:--mcp\n"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_mcpb.py -q` (timeout 300000). Expected: FAIL (`FileNotFoundError` for manifest.json).
 
-- [ ] **Step 3: Create the extension files**
+- [x] **Step 3: Create the extension files**
 
 `packaging/mcpb/server/speakeasy-mcp`:
 
@@ -2198,7 +2198,7 @@ Expected: valid. If it is not, adjust per the CLI's schema (see the note above) 
 
 Add `packaging/mcpb/node_modules/` to `.gitignore`.
 
-- [ ] **Step 4: Build integration**
+- [x] **Step 4: Build integration**
 
 `scripts/build_app.sh`: after the "Bundling system-audio helper" block, add a stage-and-pack step. The step packs from a staging directory, so `node_modules` and `package*.json` can never leak into the extension, whatever the CLI's ignore rules are.
 
@@ -2235,7 +2235,7 @@ MCPB_FILES=$(unzip -Z1 "$APP/Contents/Resources/Speakeasy.mcpb" | grep -v '/$' |
         parser.error('Claude Desktop extension (Speakeasy.mcpb) missing from bundle')
 ```
 
-- [ ] **Step 5: Run tests, then commit**
+- [x] **Step 5: Run tests, then commit**
 
 Run: `.venv/bin/python -m pytest tests/test_mcpb.py -q`, then the full suite (both timeout 300000). Expected: all pass. Check the shell syntax: `bash -n scripts/build_app.sh`. Do **not** run `build_app.sh` in this task; Task 7 builds.
 
@@ -2253,7 +2253,7 @@ git commit -m "Add the Claude Desktop Extension (.mcpb) and pack it into the app
 
 Steps 1–3 are subagent work; steps 4 onwards are done by the controller with the user.
 
-- [ ] **Step 1: README.** Under "The meeting library", add a "Use your meetings with Claude" subsection:
+- [x] **Step 1: README.** Under "The meeting library", add a "Use your meetings with Claude" subsection:
   - what it is: local, read-only except notes; Speakeasy stays offline; what Claude reads goes to Anthropic at your request;
   - Claude Desktop: Meetings → Connect Claude → Install in Claude Desktop, or the manual JSON (`~/Library/Application Support/Claude/claude_desktop_config.json`);
   - Claude Code: `claude mcp add speakeasy -- /Applications/Speakeasy.app/Contents/MacOS/Speakeasy --mcp`;
@@ -2261,14 +2261,14 @@ Steps 1–3 are subagent work; steps 4 onwards are done by the controller with t
   - the eight tools in one line each;
   - how to turn it off: Claude Desktop → Settings → Extensions, or `claude mcp remove speakeasy`.
 
-- [ ] **Step 2: AGENTS.md.**
+- [x] **Step 2: AGENTS.md.**
   - Under "Hard constraints", add the MCP stdout rule: `--mcp` stdout carries only JSON-RPC, fd 1 is redirected to stderr in `mcp_server.main()`, and nothing may print to the real stdout.
   - Also add: tools never return capture fields.
   - Also add: `--mcp` must stay import-light (`test_mcp_mode_imports_nothing_heavy`).
   - Under "Build / run / test", add the `.mcpb` build step and `packaging/mcpb/` (`@anthropic-ai/mcpb` pinned, build-time only).
   - Under "Threading model", add one line: the MCP server is a separate process with its own short-lived SQLite connections, and the Meetings window polls a `LibraryWatcher` (`PRAGMA data_version` on one main-thread-only connection) every 10 s while visible.
 
-- [ ] **Step 3: Full verification and commit.**
+- [x] **Step 3: Full verification and commit.**
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -2283,7 +2283,7 @@ git add README.md AGENTS.md
 git commit -m "Document the local MCP server and Claude setup"
 ```
 
-- [ ] **Step 4 (controller): whole-branch review** on opus, with mutation checks:
+- [x] **Step 4 (controller): whole-branch review** on opus, with mutation checks:
   - remove `os.dup2(2, 1)` → `test_stray_output_in_a_tool_never_reaches_stdout` fails;
   - compare `max(updated_at)` instead of `data_version` in `LibraryWatcher` → the same-second rename test fails;
   - return capture health from `get_meeting` → the capture test fails;
@@ -2320,3 +2320,50 @@ Also: `unzip -Z1 /Applications/Speakeasy.app/Contents/Resources/Speakeasy.mcpb` 
 ## Execution notes
 
 (Record deviations, surprises and review findings here during execution.)
+
+### Status (28 Sep 2026)
+
+Tasks 1–6 and Task 7 Steps 1–4 are done on branch `meeting-library-phase2`, commits `0fa2f53..64db821`, base `2c32b53`. The full suite is **593 passed**; the baseline was 517, not the 514 this plan assumed.
+
+Execution stopped before **Task 7 Step 5 (build and install)** so the user can give the go-ahead. Steps 5–7 remain. Resume at Step 5.
+
+Implementers ran on Sonnet 5.5. Every task review, re-review and the final whole-branch review ran on Opus 5.5 and verified by mutation. All five mutations the plan asks for were caught. The final review's fixes (commit `64db821`) passed a scoped re-review.
+
+### Deviations and rulings
+
+- **`BridgeDispatcher` attribute.** It stores handlers in `_methods`, not `_handlers`, so the bridge tests use `d._methods`. The helper is named `_bcall` because `_call` already existed in that file.
+- **HOME in subprocess tests.** Task 1's cross-process watcher test now sets `HOME=tmp_path`. The global constraint outranks the plan's test text.
+- **Tests added beyond the plan, because mutations survived:**
+  - the watcher baseline advances before `close()`;
+  - the `list_meetings` limit clamp is checked with a spy that expects 101;
+  - `setup_info` handles "installed, but built without the extension".
+- **The Task 7 docs had no separate task review.** The final review checked the docs against the code instead.
+- **Final-review fixes (`64db821`):**
+  - The server survives a non-string tool name, a lone surrogate (reply framing now uses `ensure_ascii`), and deeply nested JSON (-32700).
+  - `serve` has a per-line catch-all: -32603, and stderr gets the exception type only.
+  - `poll_changed` now catches `sqlite3.Error`.
+  - The import-light test enters through `speakeasy.__main__` and also rejects `speakeasy.ui`.
+  - The spec now says `data_version`.
+  - The README says "notes and tags".
+- **MCPB tooling.** The pinned CLI 2.1.2 validated the manifest with no schema changes. A real pack to scratch contains exactly `manifest.json` and `server/speakeasy-mcp` (mode 0755 is kept in the zip), so the expected list is unchanged.
+- **Connect Claude sheet in mock mode.** The controller checked it in the browser pane. The command and JSON render with a real `--`. "Other ways" expands. The error line uses the danger colour. The "last used" line and Done show.
+
+### Deferred minors (reviewed at the final review; fine to leave)
+
+- The overlap test for `calendar_events_between` has no edge case (an event that straddles `from`). Blank dates return `[]`, which MCP can't reach.
+- The close-reset test would still pass if `close()` did nothing. The same-second rename test depends on timing (it can't give false failures).
+- `_seconds` accepts nan/inf. `start_seconds > end_seconds` returns empty text with no message. A literal `**` in a transcript makes the bold markers ambiguous.
+- A JSON-RPC 1.0 notification gets a -32600 reply. `"arguments": null` is treated as `{}`. If the library fails to open in `main()`, a traceback goes to stderr. The serve catch-all's `print` would raise if stderr were closed.
+- `current_setup_info` wiring is untested.
+- The watcher's first connect runs migrate on the main thread, so a busy library can stall it once, for up to 5 s. The watcher also fires on the app's own commits, which causes an extra re-list.
+- Sheet:
+  - The `setupInfo` fetch has no cancel flag.
+  - A failed `setupInfo` stays on "Loading…".
+  - `ERRORS` is a plain-object lookup.
+  - When "Other ways" is expanded in a small window, the error line can sit below the scroll fold.
+- The build leaves `build/mcpb-stage` behind. `npm audit` reports advisories in the build-time-only mcpb CLI's dependencies.
+
+### Notes for Step 5
+
+- In a worktree-isolated Claude session, the shell guard refuses any command that sets `HOME=`. Step 5's temp-HOME stdio proof therefore has to run either as a Python `subprocess.run(..., env={"HOME": tmp})` or from a normal shell. Never drop the temp HOME: without it the command opens the real library.
+- `build_app.sh --install` quits the running app, and its `npm --prefix packaging/mcpb ci` needs the network at build time.

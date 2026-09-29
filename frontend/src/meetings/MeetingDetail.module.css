@@ -119,6 +119,54 @@
   cursor: pointer;
 }
 
+.eventWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.linkEventButton {
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  font: 400 12px/1.4 var(--sans);
+  color: var(--text-lo);
+  cursor: pointer;
+}
+
+.linkEventButton:hover {
+  color: var(--text-mid);
+}
+
+.linkEventButton:focus-visible {
+  outline: 2px solid var(--coral-1);
+  outline-offset: 1px;
+}
+
+.eventMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  border: 0.5px solid var(--hairline);
+  box-shadow: var(--shadow-panel);
+  z-index: 10;
+}
+
+.eventMenuHeader {
+  padding: 6px 10px 8px;
+  font: 600 11px/1.4 var(--sans);
+  color: var(--text-lo);
+}
+
+.eventCheck {
+  display: inline-block;
+  width: 16px;
+}
+
 .eventIcon,
 .eventChevron {
   display: inline-flex;
@@ -505,7 +553,8 @@
   .findNav,
   .findDone,
   .moreButton,
-  .menu {
+  .menu,
+  .eventMenu {
     border-color: var(--hairline);
   }
 }

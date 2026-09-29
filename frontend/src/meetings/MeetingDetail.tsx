@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { MeetingDetail as MeetingDetailType, TranscriptLine } from '../mock/meetings';
+import type { EventChip, MeetingDetail as MeetingDetailType, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
 import { bridge } from '../bridge';
@@ -37,6 +37,10 @@ interface MeetingDetailProps {
   onExport: () => void;
   jumpTarget?: JumpTarget | null;
   searchFocusToken?: number;
+  /** Same-day events the meeting can be linked to; the chip menu fetches on open. */
+  onLoadEvents?: () => Promise<EventChip[]>;
+  /** key null unlinks. Absent when Calendar isn't available: no chip controls. */
+  onLinkEvent?: (key: string | null) => void;
 }
 
 interface FindMatch {
@@ -96,11 +100,15 @@ export function MeetingDetail({
   onExport,
   jumpTarget,
   searchFocusToken,
+  onLoadEvents,
+  onLinkEvent,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>('summary');
   const [renaming, setRenaming] = useState(false);
   const [renameText, setRenameText] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [eventMenuOpen, setEventMenuOpen] = useState(false);
+  const [eventChoices, setEventChoices] = useState<EventChip[]>([]);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findIndex, setFindIndex] = useState(0);
@@ -115,6 +123,8 @@ export function MeetingDetail({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const eventWrapRef = useRef<HTMLSpanElement>(null);
+  const eventButtonRef = useRef<HTMLButtonElement>(null);
   const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const speakerRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
@@ -130,6 +140,7 @@ export function MeetingDetail({
     setTab(forcedTab ?? (detail.summary ? 'summary' : 'transcript'));
     setRenaming(false);
     setMenuOpen(false);
+    setEventMenuOpen(false);
     setFindOpen(false);
     setFindQuery('');
     setFindIndex(0);
@@ -226,6 +237,39 @@ export function MeetingDetail({
   useOverlayEscape(menuOpen, () => {
     setMenuOpen(false);
     moreButtonRef.current?.focus();
+  });
+
+  // Fetched on each open so the list matches the meeting's day right now.
+  useEffect(() => {
+    if (!eventMenuOpen || !onLoadEvents) return;
+    let cancelled = false;
+    onLoadEvents()
+      .then((list) => {
+        if (!cancelled) setEventChoices(list);
+      })
+      .catch(() => {
+        if (!cancelled) setEventChoices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventMenuOpen, detail?.id]);
+
+  useEffect(() => {
+    if (!eventMenuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (eventWrapRef.current && !eventWrapRef.current.contains(e.target as Node)) {
+        setEventMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [eventMenuOpen]);
+
+  useOverlayEscape(eventMenuOpen, () => {
+    setEventMenuOpen(false);
+    eventButtonRef.current?.focus();
   });
 
   useOverlayEscape(renaming, () => setRenaming(false));
@@ -375,18 +419,76 @@ export function MeetingDetail({
               <span>{detail.time}</span>
               <span className={styles.sep}>·</span>
               <span>{detail.duration}</span>
-              {detail.event && (
+              {(detail.event || onLinkEvent) && (
                 <>
                   <span className={styles.sep}>·</span>
-                  <button className={styles.eventChip} title={`Linked to ${detail.event.title}`}>
-                    <span className={styles.eventIcon} aria-hidden="true">
-                      📅
-                    </span>
-                    <span className={styles.eventTitle}>{detail.event.title}</span>
-                    <span className={styles.eventChevron} aria-hidden="true">
-                      ⌄
-                    </span>
-                  </button>
+                  <span className={styles.eventWrap} ref={eventWrapRef}>
+                    {detail.event ? (
+                      <button
+                        ref={eventButtonRef}
+                        className={styles.eventChip}
+                        title={`Linked to ${detail.event.title}`}
+                        aria-haspopup={onLinkEvent ? 'menu' : undefined}
+                        aria-expanded={onLinkEvent ? eventMenuOpen : undefined}
+                        onClick={() => onLinkEvent && setEventMenuOpen((v) => !v)}
+                      >
+                        <span className={styles.eventIcon} aria-hidden="true">
+                          📅
+                        </span>
+                        <span className={styles.eventTitle}>{detail.event.title}</span>
+                        <span className={styles.eventChevron} aria-hidden="true">
+                          ⌄
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        ref={eventButtonRef}
+                        className={styles.linkEventButton}
+                        aria-haspopup="menu"
+                        aria-expanded={eventMenuOpen}
+                        onClick={() => setEventMenuOpen((v) => !v)}
+                      >
+                        Link to Event…
+                      </button>
+                    )}
+                    {eventMenuOpen && onLinkEvent && (
+                      <div className={styles.eventMenu} role="menu">
+                        {detail.event && <div className={styles.eventMenuHeader}>{detail.event.time}</div>}
+                        {eventChoices.map((choice) => {
+                          const current = detail.event?.key === choice.key;
+                          return (
+                            <button
+                              key={choice.key}
+                              role="menuitemradio"
+                              aria-checked={current}
+                              className={styles.menuItem}
+                              onClick={() => {
+                                setEventMenuOpen(false);
+                                if (!current) onLinkEvent(choice.key);
+                              }}
+                            >
+                              <span className={styles.eventCheck} aria-hidden="true">
+                                {current ? '✓' : ''}
+                              </span>
+                              {choice.time} · {choice.title}
+                            </button>
+                          );
+                        })}
+                        {detail.event && (
+                          <button
+                            role="menuitem"
+                            className={styles.menuItem}
+                            onClick={() => {
+                              setEventMenuOpen(false);
+                              onLinkEvent(null);
+                            }}
+                          >
+                            Unlink
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </span>
                 </>
               )}
             </div>

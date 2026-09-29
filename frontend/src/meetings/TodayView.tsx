@@ -1,31 +1,23 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgendaEvent } from '../mock/meetings';
+import type { AgendaEvent, CalendarAccess, UpcomingDay } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
 import { EmptyState } from './EmptyState';
 import styles from './TodayView.module.css';
 
-export type TodayConnection = 'connected' | 'denied' | 'unconnected';
-
-interface UpcomingDay {
-  dayLabel: string;
-  events: AgendaEvent[];
-}
+export type TodayConnection = CalendarAccess;
 
 interface TodayViewProps {
   connection: TodayConnection;
   agenda: AgendaEvent[];
   upcoming: UpcomingDay[];
+  /** Minutes since local midnight; positions the now-line. */
+  nowMinutes: number;
   onSelectMeeting: (meetingId: string) => void;
   onRecord: (key: string) => void;
   onConnectCalendar: () => void;
   onOpenPrivacySettings: () => void;
 }
-
-// A fixed mock "now" (4:29 PM) — it sits between the Design Sync row that's
-// still recording (started 3:30) and the 4:30 Roadmap Review Record row, so
-// both make sense next to the now-line.
-const MOCK_NOW_MINUTES = 16 * 60 + 29;
 
 function peopleLabel(count: number): string {
   return count === 1 ? '1 person' : `${count} people`;
@@ -45,7 +37,7 @@ function parseTimeToMinutes(time: string): number {
 
 /**
  * The "now" line's position, derived by comparing each event's start time
- * against the mock "now" — not a status heuristic — so it lands wherever the
+ * against "now" — not a status heuristic — so it lands wherever the
  * agenda's own times say it should.
  */
 function nowLineIndex(agenda: AgendaEvent[], nowMinutes: number): number {
@@ -89,12 +81,13 @@ export function TodayView({
   connection,
   agenda,
   upcoming,
+  nowMinutes,
   onSelectMeeting,
   onRecord,
   onConnectCalendar,
   onOpenPrivacySettings,
 }: TodayViewProps) {
-  const nowIndex = useMemo(() => nowLineIndex(agenda, MOCK_NOW_MINUTES), [agenda]);
+  const nowIndex = useMemo(() => nowLineIndex(agenda, nowMinutes), [agenda, nowMinutes]);
   const [openDays, setOpenDays] = useState<Set<number>>(new Set());
 
   function toggleDay(index: number) {
@@ -163,14 +156,14 @@ export function TodayView({
                 >
                   <span className={styles.time}>{timeRange(event)}</span>
                   <span className={styles.eventTitle}>{event.title}</span>
-                  <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>
+                  {event.attendeeCount > 0 && <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>}
                   <span className={styles.statusCell}>{statusCell(event, onRecord)}</span>
                 </button>
               ) : (
                 <div className={styles.row}>
                   <span className={styles.time}>{timeRange(event)}</span>
                   <span className={styles.eventTitle}>{event.title}</span>
-                  <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>
+                  {event.attendeeCount > 0 && <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>}
                   <span className={styles.statusCell}>{statusCell(event, onRecord)}</span>
                 </div>
               )}
@@ -205,7 +198,7 @@ export function TodayView({
                       <div key={event.key} className={styles.upcomingRow} role="listitem">
                         <span className={styles.time}>{timeRange(event)}</span>
                         <span className={styles.eventTitle}>{event.title}</span>
-                        <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>
+                        {event.attendeeCount > 0 && <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>}
                       </div>
                     ))}
                   </div>

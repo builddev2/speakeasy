@@ -53,7 +53,7 @@ class Worker:
         if function.__name__ == "_resolve_dictation_target":
             from speakeasy import injector
             future = Future()
-            future.set_result((injector.focused_target(), 0))
+            future.set_result((injector.focused_target(), 0, {}))
             return future
         self.submissions.append((function, args))
         return self.future
@@ -375,7 +375,7 @@ def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, mo
     import threading
     from speakeasy import injector
     entered, release = threading.Event(), threading.Event()
-    def delayed():
+    def delayed(diagnostics=None):
         entered.set()
         assert release.wait(2)
         return object()
@@ -406,3 +406,79 @@ def test_target_resolved_before_first_buffer_is_retained(engine, monkeypatch):
     engine._start_recording()
     engine._stop_recording()
     assert engine._dictation_target is injector.focused_target()
+
+
+_DIAG = {
+    "target_first_ax_error": -25212,
+    "target_ax_enabled": True,
+    "target_retry_ax_error": 0,
+    "target_app_switched": False,
+    "target_app": "com.example.App",
+}
+
+
+def _stopped_timing(engine, future):
+    """Stop a take whose target future is `future`; return the take's timing."""
+    engine._dictation_stream_disabled = True
+    engine._start_recording()
+    engine._hold_started_ns = 0
+    engine._target_future = future
+    engine._stop_recording()
+    for function, args in reversed(engine.worker.submissions):
+        for arg in args:
+            if isinstance(arg, DictationTiming):
+                return arg
+    raise AssertionError("no timing submitted")
+
+
+def _done(*result):
+    future = Future()
+    future.set_result(result)
+    return future
+
+
+def test_target_status_accepted_records_resolve_time_and_diagnostics(engine):
+    target = object()
+    timing = _stopped_timing(engine, _done(target, 1, dict(_DIAG)))
+    assert engine._dictation_target is target
+    record = timing.record("success")
+    assert record["target_status"] == "accepted"
+    assert record["target_resolve_ms"] == 0.0  # 1 ns after key-down
+    # first_buffer_ns is 1; resolved 1 ns after a 1_000_000 ns hold start
+    assert record["target_first_ax_error"] == -25212
+    assert record["target_ax_enabled"] is True
+    assert record["target_retry_ax_error"] == 0
+    assert record["target_app_switched"] is False
+    assert record["target_app"] == "com.example.App"
+
+
+def test_target_status_late_when_resolved_after_first_buffer(engine):
+    timing = _stopped_timing(engine, _done(object(), 5_000_000, dict(_DIAG)))
+    assert engine._dictation_target is None
+    record = timing.record("success")
+    assert record["target_status"] == "late"
+    assert record["target_resolve_ms"] == 5.0
+
+
+def test_target_status_missing_when_lookup_returns_none(engine):
+    timing = _stopped_timing(engine, _done(None, 1_000_100, {
+        **_DIAG, "target_retry_ax_error": -25212}))
+    assert engine._dictation_target is None
+    record = timing.record("insertion_blocked")
+    assert record["target_status"] == "missing"
+    assert record["target_retry_ax_error"] == -25212
+    assert record["target_resolve_ms"] == 1.0
+
+
+def test_target_status_pending_cancelled_and_error(engine):
+    assert _stopped_timing(engine, Future()).record("success")["target_status"] == "pending"
+    cancelled = Future()
+    cancelled.cancel()
+    record = _stopped_timing(engine, cancelled).record("success")
+    assert record["target_status"] == "cancelled"
+    assert record["target_resolve_ms"] is None
+    failed = Future()
+    failed.set_exception(RuntimeError("private"))
+    record = _stopped_timing(engine, failed).record("success")
+    assert record["target_status"] == "error"
+    assert record["target_first_ax_error"] is None

@@ -127,13 +127,30 @@ def insert_text(text: str, *, timing: DictationTiming | None = None, target=None
         timing.mark("paste_dispatched")
 
 
-def focused_target():
-    """Only AX element identity/role metadata; never fetch value or selection."""
+def focused_target(diagnostics: dict | None = None):
+    """Only AX element identity/role metadata; never fetch value or selection.
+
+    ``diagnostics``, when given, is filled with content-free lookup facts
+    (AX error codes, whether accessibility was enabled, whether the frontmost
+    app changed, its bundle identifier). It never affects the result.
+    """
     import ApplicationServices as ax
+    if diagnostics is not None:
+        diagnostics.update(
+            target_first_ax_error=None, target_ax_enabled=False,
+            target_retry_ax_error=None, target_app_switched=False,
+            target_app=None,
+        )
     workspace = NSWorkspace.sharedWorkspace()
     application = workspace.frontmostApplication()
     if application is None:
         return None
+    if diagnostics is not None:
+        try:
+            bundle = application.bundleIdentifier()
+            diagnostics["target_app"] = str(bundle) if bundle else None
+        except Exception:
+            pass
     pid = application.processIdentifier()
     # Query the owning application: the system-wide proxy can return
     # kAXErrorCannotComplete even when an application's focused field is readable.
@@ -141,17 +158,32 @@ def focused_target():
     ax.AXUIElementSetMessagingTimeout(owner, .1)
     error, element = ax.AXUIElementCopyAttributeValue(
         owner, "AXFocusedUIElement", None)
+    if diagnostics is not None:
+        diagnostics["target_first_ax_error"] = int(error)
     current = workspace.frontmostApplication()
     if current is None or current.processIdentifier() != pid:
+        if diagnostics is not None:
+            diagnostics["target_app_switched"] = True
         return None
-    if (error != 0 or element is None) and _enable_accessibility(owner):
+    if error != 0 or element is None:
+        enabled = _enable_accessibility(owner)
+        if diagnostics is not None:
+            diagnostics["target_ax_enabled"] = bool(enabled)
+    else:
+        enabled = False
+    if enabled:
         # Web accessibility trees may be initialized asynchronously. Retry once;
         # never substitute an application/window for an unidentified text field.
         time.sleep(.05)
         error, element = ax.AXUIElementCopyAttributeValue(
             owner, "AXFocusedUIElement", None)
+        if diagnostics is not None:
+            diagnostics["target_retry_ax_error"] = int(error)
         current = workspace.frontmostApplication()
     if error != 0 or element is None or current is None or current.processIdentifier() != pid:
+        if diagnostics is not None and (
+                current is None or current.processIdentifier() != pid):
+            diagnostics["target_app_switched"] = True
         return None
     ax.AXUIElementSetMessagingTimeout(element, .1)
     return element

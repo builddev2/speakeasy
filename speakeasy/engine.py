@@ -331,9 +331,10 @@ class DictationEngine:
 
     def _resolve_dictation_target(self, generation):
         if self._shutting_down or generation != self._dictation_generation:
-            return None, self._dictation_clock_ns()
-        target = injector.focused_target()
-        return target, self._dictation_clock_ns()
+            return None, self._dictation_clock_ns(), {}
+        diagnostics: dict = {}
+        target = injector.focused_target(diagnostics)
+        return target, self._dictation_clock_ns(), diagnostics
 
     def _transcribe_stream_with_fallback(
         self, session: StreamingSession
@@ -418,15 +419,30 @@ class DictationEngine:
         if first_buffer is not None:
             timing.mark("first_buffer", first_buffer)
         target_future = getattr(self, "_target_future", None)
-        if target_future is not None and target_future.done() and not target_future.cancelled():
+        if target_future is None:
+            pass
+        elif target_future.cancelled():
+            timing.target_status = "cancelled"
+        elif not target_future.done():
+            timing.target_status = "pending"
+        else:
             try:
-                target, resolved = target_future.result()
+                target, resolved, diagnostics = target_future.result()
                 # A busy worker or slow AX lookup must not bind to a field
                 # selected later during speech. Keep the final for recovery.
-                if first_buffer is not None and resolved <= first_buffer:
+                accepted = first_buffer is not None and resolved <= first_buffer
+                if accepted:
                     self._dictation_target = target
+                timing.target_status = (
+                    "missing" if target is None
+                    else "accepted" if accepted else "late"
+                )
+                if hold_started is not None:
+                    timing.target_resolve_ms = round(
+                        (resolved - hold_started) / 1_000_000, 1)
+                timing.target_diagnostics = diagnostics
             except Exception:
-                pass
+                timing.target_status = "error"
         recorder_busy, self._recorder_busy = self._recorder_busy, False
         try:
             too_short = (

@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import threading
 import time
 from collections import Counter, defaultdict
@@ -21,6 +22,18 @@ _CONTEXT_ENUMS = {
 _CONTEXT_NUMBERS = {"idle_seconds", "model_load_ms", "model_warmup_ms"}
 _NEW_FIELDS = {*_CONTEXT_ENUMS, *_CONTEXT_NUMBERS, "warmup_complete",
                "key_down_to_first_buffer_ms", "release_to_dispatch_ms", "release_to_ready_ms"}
+
+_TARGET_STATUSES = {"accepted", "late", "missing", "pending", "cancelled", "error"}
+_TARGET_FIELDS = (
+    "target_resolve_ms",
+    "target_status",
+    "target_first_ax_error",
+    "target_ax_enabled",
+    "target_retry_ax_error",
+    "target_app_switched",
+    "target_app",
+)
+_BUNDLE_ID = re.compile(r"[A-Za-z0-9._-]{1,200}")
 
 _FIELDS = (
     *_CONTEXT_ENUMS,
@@ -61,6 +74,7 @@ _FIELDS = (
     "release_to_idle_ms",
     "samples_before",
     "samples_after",
+    *_TARGET_FIELDS,
 )
 
 _STREAM_DURATION_FIELDS = {
@@ -202,6 +216,7 @@ def _valid_record(value: object) -> dict | None:
         "stream_queue_capacity",
         "stream_overflowed",
         "fallback_reason",
+        *_TARGET_FIELDS,
     }
     if not isinstance(value, dict) or not legacy_fields.issubset(value):
         return None
@@ -288,6 +303,31 @@ def _valid_record(value: object) -> dict | None:
     if complete is not None and not isinstance(complete, bool):
         return None
     record["warmup_complete"] = complete
+    resolve = value.get("target_resolve_ms")
+    if resolve is not None and (
+        not isinstance(resolve, (int, float)) or isinstance(resolve, bool)
+        or not math.isfinite(resolve) or resolve < 0
+    ):
+        return None
+    record["target_resolve_ms"] = float(resolve) if resolve is not None else None
+    status_value = value.get("target_status")
+    if status_value is not None and status_value not in _TARGET_STATUSES:
+        return None
+    record["target_status"] = status_value
+    for name in ("target_first_ax_error", "target_retry_ax_error"):
+        code = value.get(name)
+        if code is not None and (not isinstance(code, int) or isinstance(code, bool)):
+            return None
+        record[name] = code
+    for name in ("target_ax_enabled", "target_app_switched"):
+        flag = value.get(name)
+        if flag is not None and not isinstance(flag, bool):
+            return None
+        record[name] = flag
+    app = value.get("target_app")
+    if app is not None and (not isinstance(app, str) or not _BUNDLE_ID.fullmatch(app)):
+        return None
+    record["target_app"] = app
     return {name: record[name] for name in _FIELDS}
 
 
@@ -668,6 +708,9 @@ class DictationTiming:
     stream_queue_capacity: int | None = None
     stream_overflowed: bool | None = None
     fallback_reason: str | None = None
+    target_status: str | None = None
+    target_resolve_ms: float | None = None
+    target_diagnostics: dict = field(default_factory=dict)
     model_context: dict = field(default_factory=dict)
     mode: str | None = None
     _emitted: bool = False
@@ -714,6 +757,7 @@ class DictationTiming:
             "stream_queue_capacity": self.stream_queue_capacity,
             "stream_overflowed": self.stream_overflowed,
             "fallback_reason": self.fallback_reason,
+            **self._target_values(),
         }
         context = self.model_context
         values.update({name: context.get(name) if isinstance(context.get(name), str) and context[name] in allowed else None for name, allowed in _CONTEXT_ENUMS.items()})
@@ -723,6 +767,37 @@ class DictationTiming:
         values["warmup_complete"] = context.get("warmup_complete") if isinstance(context.get("warmup_complete"), bool) else None
         values.update({name: self._duration_value(name) for name in _DURATIONS})
         return {name: values[name] for name in _FIELDS}
+
+    def _target_values(self) -> dict:
+        diag = self.target_diagnostics if isinstance(self.target_diagnostics, dict) else {}
+
+        def int_code(name):
+            code = diag.get(name)
+            return code if isinstance(code, int) and not isinstance(code, bool) else None
+
+        def flag(name):
+            item = diag.get(name)
+            return item if isinstance(item, bool) else None
+
+        app = diag.get("target_app")
+        resolve = self.target_resolve_ms
+        return {
+            "target_resolve_ms": (
+                round(float(resolve), 1)
+                if isinstance(resolve, (int, float)) and not isinstance(resolve, bool)
+                and math.isfinite(resolve) and resolve >= 0 else None
+            ),
+            "target_status": (
+                self.target_status if self.target_status in _TARGET_STATUSES else None
+            ),
+            "target_first_ax_error": int_code("target_first_ax_error"),
+            "target_ax_enabled": flag("target_ax_enabled"),
+            "target_retry_ax_error": int_code("target_retry_ax_error"),
+            "target_app_switched": flag("target_app_switched"),
+            "target_app": (
+                app if isinstance(app, str) and _BUNDLE_ID.fullmatch(app) else None
+            ),
+        }
 
     def format_summary(self, status: str) -> str:
         values = {
@@ -758,6 +833,11 @@ class DictationTiming:
         }
         record = self.record(status)
         values.update({name: self._safe_metric(record[name]) for name in _NEW_FIELDS})
+        values.update({
+            name: (str(record[name]).lower() if isinstance(record[name], bool)
+                   else self._safe_metric(record[name]))
+            for name in _TARGET_FIELDS
+        })
         values.update({name: self._duration(name) for name in _DURATIONS})
         return "DICTATION_BENCH " + " ".join(
             f"{name}={values[name]}" for name in _FIELDS

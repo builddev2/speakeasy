@@ -234,6 +234,13 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
         "release_to_idle_ms",
         "samples_before",
         "samples_after",
+        "target_resolve_ms",
+        "target_status",
+        "target_first_ax_error",
+        "target_ax_enabled",
+        "target_retry_ax_error",
+        "target_app_switched",
+        "target_app",
     ]
     assert field(line, "trim_ms") == "na"
 
@@ -288,6 +295,13 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
         "release_to_idle_ms",
         "samples_before",
         "samples_after",
+        "target_resolve_ms",
+        "target_status",
+        "target_first_ax_error",
+        "target_ax_enabled",
+        "target_retry_ax_error",
+        "target_app_switched",
+        "target_app",
     ]
     serialized = json.dumps(record)
     assert "private transcript" not in serialized

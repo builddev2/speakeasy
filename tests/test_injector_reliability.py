@@ -234,3 +234,63 @@ def test_supported_and_unsupported_subroles_on_native_and_web_fields(monkeypatch
             monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda e, n, out: (0, "AXTextArea") if n == "AXRole" else subrole)
             assert injector.deliver_final("final", target) == ("dispatched_unconfirmed" if web else "ax_acknowledged")
     assert len(writes) == len(pastes) == 5
+
+
+def _fake_frontmost(monkeypatch, apps, bundle="com.example.Electron"):
+    import ApplicationServices as ax
+    from types import SimpleNamespace
+    foreground = iter(apps)
+    workspace = SimpleNamespace(frontmostApplication=lambda: next(foreground))
+    monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
+    monkeypatch.setattr(ax, "AXUIElementCreateApplication", lambda pid: object())
+    monkeypatch.setattr(ax, "AXUIElementSetMessagingTimeout", lambda *args: 0)
+
+
+def _app(pid=123, bundle="com.example.Electron"):
+    from types import SimpleNamespace
+    return SimpleNamespace(processIdentifier=lambda: pid,
+                           bundleIdentifier=lambda: bundle)
+
+
+def test_diagnostics_record_direct_success_without_enabling(monkeypatch):
+    import ApplicationServices as ax
+    target = object()
+    _fake_frontmost(monkeypatch, [_app(), _app()])
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: (0, target))
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is target
+    assert diagnostics == {
+        "target_first_ax_error": 0, "target_ax_enabled": False,
+        "target_retry_ax_error": None, "target_app_switched": False,
+        "target_app": "com.example.Electron",
+    }
+
+
+def test_diagnostics_record_enable_and_retry_error_codes(monkeypatch):
+    import ApplicationServices as ax
+    _fake_frontmost(monkeypatch, [_app(), _app(), _app()])
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
+                        lambda e, name, _: (0, name == "AXManualAccessibility"))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: 0)
+    monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
+    replies = iter([(-25204, None), (-25212, None)])
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: next(replies))
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is None
+    assert diagnostics["target_first_ax_error"] == -25204
+    assert diagnostics["target_ax_enabled"] is True
+    assert diagnostics["target_retry_ax_error"] == -25212
+    assert diagnostics["target_app_switched"] is False
+
+
+def test_diagnostics_record_app_switch_and_no_enable(monkeypatch):
+    import ApplicationServices as ax
+    _fake_frontmost(monkeypatch, [_app(), _app(456)])
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: (-25204, None))
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
+                        lambda *a: (_ for _ in ()).throw(AssertionError()))
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is None
+    assert diagnostics["target_app_switched"] is True
+    assert diagnostics["target_ax_enabled"] is False
+    assert diagnostics["target_retry_ax_error"] is None

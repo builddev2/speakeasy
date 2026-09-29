@@ -43,39 +43,12 @@ from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_benchmark import MeetingTiming
 from .meeting_library import MeetingLibrary, NewMeeting
+from .meeting_options import MeetingOptions  # noqa: F401  (re-exported)
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .meeting_stream import MeetingASRSession, MeetingASRStatus
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
-
-
-@dataclass(frozen=True)
-class MeetingOptions:
-    # Remote speakers in dual-track mode. In mic-only fallback, source
-    # separation is impossible, so this constrains every voice audible on mic.
-    expected_speaker_count: int | None = None
-    expected_voice_profile_names: tuple[str, ...] = ()
-    system_audio_pid: int | None = None
-    calendar_event_key: str | None = None
-
-    def __post_init__(self) -> None:
-        if (
-            self.expected_speaker_count is not None
-            and not 1 <= self.expected_speaker_count <= 20
-        ):
-            raise ValueError("Expected speaker count must be between 1 and 20.")
-        if self.system_audio_pid is not None and (
-            not isinstance(self.system_audio_pid, int)
-            or isinstance(self.system_audio_pid, bool)
-            or self.system_audio_pid <= 0
-        ):
-            raise ValueError("Selected application is no longer available.")
-        if self.calendar_event_key is not None and (
-            not isinstance(self.calendar_event_key, str)
-            or not 0 < len(self.calendar_event_key) <= 300
-        ):
-            raise ValueError("Unknown calendar event.")
 
 
 @dataclass(frozen=True)

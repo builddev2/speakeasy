@@ -100,6 +100,11 @@ contexts are intentionally bounded and single-purpose:
   for a batch final on the same worker; no draft is ever published. Meeting
   capture remains in-process and uses the process-wide
   `coreaudio.teardown` guard; never clear that marker from force-close.
+- **`calendar`** (1 thread, `calendar_sync.CalendarSync`) — the only place
+  EventKit is used. Syncs Calendar.app into `calendar_events` at launch (only
+  if access is already granted), after wake, on `EKEventStoreChangedNotification`
+  and every 5 minutes. Never touches audio or the model. The engine never calls
+  EventKit: it reads the cached table.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the

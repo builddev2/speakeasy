@@ -89,7 +89,7 @@ def test_filters_and_search(library_path):
     lib, mid, bridge, d = _setup(library_path)
     f = bridge.filters_payload({})
     assert f["total"] == 1 and f["tags"] == [{"name": "VFA", "count": 1}]
-    assert f["features"] == {"calendar": False, "claude": True, "settings": False}
+    assert f["features"] == {"calendar": False, "claude": True, "settings": True}
 
     # Whole search result, not just a couple of fields.
     res = bridge.search_payload({"query": "cognos"})
@@ -460,3 +460,83 @@ def test_stop_polling_resets_baseline(library_path):
     lib.save_meeting(_new())
     bridge.stop_polling()
     assert bridge.poll_changed() is False  # window reopened: fresh baseline
+
+
+# -- calendar (phase 3) ------------------------------------------------
+
+class FakeCalendar:
+    def __init__(self, access="connected"):
+        self._access, self.calendars, self.asked, self.synced = access, [], 0, 0
+    def access(self): return self._access
+    def request_access(self): self.asked += 1
+    def request_sync(self): self.synced += 1
+
+
+def _calendar_bridge(library_path, **kw):
+    return MeetingsBridge(library=MeetingLibrary(library_path), calendar=kw.pop("calendar", FakeCalendar()),
+                          now=lambda: datetime.now().astimezone(), **kw)
+
+
+def test_features_follow_calendar_presence(library_path):
+    assert _calendar_bridge(library_path).filters_payload({})["features"] == {
+        "calendar": True, "claude": True, "settings": True}
+    plain = MeetingsBridge(library=MeetingLibrary(library_path))
+    assert plain.filters_payload({})["features"]["calendar"] is False
+
+
+def test_today_without_access_is_empty(library_path):
+    b = _calendar_bridge(library_path, calendar=FakeCalendar("denied"))
+    assert b.calendar_today_payload({}) == {"access": "denied", "agenda": []}
+
+
+def test_record_passes_event_key(library_path):
+    started = []
+    b = _calendar_bridge(library_path, begin_meeting=started.append)
+    assert b.calendar_record_payload({"key": "ev1"}) is True
+    assert started[0].calendar_event_key == "ev1"
+
+
+def test_record_rejects_bad_key(library_path):
+    import pytest
+    b = _calendar_bridge(library_path, begin_meeting=lambda o: None)
+    with pytest.raises(ValueError):
+        b.calendar_record_payload({"key": 5})
+
+
+def test_link_event_round_trip(library_path):
+    from speakeasy.meeting_library import NewMeeting, SyncedEvent
+    from speakeasy.meetings import MeetingSegment
+    lib = MeetingLibrary(library_path)
+    now = datetime.now().astimezone().replace(microsecond=0)
+    mid = lib.save_meeting(NewMeeting(segments=[MeetingSegment("You", 0, 1, "hi")],
+                                      duration_seconds=60, started_at=now))
+    start = now - timedelta(minutes=5)
+    lib.replace_calendar_window(
+        [SyncedEvent("ev1", "Work", "Weekly 1:1", start, start + timedelta(minutes=30),
+                     False, False, 1, ())],
+        start - timedelta(hours=1), start + timedelta(hours=1))
+    b = _calendar_bridge(library_path)
+    assert [c["key"] for c in b.events_for_day_payload({"id": mid})] == ["ev1"]
+    linked = b.link_event_payload({"id": mid, "key": "ev1"})
+    assert linked["event"]["key"] == "ev1" and linked["title"] == "Weekly 1:1"
+    assert b.link_event_payload({"id": mid, "key": None})["event"] is None
+
+
+def test_meeting_settings_round_trip(library_path, tmp_path, monkeypatch):
+    from speakeasy import settings
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    b = _calendar_bridge(library_path)
+    out = b.settings_set_payload({"offerToRecord": False, "calendars": {"w": False}})
+    assert out["offerToRecord"] is False
+    assert settings.get_meeting_settings()["calendar_choices"] == {"w": False}
+    assert b._calendar.synced == 1
+
+
+def test_get_payload_never_looks_up_a_missing_event_key(library_path, monkeypatch):
+    lib = MeetingLibrary(library_path)
+    mid = lib.save_meeting(NewMeeting(segments=[MeetingSegment("You", 0, 1, "hi")],
+                                      duration_seconds=60,
+                                      started_at=datetime.now().astimezone()))
+    monkeypatch.setattr(lib, "calendar_event",
+                        lambda key: pytest.fail("looked up an unlinked meeting's event"))
+    assert MeetingsBridge(library=lib).get_payload({"id": mid})["event"] is None

@@ -151,10 +151,13 @@ def test_focus_query_fails_closed_on_switch_or_unavailable_field(monkeypatch):
     monkeypatch.setattr(ax, "AXUIElementSetMessagingTimeout", lambda *args: 0)
     for error, element, after in [(0, object(), app(456)), (-25204, None, app(123)),
                                    (0, None, app(123)), (0, object(), None)]:
-        foreground = iter([app(123), after])
+        # Unavailable fields are retried (app unchanged), so keep it frontmost.
+        foreground = iter([app(123), after] + [app(123)] * 8)
         workspace = SimpleNamespace(frontmostApplication=lambda: next(foreground))
         monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
         monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *args: (error, element))
+        monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (-25205, False))
+        monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
         assert query_focused_target() is None
 
 
@@ -169,35 +172,6 @@ def test_web_editor_uses_one_paste_despite_writable_selected_text(monkeypatch):
     monkeypatch.setattr(injector, "insert_text", lambda text, **kwargs: pasted.append(text))
     assert injector.deliver_final("final", target) == "dispatched_unconfirmed"
     assert pasted == ["final"]
-
-
-def test_lazy_accessibility_retry_is_bounded_and_checks_foreground(monkeypatch):
-    import ApplicationServices as ax
-    from types import SimpleNamespace
-    owner, target = object(), object()
-    app = SimpleNamespace(processIdentifier=lambda: 123)
-    other = SimpleNamespace(processIdentifier=lambda: 456)
-    monkeypatch.setattr(ax, "AXUIElementCreateApplication", lambda pid: owner)
-    monkeypatch.setattr(ax, "AXUIElementSetMessagingTimeout", lambda *args: 0)
-    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda e, name, _: (0, name == "AXEnhancedUserInterface"))
-    for retry_result, final_app, expected in [((0, target), app, target),
-                                            ((-25212, None), app, None),
-                                            ((0, target), other, None)]:
-        foreground = iter([app, app, final_app])
-        workspace = SimpleNamespace(frontmostApplication=lambda: next(foreground))
-        monkeypatch.setattr(injector, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
-        replies = iter([(-25212, None), retry_result])
-        queries, writes, sleeps = [], [], []
-        def copy(element, name, _):
-            queries.append(name)
-            return next(replies)
-        monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", copy)
-        monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *args: writes.append(args) or 0)
-        monkeypatch.setattr(injector.time, "sleep", sleeps.append)
-        assert query_focused_target() is expected
-        assert queries == ["AXFocusedUIElement", "AXFocusedUIElement"]
-        assert writes == [(owner, "AXEnhancedUserInterface", True)]
-        assert sleeps == [.05]
 
 
 def test_unsupported_accessibility_activation_does_not_write_or_retry(monkeypatch):
@@ -261,26 +235,105 @@ def test_diagnostics_record_direct_success_without_enabling(monkeypatch):
     assert query_focused_target(diagnostics) is target
     assert diagnostics == {
         "target_first_ax_error": 0, "target_ax_enabled": False,
-        "target_retry_ax_error": None, "target_app_switched": False,
-        "target_app": "com.example.Electron",
+        "target_retry_ax_error": None, "target_retry_count": 0,
+        "target_app_switched": False, "target_app": "com.example.Electron",
     }
 
 
 def test_diagnostics_record_enable_and_retry_error_codes(monkeypatch):
     import ApplicationServices as ax
-    _fake_frontmost(monkeypatch, [_app(), _app(), _app()])
+    _fake_frontmost(monkeypatch, [_app()] * 8)
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
                         lambda e, name, _: (0, name == "AXManualAccessibility"))
     monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: 0)
     monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
-    replies = iter([(-25204, None), (-25212, None)])
+    replies = iter([(-25204, None)] + [(-25212, None)] * 4)
     monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: next(replies))
     diagnostics = {}
     assert query_focused_target(diagnostics) is None
     assert diagnostics["target_first_ax_error"] == -25204
     assert diagnostics["target_ax_enabled"] is True
     assert diagnostics["target_retry_ax_error"] == -25212
+    assert diagnostics["target_retry_count"] == 4
     assert diagnostics["target_app_switched"] is False
+
+
+def _retry_setup(monkeypatch, replies, apps, enable=False):
+    """Fake AX: `replies` answers successive AXFocusedUIElement queries."""
+    import ApplicationServices as ax
+    _fake_frontmost(monkeypatch, apps)
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
+                        lambda e, name, _: (0, enable and name == "AXManualAccessibility"))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: 0)
+    sleeps, queries = [], []
+    monkeypatch.setattr(injector.time, "sleep", sleeps.append)
+    iterator = iter(replies)
+
+    def copy(element, name, _):
+        queries.append(name)
+        return next(iterator)
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", copy)
+    return sleeps, queries
+
+
+def test_retry_runs_even_when_accessibility_enable_returns_false(monkeypatch):
+    # Codex fresh launch: first query NoValue, enable reports False; the
+    # accessibility tree appears by the second attempt.
+    target = object()
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (-25212, None), (0, target)],
+        [_app()] * 6, enable=False)
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is target
+    assert diagnostics["target_ax_enabled"] is False
+    assert diagnostics["target_first_ax_error"] == -25212
+    assert diagnostics["target_retry_ax_error"] == 0
+    assert diagnostics["target_retry_count"] == 2
+    assert sleeps == [.04, .04]
+    assert len(queries) == 3
+
+
+def test_retry_succeeds_on_first_attempt_records_count_one(monkeypatch):
+    target = object()
+    sleeps, _ = _retry_setup(
+        monkeypatch, [(-25212, None), (0, target)], [_app()] * 4)
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is target
+    assert diagnostics["target_retry_count"] == 1
+    assert sleeps == [.04]
+
+
+def test_all_retry_attempts_failing_returns_none_with_count_four(monkeypatch):
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None)] * 5, [_app()] * 8)
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is None
+    assert diagnostics["target_retry_count"] == 4
+    assert diagnostics["target_retry_ax_error"] == -25212
+    assert sleeps == [.04] * 4
+    assert len(queries) == 5
+    assert diagnostics["target_app_switched"] is False
+
+
+def test_retry_stops_and_fails_closed_when_frontmost_app_changes(monkeypatch):
+    # initial app, post-first check, attempt 1 ok, then the app changes.
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (-25212, None), (0, object())],
+        [_app(), _app(), _app(), _app(456)])
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is None
+    assert diagnostics["target_app_switched"] is True
+    assert diagnostics["target_retry_count"] == 2
+    assert len(queries) == 3
+
+
+def test_retry_success_is_discarded_if_app_changed_during_that_attempt(monkeypatch):
+    _retry_setup(monkeypatch, [(-25212, None), (0, object())],
+                 [_app(), _app(), _app(456)])
+    diagnostics = {}
+    assert query_focused_target(diagnostics) is None
+    assert diagnostics["target_app_switched"] is True
+    assert diagnostics["target_retry_count"] == 1
 
 
 def test_diagnostics_record_app_switch_and_no_enable(monkeypatch):

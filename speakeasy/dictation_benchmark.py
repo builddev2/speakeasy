@@ -30,6 +30,7 @@ _TARGET_FIELDS = (
     "target_first_ax_error",
     "target_ax_enabled",
     "target_retry_ax_error",
+    "target_retry_count",
     "target_app_switched",
     "target_app",
 )
@@ -319,6 +320,12 @@ def _valid_record(value: object) -> dict | None:
         if code is not None and (not isinstance(code, int) or isinstance(code, bool)):
             return None
         record[name] = code
+    count = value.get("target_retry_count")
+    if count is not None and (
+        not isinstance(count, int) or isinstance(count, bool) or count < 0
+    ):
+        return None
+    record["target_retry_count"] = count
     for name in ("target_ax_enabled", "target_app_switched"):
         flag = value.get(name)
         if flag is not None and not isinstance(flag, bool):
@@ -793,6 +800,12 @@ class DictationTiming:
             "target_first_ax_error": int_code("target_first_ax_error"),
             "target_ax_enabled": flag("target_ax_enabled"),
             "target_retry_ax_error": int_code("target_retry_ax_error"),
+            "target_retry_count": (
+                diag.get("target_retry_count")
+                if isinstance(diag.get("target_retry_count"), int)
+                and not isinstance(diag.get("target_retry_count"), bool)
+                and diag["target_retry_count"] >= 0 else None
+            ),
             "target_app_switched": flag("target_app_switched"),
             "target_app": (
                 app if isinstance(app, str) and _BUNDLE_ID.fullmatch(app) else None

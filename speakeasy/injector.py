@@ -138,7 +138,8 @@ def focused_target(diagnostics: dict | None = None):
     if diagnostics is not None:
         diagnostics.update(
             target_first_ax_error=None, target_ax_enabled=False,
-            target_retry_ax_error=None, target_app_switched=False,
+            target_retry_ax_error=None, target_retry_count=0,
+            target_app_switched=False,
             target_app=None,
         )
     workspace = NSWorkspace.sharedWorkspace()
@@ -169,21 +170,24 @@ def focused_target(diagnostics: dict | None = None):
         enabled = _enable_accessibility(owner)
         if diagnostics is not None:
             diagnostics["target_ax_enabled"] = bool(enabled)
-    else:
-        enabled = False
-    if enabled:
-        # Web accessibility trees may be initialized asynchronously. Retry once;
-        # never substitute an application/window for an unidentified text field.
-        time.sleep(.05)
-        error, element = ax.AXUIElementCopyAttributeValue(
-            owner, "AXFocusedUIElement", None)
-        if diagnostics is not None:
-            diagnostics["target_retry_ax_error"] = int(error)
-        current = workspace.frontmostApplication()
-    if error != 0 or element is None or current is None or current.processIdentifier() != pid:
-        if diagnostics is not None and (
-                current is None or current.processIdentifier() != pid):
-            diagnostics["target_app_switched"] = True
+        # Fresh Electron apps answer NoValue until their accessibility tree is
+        # built, and enabling can report False yet still work: retry regardless.
+        # Never substitute an application/window for an unidentified field.
+        for attempt in range(1, config.DICTATION_TARGET_RETRY_ATTEMPTS + 1):
+            time.sleep(config.DICTATION_TARGET_RETRY_INTERVAL_SECONDS)
+            error, element = ax.AXUIElementCopyAttributeValue(
+                owner, "AXFocusedUIElement", None)
+            if diagnostics is not None:
+                diagnostics["target_retry_ax_error"] = int(error)
+                diagnostics["target_retry_count"] = attempt
+            current = workspace.frontmostApplication()
+            if current is None or current.processIdentifier() != pid:
+                if diagnostics is not None:
+                    diagnostics["target_app_switched"] = True
+                return None
+            if error == 0 and element is not None:
+                break
+    if error != 0 or element is None:
         return None
     ax.AXUIElementSetMessagingTimeout(element, .1)
     return element

@@ -147,3 +147,40 @@ Historical failures and earlier build-specific acceptance statements remain
 unchanged. Do not restore the shared cold-start/warm-command timeout: helper
 launch has one absolute four-second budget, warm commands retain 1.5 seconds,
 and a launch timeout does not trigger an immediate second cold launch.
+
+## Target discard and fresh-Electron lookup — 29 September 2026
+
+Installed build c81273e logged the new target fields:
+
+| Take | App | key_down→first_buffer (ms) | target_resolve_ms | target_status | first AX error | AX enabled |
+|---|---|---|---|---|---|---|
+| 1st | Codex (fresh launch) | 174.3 | 77.2 | missing | -25212 (NoValue) | False, so no retry |
+| 2nd | Codex | 16.3 | 6.5 | accepted | 0 | |
+| 1st | Teams (fresh launch) | 11.5 | 15.3 | late | 0 | |
+| 2nd | Teams | 18.4 | 15.2 | accepted | 0 | |
+
+Two causes:
+
+1. The `f2378aa` rule accepted the key-down target only if it resolved before
+   the first audio buffer. That buffer arrives 5-20 ms after key-down, the same
+   order as an AX lookup (Teams about 15 ms), so correct targets were discarded
+   at random (first Teams take: AX succeeded, status "late").
+2. In a freshly launched Electron app the first AXFocusedUIElement query returns
+   NoValue. The single retry ran only if `_enable_accessibility` returned True;
+   for Codex it returned False, so there was no retry (first Codex take: "missing").
+
+Fix: a target is accepted when it resolved at or before
+`max(first_buffer, key_down + DICTATION_TARGET_GRACE_SECONDS)` (0.3 s); with no
+key-down time the old first-buffer rule applies, and with no first buffer the
+grace bound alone applies. "late" now means past that bound. `focused_target`
+retries AXFocusedUIElement up to `DICTATION_TARGET_RETRY_ATTEMPTS` (4) times,
+sleeping `DICTATION_TARGET_RETRY_INTERVAL_SECONDS` (0.04 s) before each, whether
+or not accessibility enabling reported success, re-checking the frontmost app
+after each attempt (change: no target, `target_app_switched`). It never
+substitutes an application or window element. New diagnostic and latency field
+`target_retry_count`. Unchanged: secure-field and subrole rules, the
+`current != target` check in deliver_final (focus_changed), clipboard
+ownership, fail-closed on app switch.
+
+Status: automated tests pass with fakes only. Live Codex, Teams and TextEdit
+confirmation on an installed build is pending.

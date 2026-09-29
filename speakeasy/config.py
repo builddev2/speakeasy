@@ -38,6 +38,20 @@ DICTATION_STREAM_BUFFER_SECONDS = 30.0
 # batch final on the same MLX worker after the streaming context has closed.
 DICTATION_BATCH_FINAL_SECONDS = 15.0
 
+# A dictation target resolved within this long of the hotkey press is bound to
+# the take. The mic's first buffer lands 5-20 ms after key-down, the same order
+# as an AX focus lookup (Teams ~15 ms), so a first-buffer cutoff discarded
+# correct targets at random. Nobody moves to a different field within 300 ms of
+# pressing the hotkey, and deliver_final still refuses a changed focus
+# (focus_changed).
+DICTATION_TARGET_GRACE_SECONDS = 0.3
+
+# Fresh Electron apps (Codex, Teams) answer AXFocusedUIElement with NoValue
+# until their accessibility tree is built. Retry the lookup this many times,
+# sleeping the interval before each attempt (worst case well under 0.6 s).
+DICTATION_TARGET_RETRY_ATTEMPTS = 4
+DICTATION_TARGET_RETRY_INTERVAL_SECONDS = 0.04
+
 # How long to wait for the recorder to stop before giving up on it. A wedged
 # CoreAudio call must not freeze the control thread (and with it the hotkey),
 # so past this the stream is abandoned and the mic forcibly released.

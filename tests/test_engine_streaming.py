@@ -5,6 +5,7 @@ from concurrent.futures import Future
 import numpy as np
 import pytest
 
+from speakeasy import config
 from speakeasy.dictation_benchmark import DictationTiming
 from speakeasy.dictation_stream import StreamResult, StreamStatus, StreamingSession
 from speakeasy.engine import DictationEngine, State, _RecorderStopResult
@@ -412,6 +413,7 @@ _DIAG = {
     "target_first_ax_error": -25212,
     "target_ax_enabled": True,
     "target_retry_ax_error": 0,
+    "target_retry_count": 1,
     "target_app_switched": False,
     "target_app": "com.example.App",
 }
@@ -448,16 +450,59 @@ def test_target_status_accepted_records_resolve_time_and_diagnostics(engine):
     assert record["target_first_ax_error"] == -25212
     assert record["target_ax_enabled"] is True
     assert record["target_retry_ax_error"] == 0
+    assert record["target_retry_count"] == 1
     assert record["target_app_switched"] is False
     assert record["target_app"] == "com.example.App"
 
 
-def test_target_status_late_when_resolved_after_first_buffer(engine):
-    timing = _stopped_timing(engine, _done(object(), 5_000_000, dict(_DIAG)))
+def test_target_status_late_when_resolved_after_grace_window(engine):
+    # 350 ms after key-down and after the first buffer: not bound.
+    timing = _stopped_timing(engine, _done(object(), 350_000_000, dict(_DIAG)))
     assert engine._dictation_target is None
     record = timing.record("success")
     assert record["target_status"] == "late"
-    assert record["target_resolve_ms"] == 5.0
+    assert record["target_resolve_ms"] == 350.0
+
+
+def test_target_accepted_when_resolved_after_first_buffer_within_grace(engine):
+    # Teams: first buffer 11.5 ms, AX lookup resolved at 15.3 ms.
+    target = object()
+    engine.recorder.first_buffer_ns = 11_500_000
+    timing = _stopped_timing(engine, _done(target, 15_300_000, dict(_DIAG)))
+    assert engine._dictation_target is target
+    record = timing.record("success")
+    assert record["target_status"] == "accepted"
+    assert record["target_resolve_ms"] == 15.3
+
+
+def test_target_grace_boundary_is_inclusive(engine):
+    grace_ns = int(config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000)
+    target = object()
+    _stopped_timing(engine, _done(target, grace_ns, dict(_DIAG)))
+    assert engine._dictation_target is target
+
+
+def test_target_without_hold_start_uses_first_buffer_rule(engine):
+    engine.recorder.first_buffer_ns = 11_500_000
+    for resolved, bound in ((11_500_000, True), (15_300_000, False)):
+        engine._dictation_target = None
+        engine._dictation_stream_disabled = True
+        engine._start_recording()
+        engine._hold_started_ns = None
+        target = object()
+        engine._target_future = _done(target, resolved, dict(_DIAG))
+        engine._stop_recording()
+        assert (engine._dictation_target is target) is bound
+
+
+def test_target_without_first_buffer_uses_grace_window(engine):
+    engine.recorder.first_buffer_ns = None
+    target = object()
+    _stopped_timing(engine, _done(target, 15_300_000, dict(_DIAG)))
+    assert engine._dictation_target is target
+    engine._dictation_target = None
+    _stopped_timing(engine, _done(object(), 350_000_000, dict(_DIAG)))
+    assert engine._dictation_target is None
 
 
 def test_target_status_missing_when_lookup_returns_none(engine):

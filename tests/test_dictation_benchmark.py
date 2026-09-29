@@ -239,6 +239,7 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
         "target_first_ax_error",
         "target_ax_enabled",
         "target_retry_ax_error",
+        "target_retry_count",
         "target_app_switched",
         "target_app",
     ]
@@ -300,6 +301,7 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
         "target_first_ax_error",
         "target_ax_enabled",
         "target_retry_ax_error",
+        "target_retry_count",
         "target_app_switched",
         "target_app",
     ]

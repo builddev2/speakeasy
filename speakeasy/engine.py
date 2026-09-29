@@ -428,9 +428,21 @@ class DictationEngine:
         else:
             try:
                 target, resolved, diagnostics = target_future.result()
-                # A busy worker or slow AX lookup must not bind to a field
-                # selected later during speech. Keep the final for recovery.
-                accepted = first_buffer is not None and resolved <= first_buffer
+                # A busy worker or very slow AX lookup must not bind to a field
+                # selected later during speech. The first buffer lands only
+                # 5-20 ms after key-down, the same order as an AX lookup, so
+                # accept anything resolved within the grace window after
+                # key-down (or the first buffer, if later). Without a known
+                # key-down time, keep the strict first-buffer rule. Late
+                # targets keep the final for recovery.
+                if hold_started is not None:
+                    bound = hold_started + int(
+                        config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000)
+                    if first_buffer is not None:
+                        bound = max(first_buffer, bound)
+                    accepted = resolved <= bound
+                else:
+                    accepted = first_buffer is not None and resolved <= first_buffer
                 if accepted:
                     self._dictation_target = target
                 timing.target_status = (

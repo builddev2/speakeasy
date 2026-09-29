@@ -223,8 +223,8 @@ Meetings are stored in one local SQLite database,
 only, same as before — audio is never written to it). It replaces the old
 one-JSON-file-per-meeting store and adds full-text search, plus room for
 tags, people, and notes — set via the Claude connection
-([below](#use-your-meetings-with-claude)) and calendar linking (phase 3, not
-yet available) — without changing what
+([below](#use-your-meetings-with-claude)) and calendar linking
+([below](#calendar)) — without changing what
 leaves your Mac: everything still stays local and offline.
 
 The first time the library is empty, Speakeasy automatically imports any
@@ -239,17 +239,23 @@ next to the start time in the detail header and on each transcript line's
 time. A legacy meeting that was never renamed gets a fresh title generated
 from that estimated start, instead of importing the stale end-time title.
 
-Three CLI commands operate on the library directly (`.venv/bin/python -m
+Four CLI commands operate on the library directly (`.venv/bin/python -m
 speakeasy <flag>`):
 
 - `--import-json-meetings` — run the same legacy-JSON import manually,
 - `--rebuild-index` — rebuild the search indexes from the meetings/segments/
-  notes tables, and clear the calendar cache (it is refilled by the phase-3
-  calendar sync, not rebuilt from the meeting tables),
+  notes tables, and clear the calendar cache (the calendar sync refills it from
+  Calendar.app; it is not rebuilt from the meeting tables),
 - `--export-meetings DIR` — write every saved meeting as one Markdown file
   into `DIR`; re-running overwrites that run's previous files in place
   rather than piling up duplicates, and two meetings whose exported names
-  differ only in case or Unicode normalisation still get distinct files.
+  differ only in case or Unicode normalisation still get distinct files,
+- `--fix-imported-titles [--apply]` — the old app stamped a meeting's title
+  with the time processing *finished*. For imported meetings whose title ends
+  in their end time, this lists each title and the corrected one (end time
+  replaced by the start time). Without `--apply` it only prints the list;
+  with `--apply` it renames them, and skips any title you edited after the
+  preview.
 
 While a meeting records, hold-to-talk dictation is off (both would fight over
 the mic and the model); it re-arms when meeting processing finishes. The active
@@ -294,6 +300,38 @@ fallback outcome. Saved meetings retain only that fixed metadata schema plus
 the transcript and timing offsets — never application/device names, PIDs,
 window titles, audio samples, or other provenance that could reveal content.
 
+### Calendar
+
+Speakeasy can read Calendar.app (including Exchange and iCloud calendars you
+have already added to it) to show your day and to name and label recordings.
+
+- **What it reads:** event titles, start and end times, your RSVP, and
+  attendee names and emails. It never reads notes, location or links; there
+  is no place in the app to store them. It reads the local calendar store
+  through macOS EventKit, so no network is used.
+- **When it asks:** never at launch. macOS shows its calendar prompt only
+  when you click **Connect Calendar** in **Meetings › Today**. After that,
+  launch, wake and a five-minute timer refresh the cache silently.
+- **Turn it off:** System Settings › Privacy & Security › Calendars, untick
+  Speakeasy. Within about five minutes (or on the next wake) Today shows the
+  "access denied" card, the cached events are cleared, and Claude's
+  `get_calendar` returns nothing. In Settings you can also untick individual
+  calendars; Birthdays and Holidays start unticked.
+- **Today view:** today's events with a now-line, attendee counts and a
+  **Recorded ✓** mark once a meeting is linked. **Upcoming** shows the next
+  seven days. Click Record on a row to start a meeting for that event.
+- **Recordings:** a meeting started during an event, or up to 10 minutes
+  before it, is linked to it. It takes the event's title and its attendees
+  as people. The Dock shows "Recording · <title>" and lets you change or
+  unlink the event.
+- **Speaker count:** the number of attendees caps how many remote voices
+  diarization may report (with dual-track capture the cap is the other
+  attendees; in mic-only fallback it also counts you). Speakeasy folds the
+  quietest and most similar voices together until the count fits. This is an
+  upper bound only if everyone who speaks was invited: an uninvited guest can
+  be merged into another voice. Setting the remote-speaker count in the Dock
+  overrides the cap.
+
 ### Use your meetings with Claude
 
 Speakeasy can let Claude read your meeting library through a small local
@@ -333,6 +371,10 @@ What Claude can do:
 
 Claude never sees capture health, device names or audio. The sheet also shows
 when Claude last used the library.
+
+Connect Speakeasy to Claude Code once. Adding both the extension and
+`claude mcp add` gives Claude two copies of every tool. To check, run
+`claude mcp list`.
 
 **Turn it off.** In Claude Desktop use **Settings → Extensions** (or remove the
 manual JSON entry); for Claude Code run `claude mcp remove speakeasy`.

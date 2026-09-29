@@ -1,47 +1,47 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { PrimaryButton } from '../components/PrimaryButton';
+import type { ClaudeSetupInfo } from '../mock/meetings';
 import styles from './ConnectClaudeSheet.module.css';
 
 interface ConnectClaudeSheetProps {
   onClose: () => void;
-  lastUsed?: string | null;
+  info: ClaudeSetupInfo | null;
+  onCopy: (text: string) => Promise<void>;
+  onInstall: () => Promise<void>;
+  onRevealConfig: () => Promise<void>;
 }
 
-const CLAUDE_CODE_COMMAND = 'claude mcp add speakeasy -- /Applications/Speakeasy.app/Contents/MacOS/Speakeasy --mcp';
+const ERRORS: Record<string, string> = {
+  extension_unavailable: 'The one-click extension is not available in this copy of Speakeasy.',
+  claude_desktop_not_found: 'Claude Desktop does not seem to be installed (no settings folder found).',
+};
 
-const CLAUDE_DESKTOP_JSON = `{
-  "mcpServers": {
-    "speakeasy": {
-      "command": "/Applications/Speakeasy.app/Contents/MacOS/Speakeasy",
-      "args": ["--mcp"]
-    }
-  }
-}`;
+function message(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err);
+  return ERRORS[text] ?? 'That did not work. Try again.';
+}
 
 /** Step-by-step MCP connection instructions for Claude Code and Claude Desktop. */
-export function ConnectClaudeSheet({ onClose, lastUsed = '2 min ago' }: ConnectClaudeSheetProps) {
-  const [codeCopied, setCodeCopied] = useState(false);
-  const [jsonCopied, setJsonCopied] = useState(false);
+export function ConnectClaudeSheet({ onClose, info, onCopy, onInstall, onRevealConfig }: ConnectClaudeSheetProps) {
+  const [copied, setCopied] = useState<'code' | 'json' | null>(null);
   const [otherWaysOpen, setOtherWaysOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const doneRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!codeCopied) return;
-    const t = window.setTimeout(() => setCodeCopied(false), 1500);
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(null), 1500);
     return () => window.clearTimeout(t);
-  }, [codeCopied]);
+  }, [copied]);
 
-  useEffect(() => {
-    if (!jsonCopied) return;
-    const t = window.setTimeout(() => setJsonCopied(false), 1500);
-    return () => window.clearTimeout(t);
-  }, [jsonCopied]);
-
-  function copy(text: string, mark: (value: boolean) => void) {
-    void navigator.clipboard?.writeText(text).catch(() => {});
-    mark(true);
+  function run(action: () => Promise<void>, after?: () => void) {
+    setError(null);
+    action().then(after, (err) => setError(message(err)));
   }
+
+  const command = info?.command ?? 'Loading…';
+  const desktopJson = info?.desktopJson ?? 'Loading…';
 
   return (
     <Sheet ariaLabel="Connect Claude" onClose={onClose} initialFocusRef={doneRef} className={styles.sheet}>
@@ -50,18 +50,21 @@ export function ConnectClaudeSheet({ onClose, lastUsed = '2 min ago' }: ConnectC
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Claude Code</div>
         <div className={styles.codeBlock}>
-          <code className={styles.code}>{CLAUDE_CODE_COMMAND}</code>
+          <code className={styles.code}>{command}</code>
         </div>
-        <button className={styles.copyButton} onClick={() => copy(CLAUDE_CODE_COMMAND, setCodeCopied)}>
-          {codeCopied ? 'Copied' : 'Copy'}
+        <button className={styles.copyButton} disabled={!info}
+                onClick={() => run(() => onCopy(command), () => setCopied('code'))}>
+          {copied === 'code' ? 'Copied' : 'Copy'}
         </button>
       </div>
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Claude Desktop</div>
-        <button className={styles.installButton} onClick={() => console.log('install-in-claude-desktop')}>
+        <button className={styles.installButton} disabled={!info?.extensionAvailable}
+                onClick={() => run(onInstall)}>
           Install in Claude Desktop
         </button>
+        {info?.extensionNote && <p className={styles.note}>{info.extensionNote}</p>}
         <button
           className={styles.disclosure}
           aria-expanded={otherWaysOpen}
@@ -76,13 +79,14 @@ export function ConnectClaudeSheet({ onClose, lastUsed = '2 min ago' }: ConnectC
         {otherWaysOpen && (
           <div id="connect-claude-other-ways" className={styles.otherWaysPanel}>
             <div className={styles.codeBlock}>
-              <pre className={styles.code}>{CLAUDE_DESKTOP_JSON}</pre>
+              <pre className={styles.code}>{desktopJson}</pre>
             </div>
             <div className={styles.desktopActions}>
-              <button className={styles.copyButton} onClick={() => copy(CLAUDE_DESKTOP_JSON, setJsonCopied)}>
-                {jsonCopied ? 'Copied' : 'Copy'}
+              <button className={styles.copyButton} disabled={!info}
+                      onClick={() => run(() => onCopy(desktopJson), () => setCopied('json'))}>
+                {copied === 'json' ? 'Copied' : 'Copy'}
               </button>
-              <button className={styles.linkButton} onClick={() => console.log('reveal-config-file')}>
+              <button className={styles.linkButton} onClick={() => run(onRevealConfig)}>
                 Reveal config file
               </button>
             </div>
@@ -90,12 +94,17 @@ export function ConnectClaudeSheet({ onClose, lastUsed = '2 min ago' }: ConnectC
         )}
       </div>
 
+      {error && <p className={styles.error} role="alert">{error}</p>}
+
       <p className={styles.privacyNote}>
         Claude reads meetings only when you ask. What it reads is sent to Anthropic to answer you. Speakeasy itself
         stays offline.
       </p>
 
-      <div className={styles.status}>{lastUsed ? `Last used by Claude: ${lastUsed}` : 'Not used yet'}</div>
+      <div className={styles.status}>
+        {info?.lastUsed ? `Last used by Claude: ${info.lastUsed}` : 'Not used by Claude yet'}
+        {' · '}You can turn the extension off in Claude Desktop → Settings → Extensions.
+      </div>
 
       <div className={styles.footer}>
         <div className={styles.doneWrap}>

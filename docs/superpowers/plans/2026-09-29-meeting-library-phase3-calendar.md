@@ -2960,3 +2960,20 @@ Rules:
    - 8: revoke Calendar access. Today should show the denied card, and `get_calendar` should return `[]` within 5 minutes or after a wake. Reconnect afterwards.
    - 6: speaker check on a real 1-on-1 against the Step 3 baseline. This can happen after the merge.
 3. Record the results here, mark Phase 3 done in the parent plan, then merge and clean up. Merging means merging to master, pushing, and deleting the branch and worktree.
+
+### Dictation follow-up tasks (30 Sep 2026 session)
+
+The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED run recorded, then the full suite (Bash timeout 300000). Reviews are on Opus and use mutation checks.
+
+- **D1 (follow-ups 1–3): bound the lookup.**
+  - `injector.focused_target(diagnostics=None, *, deadline_ns=None, clock_ns=time.perf_counter_ns, retry_attempts=None)`. `retry_attempts=None` means `config.DICTATION_TARGET_RETRY_ATTEMPTS` (4).
+  - Before each retry sleep: if `deadline_ns` is set and `clock_ns() + interval_ns > deadline_ns`, stop retrying. Set diagnostics `target_deadline_stop=True` (default False) and return None. Never return a target that was not found.
+  - `_start_recording` passes the take's hold-start to `_resolve_dictation_target(generation, hold_started_ns)`. It uses `deadline_ns = hold_started_ns + DICTATION_TARGET_GRACE_SECONDS·1e9` with `clock_ns=self._dictation_clock_ns`, or no deadline when the hold-start is None.
+  - Delivery-time calls (`insert_text`, `deliver_final`) keep the 4-attempt cap and no deadline.
+  - `paste_last_dictation` (AppKit main thread) calls `focused_target(retry_attempts=0)`: one query plus the enable, and no sleeps. **Ruling R22:** keep the lookup at click time, on the main thread. Moving it to the worker would bind whatever field has focus when the worker gets free, which may be during a streaming decode. By recovery time the app has already answered a take's lookup, so its tree exists. The worst case is 0.5 s of AX timeouts, and the typical case is a few ms. [If wrong: the first recovery paste into a just-relaunched Electron app reports unavailable, and a second click works.]
+  - `config.py` comment worst case, without a deadline: about 1.06 s for an unresponsive app (0.1 s first query, plus up to 4 × 0.1 s enable calls, plus 4 × (0.04 + 0.1) s retries), and about 0.2 s for a fresh Electron app. With the key-down deadline, no retry starts after key-down + 0.3 s, so the worst case is about 0.5 s.
+- **D2 (follow-ups 4–6): tests and docs.**
+  - Add a direct test that a failed first query writes `AXManualAccessibility` and `AXEnhancedUserInterface` = True on the owner app element, only when settable.
+  - Add a threaded grace-path variant of `test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field`, with a controllable engine clock, `_hold_started_ns` set, and one case each for accepted and late.
+  - Fix the stale "1_000_000 ns hold start" comment in `test_target_status_accepted_records_resolve_time_and_diagnostics`.
+  - Record the live 29 Sep results in `docs/insertion-focus-regression.md`, with the status left pending.

@@ -153,21 +153,18 @@ def test_snippet_is_about_30_words(library_path):
     assert 24 < word_count <= 30
 
 
-def test_stronger_match_ranks_first(library_path):
-    # Fix round 1, ruling 2: nothing asserted the sort order. A single-kind
-    # query is already ordered by the SQL query itself, so that alone
-    # wouldn't catch a removed/reversed `hits.sort(key=lambda h: h.score)`
-    # in MeetingLibrary.search: the transcript and notes SQL queries run
-    # separately and their results are concatenated (transcript first, then
-    # notes) before that Python-level sort. Put the *stronger* match in
-    # notes and the *weaker* one in transcript, in a different meeting, so
-    # only the Python-level re-sort produces the correct order.
+def test_stronger_match_ranks_first_within_a_kind(library_path):
+    # bm25 is not comparable across the transcript and notes tables, so the
+    # order is rank within each kind (transcript first on ties). Within one
+    # kind the stronger match must still come first, which only the Python
+    # re-sort guarantees once both kinds are concatenated.
     lib = MeetingLibrary()
-    weak = _save(lib, 20, ("You", 0, 5, "gizmo mentioned once here"))
-    strong = _save(lib, 24, ("You", 0, 5, "unrelated chatter"))
-    lib.save_notes(strong, summary="gizmo gizmo gizmo gizmo gizmo")
+    weak = _save(lib, 20, ("You", 0, 5, "gizmo mentioned once here and a lot of other words"))
+    strong = _save(lib, 24, ("You", 0, 5, "gizmo gizmo gizmo"))
+    lib.save_notes(weak, summary="gizmo")
     hits = lib.search("gizmo")
-    assert [h.meeting_id for h in hits] == [strong, weak]
+    assert [(h.kind, h.meeting_id) for h in hits] == [
+        ("transcript", strong), ("notes", weak), ("transcript", weak)]
 
 
 def test_notes_filter_excludes_out_of_range_meeting(library_path):
@@ -205,3 +202,14 @@ def test_search_none_or_empty_query_returns_empty_list(library_path):
     _save(lib, 24, ("You", 0, 5, "None of this matters"))
     assert lib.search(None) == []
     assert lib.search("") == []
+
+
+def test_notes_and_transcript_hits_interleave_by_rank(library_path):
+    lib = MeetingLibrary()
+    for day, text in [(21, "budget talk"), (22, "the budget again"), (23, "budget budget")]:
+        _save(lib, day, ("You", 0, 5, text))
+    for day in (24, 25):
+        mid = _save(lib, day, ("You", 0, 5, "hello"))
+        lib.save_notes(mid, summary="Agreed the budget")
+    kinds = [h.kind for h in lib.search("budget", limit=10)]
+    assert kinds == ["transcript", "notes", "transcript", "notes", "transcript"]

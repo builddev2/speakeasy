@@ -195,6 +195,8 @@ class StoredMeeting:
     notes: Notes | None
     tags: list[str]
     people: list[str]
+    speakers: list[str] = field(default_factory=list)
+    segment_count: int = 0
 
     @property
     def local_start(self) -> datetime:
@@ -210,6 +212,8 @@ class StoredMeeting:
 class TranscriptPage:
     segments: list[tuple[int, MeetingSegment]]
     next_cursor: int | None
+    title: str = ""
+    timestamps_approximate: bool = False
 
 
 @dataclass
@@ -474,14 +478,20 @@ class MeetingLibrary:
         return Notes(row["summary"], json.loads(row["action_items_json"]),
                      row["updated_at"], row["updated_by"])
 
-    def get_meeting(self, meeting_id: str) -> StoredMeeting:
+    def get_meeting(self, meeting_id: str, *, with_segments: bool = True) -> StoredMeeting:
         _check_id(meeting_id)
         with self._transaction() as conn:
             m = conn.execute("SELECT * FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
             if m is None:
                 raise MeetingNotFound(meeting_id)
+            speakers = [r[0] for r in conn.execute(
+                "SELECT speaker FROM segments WHERE meeting_id = ? GROUP BY speaker"
+                " ORDER BY MIN(idx)", (meeting_id,))]
+            segment_count = conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE meeting_id = ?", (meeting_id,)).fetchone()[0]
             segments = [_segment(r) for r in conn.execute(
-                "SELECT * FROM segments WHERE meeting_id = ? ORDER BY idx", (meeting_id,))]
+                "SELECT * FROM segments WHERE meeting_id = ? ORDER BY idx",
+                (meeting_id,))] if with_segments else []
             return StoredMeeting(
                 meeting_id=m["id"], title=m["title"], started_at=m["started_at"],
                 tz_offset_minutes=m["tz_offset_minutes"],
@@ -496,6 +506,7 @@ class MeetingLibrary:
                 notes=self._notes(conn, meeting_id),
                 tags=self._tags(conn, meeting_id),
                 people=self._people(conn, meeting_id),
+                speakers=speakers, segment_count=segment_count,
             )
 
     def list_meetings(self, *, from_date=None, to_date=None, tag=None,
@@ -514,7 +525,18 @@ class MeetingLibrary:
                 " (SELECT group_concat(speaker, char(31)) FROM ("
                 "   SELECT speaker, MIN(idx) AS first_idx FROM segments"
                 "   WHERE meeting_id = m.id GROUP BY speaker ORDER BY first_idx"
-                " )) AS speakers_blob"
+                " )) AS speakers_blob,"
+                # Tags and people ride along for the same reason: one SELECT
+                # however many rows come back. Order matches _tags/_people.
+                " (SELECT group_concat(name, char(31)) FROM ("
+                "   SELECT t.name FROM meeting_tags mt JOIN tags t ON t.id = mt.tag_id"
+                "   WHERE mt.meeting_id = m.id ORDER BY t.name COLLATE NOCASE"
+                " )) AS tags_blob,"
+                " (SELECT group_concat(display_name, char(31)) FROM ("
+                "   SELECT p.display_name FROM meeting_people mp"
+                "   JOIN people p ON p.id = mp.person_id WHERE mp.meeting_id = m.id"
+                "   ORDER BY mp.role DESC, p.display_name COLLATE NOCASE"
+                " )) AS people_blob"
                 f" FROM meetings m WHERE {where}"
                 " ORDER BY m.started_at DESC, m.id DESC LIMIT ? OFFSET ?",
                 (*params, limit, max(0, int(offset))),
@@ -527,8 +549,8 @@ class MeetingLibrary:
                     speaker_count=r["speaker_count"],
                     has_summary=bool(r["has_summary"]),
                     timestamps_approximate=bool(r["timestamps_approximate"]),
-                    tags=self._tags(conn, r["id"]),
-                    people=self._people(conn, r["id"]),
+                    tags=r["tags_blob"].split("\x1f") if r["tags_blob"] else [],
+                    people=r["people_blob"].split("\x1f") if r["people_blob"] else [],
                     speakers=(r["speakers_blob"].split("\x1f")
                               if r["speakers_blob"] else []),
                 )
@@ -547,22 +569,26 @@ class MeetingLibrary:
             clauses.append("start_seconds <= ?")
             params.append(float(end_seconds))
         with self._transaction() as conn:
-            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+            meta = conn.execute(
+                "SELECT title, timestamps_approximate FROM meetings WHERE id = ?",
+                (meeting_id,)).fetchone()
+            if meta is None:
                 raise MeetingNotFound(meeting_id)
-            rows = conn.execute(
-                f"SELECT * FROM segments WHERE {' AND '.join(clauses)} ORDER BY idx",
-                params,
-            ).fetchall()
-        page, used = [], 0
-        for i, row in enumerate(rows):
-            # Progress guard: always admit at least one segment before
-            # checking the budget, so a single oversized segment still
-            # advances the cursor instead of stalling the pager forever.
-            if page and used + len(row["text"]) > max_chars:
-                return TranscriptPage(page, rows[i]["idx"])
-            page.append((row["idx"], _segment(row)))
-            used += len(row["text"])
-        return TranscriptPage(page, None)
+            title, approximate = meta["title"], bool(meta["timestamps_approximate"])
+            page, used = [], 0
+            # Iterate the cursor lazily and stop once the budget is spent, so a
+            # page of a long meeting reads a page of rows, not the whole tail.
+            for row in conn.execute(
+                    f"SELECT * FROM segments WHERE {' AND '.join(clauses)} ORDER BY idx",
+                    params):
+                # Progress guard: always admit at least one segment before
+                # checking the budget, so a single oversized segment still
+                # advances the cursor instead of stalling the pager forever.
+                if page and used + len(row["text"]) > max_chars:
+                    return TranscriptPage(page, row["idx"], title, approximate)
+                page.append((row["idx"], _segment(row)))
+                used += len(row["text"])
+        return TranscriptPage(page, None, title, approximate)
 
     # -- notes, tags, people ---------------------------------------------
 
@@ -674,7 +700,14 @@ class MeetingLibrary:
                 hits = self._search(conn, match, where, params, limit * 4)
                 if hits:
                     break
-        hits.sort(key=lambda h: h.score)
+        # bm25 scores from the transcript and notes FTS tables are not comparable
+        # (different table sizes and document lengths), so order by rank within
+        # each kind and interleave, transcript first on ties.
+        rank = {}
+        for kind in ("transcript", "notes"):
+            of_kind = sorted((h for h in hits if h.kind == kind), key=lambda h: h.score)
+            rank.update((id(h), i) for i, h in enumerate(of_kind))
+        hits.sort(key=lambda h: (rank[id(h)], 0 if h.kind == "transcript" else 1))
         return collapse_echoes(hits)[:limit]
 
     def _search(self, conn, match, where, params, fetch) -> list[SearchHit]:

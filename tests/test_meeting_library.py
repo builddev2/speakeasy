@@ -334,3 +334,48 @@ def test_delete_removes_orphan_tags_but_keeps_shared_tags(library_path):
     finally:
         conn.close()
     assert names == {"Shared"}
+
+
+def test_transcript_page_stops_reading_when_budget_is_spent(library_path, monkeypatch):
+    from speakeasy import meeting_library
+    lib = MeetingLibrary(library_path)
+    mid = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", i, i + 1, "x" * 900) for i in range(200)],
+        duration_seconds=200, started_at=datetime.now().astimezone()))
+    seen = []
+    real = meeting_library._segment
+    monkeypatch.setattr(meeting_library, "_segment", lambda row: seen.append(1) or real(row))
+    page = lib.transcript_page(mid, max_chars=1000)
+    assert len(page.segments) == 1 and page.next_cursor == 1
+    assert page.title and len(seen) <= 2
+
+
+def test_get_meeting_without_segments_counts_in_sql(library_path):
+    lib = MeetingLibrary(library_path)
+    mid = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 1, "a"), MeetingSegment("Speaker 1", 1, 2, "b"),
+                  MeetingSegment("You", 2, 3, "c")],
+        duration_seconds=3, started_at=datetime.now().astimezone()))
+    m = lib.get_meeting(mid, with_segments=False)
+    assert m.segments == [] and m.segment_count == 3 and m.speakers == ["You", "Speaker 1"]
+    assert lib.get_meeting(mid).speakers == ["You", "Speaker 1"]
+
+
+def test_list_meetings_query_count_does_not_grow_with_rows(library_path, monkeypatch):
+    lib = MeetingLibrary(library_path)
+    for i in range(5):
+        mid = lib.save_meeting(NewMeeting(segments=[MeetingSegment("You", 0, 1, "a")],
+                                          duration_seconds=1,
+                                          started_at=datetime.now().astimezone() - timedelta(hours=i)))
+        lib.save_notes(mid, tags=["b", "A"])
+    statements = []
+    real_connect = meeting_store.connect
+    def tracing(*a, **k):
+        conn = real_connect(*a, **k)
+        conn.set_trace_callback(statements.append)
+        return conn
+    monkeypatch.setattr(meeting_store, "connect", tracing)
+    rows = lib.list_meetings()
+    monkeypatch.undo()
+    assert all(r.tags == ["A", "b"] for r in rows)
+    assert sum(s.lstrip().upper().startswith("SELECT") for s in statements) == 1

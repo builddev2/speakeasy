@@ -221,3 +221,19 @@ def test_get_calendar_lists_people(library_path):
     day = start.astimezone().date().isoformat()
     out = build_tools(lib)["get_calendar"].run({"from": day, "to": day})
     assert out["events"][0]["people"] == ["Refayet K"]
+
+
+class NoFullLoad(MeetingLibrary):
+    def get_meeting(self, meeting_id, *, with_segments=True):
+        assert not with_segments, "the MCP tools must not load every segment"
+        return super().get_meeting(meeting_id, with_segments=False)
+
+
+def test_transcript_and_meeting_tools_avoid_full_loads(library_path):
+    lib = NoFullLoad(library_path)
+    mid = _seed(lib)   # 2 segments: "You", "Speaker 1"
+    tools = build_tools(lib)
+    page = tools["get_transcript"].run({"id": mid})
+    assert page["title"] == "Budget review" and page["timestamps_approximate"] is False
+    meta = tools["get_meeting"].run({"id": mid})
+    assert meta["segment_count"] == 2 and meta["speakers"] == ["You", "Speaker 1"]

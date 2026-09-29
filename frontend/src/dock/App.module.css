@@ -208,7 +208,6 @@
   outline-offset: 1px;
 }
 
-
 .eventMenuCheck {
   display: inline-block;
   width: 14px;
@@ -223,5 +222,5 @@
 .speakerHint {
   margin-top: 6px;
   font: 500 10.5px/1 var(--sans);
-  color: rgba(255,255,255,0.62);
+  color: var(--text-mid);
 }

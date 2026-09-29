@@ -7,13 +7,15 @@ import styles from './SettingsSheet.module.css';
 
 interface SettingsSheetProps {
   settings: MeetingSettings;
+  /** "No calendars found." only makes sense once access is granted. */
+  calendarConnected: boolean;
   onChange: (patch: { offerToRecord?: boolean; calendars?: Record<string, boolean> }) => void;
   onClose: () => void;
   onExportAll: () => void;
 }
 
 /** Meetings section of Settings: recording offer toggle, calendar checklist, export. */
-export function SettingsSheet({ settings, onChange, onClose, onExportAll }: SettingsSheetProps) {
+export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll }: SettingsSheetProps) {
   const { offerToRecord, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
 
@@ -28,7 +30,7 @@ export function SettingsSheet({ settings, onChange, onClose, onExportAll }: Sett
 
       <div className={styles.sectionTitle}>Calendars</div>
       <div className={styles.calendarList}>
-        {accounts.length === 0 && <div className={styles.accountName}>No calendars found.</div>}
+        {accounts.length === 0 && calendarConnected && <div className={styles.accountName}>No calendars found.</div>}
         {accounts.map((account) => (
           <div key={account.name} className={styles.accountGroup}>
             <div className={styles.accountName}>{account.name}</div>

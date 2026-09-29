@@ -147,7 +147,8 @@ class MainWindowController(NSObject):
     def _meeting_events(self, params, respond):
         sync = services.calendar_sync
         if sync is None or sync.access() != "connected":
-            respond([])
+            # The Dock hides its event UI on this error (no Calendar, no menu).
+            respond(error="calendar_unavailable")
             return
         from datetime import datetime
 

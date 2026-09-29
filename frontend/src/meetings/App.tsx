@@ -315,7 +315,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     bridge
       .call<MeetingSettings>('settings.meetings.get')
       .then(setMeetingSettings)
-      .catch((err) => console.error('settings.meetings.get failed', err));
+      .catch((err) => {
+        console.error('settings.meetings.get failed', err);
+        setSettingsOpen(false);
+      });
   }, [embedded, settingsOpen]);
 
   function onChangeSettings(patch: { offerToRecord?: boolean; calendars?: Record<string, boolean> }) {
@@ -356,6 +359,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         .then((d) => {
           setDetails((prev) => ({ ...prev, [id]: d }));
           refreshCalendar();
+          // Linking overwrites the title and people, so the list row and the
+          // sidebar counts go stale unless we re-list (selection is kept).
+          void refreshList(filterParams(filterRef.current), true);
+          void bridge
+            .call<Filters>('meetings.filters')
+            .then(setFilters)
+            .catch((err) => console.error('meetings.filters failed', err));
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);
@@ -365,6 +375,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     }
     const chosen = key === null ? null : (MOCK_EVENTS_FOR_DAY.find((e) => e.key === key) ?? null);
     setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], event: chosen } } : prev));
+    if (chosen) {
+      setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title: chosen.title } } : prev));
+      setMetas((prev) => prev.map((m) => (m.id === id ? { ...m, title: chosen.title } : m)));
+    }
   }
 
   // Step 3: debounced search already happens in MeetingDetail before
@@ -746,6 +760,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         {settingsOpen && meetingSettings && (
           <SettingsSheet
             settings={meetingSettings}
+            calendarConnected={todayConnection === 'connected'}
             onChange={onChangeSettings}
             onClose={closeSettings}
             onExportAll={() => console.log('export-all-meetings')}

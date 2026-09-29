@@ -2907,13 +2907,56 @@ git commit -m "Add a previewable fix for imported titles that carry the end time
 - **Title fix:** truncated import seconds can make the end stamp a minute early, which can only cause a missed fix.
 - **Threading:** `shutdown()` drops the store off the executor. `access()` runs on the main thread (a documented exception).
 
+### Acceptance run (29 Sep 2026, installed builds 46918ca → 14541f3)
+
+Passed:
+1. No calendar prompt at launch.
+2. Connect Calendar prompts, and Today lists the events.
+3. Settings shows the ticks, and unticking a calendar removes its events.
+4. Dock "Recording · pickup": the event menu switches events, and Unlink saves the meeting unlinked.
+5. Record from the Today row links the event and saves its title. The user renamed one test meeting themselves.
+7. `get_calendar` returns events with people (1,186 cached).
+9. Dictation into TextEdit, Codex and Teams works, including the first take after relaunching Codex and Teams.
+
+Not done yet:
+- 6: speaker check on a real 1-on-1.
+- 8: revoke access.
+- 10: title-fix dry run on the real library. It already ran on a copy and found 74 fixes.
+
+Bugs found and fixed during acceptance:
+- **`35a46f5`**: the Dock event menu ran off the window, so Unlink couldn't be reached. Unlink now comes first and the list scrolls, in both menus.
+- **`e563df9`**: an old coral focus frame around the whole meeting list.
+- **`c81273e` + `14541f3`**: the first dictation into a freshly launched Electron app was blocked (`permission_or_focus_unavailable`). The diagnostic log showed two causes:
+  - The key-down target was only kept if its lookup beat the mic's first buffer (5–20 ms), and AX lookups take about 15 ms. This random loss could hit any take.
+  - A fresh Electron app answers the first query with `kAXErrorNoValue`, and the retry only ran if switching accessibility on succeeded.
+
+  The fix has two parts:
+  - **R20:** accept the target if it resolved within 300 ms of key-down, or before the first buffer. Delivery still refuses if focus changed.
+  - **R21:** retry the lookup up to 4 times, 40 ms apart, whatever the switch-on returned. Stop if the frontmost app changes.
+
+  Opus review: no Critical or Important findings, and 11 of 11 mutations were caught. Live check: the first takes in Codex and Teams inserted, but neither race condition happened in that run, with 0 retries and every lookup ahead of the buffer. So this is confirmed not to regress; the fix itself is not yet confirmed live. **Residual risk:** a non-secure field that gains focus within 300 ms of key-down and is still focused at release gets the text. The old rule held it for recovery. Password fields stay blocked.
+- Build `14541f3` passes 712 tests.
+
+### Follow-ups for the dictation fix (next session)
+
+1. Stop the retry loop in `injector.focused_target` at the grace deadline: key-down + `DICTATION_TARGET_GRACE_SECONDS`. A later answer is discarded as late anyway, so extra retries only hold the single worker, which also runs streaming decode. `focused_target` doesn't know key-down, so pass a deadline in from `_resolve_dictation_target`. The delivery-time and `paste_last_dictation` calls have no key-down, so keep the fixed 4-attempt cap there.
+2. Fix the `config.py` comment on the worst case. It is about 1.06 s for an unresponsive app: 0.1 s AX timeout per call, up to 4 enable calls, and 4 × (0.04 + 0.1) s. It is about 0.2 s for a fresh Electron app.
+3. `paste_last_dictation` calls `focused_target()` on the AppKit main thread (`menubar.py:509` → `engine.py:~1593`). With no focused field it now blocks for about 0.2 s, up to about 1 s. Either move the lookup off the main thread without changing the recovery semantics, or cap it at a single attempt there. Decide, and document why.
+4. Restore a direct test that `focused_target` writes `AXManualAccessibility` / `AXEnhancedUserInterface` through `_enable_accessibility`. The deleted `test_lazy_accessibility_retry_is_bounded_and_checks_foreground` covered it; now it is caught only through a diagnostics flag.
+5. `tests/test_engine_streaming.py` `test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field` never sets `_hold_started_ns`, so it only exercises the hold-started-None fallback. Add a threaded variant that goes through the grace path. Also fix the stale "1_000_000 ns hold start" comment near line 449.
+6. `docs/insertion-focus-regression.md`: record the live 29 Sep results above, including that neither race condition happened in that run. Leave the status pending until a take with `target_retry_count > 0`, or with a lookup that finished between the first buffer and 300 ms, is seen inserting correctly.
+
+Rules:
+- Read CLAUDE.md, AGENTS.md (the recurring insertion rules) and `docs/insertion-focus-regression.md` first.
+- Keep secure-field, target-identity, clipboard-ownership and fail-closed behaviour.
+- Don't log PIDs or field content.
+- Before claiming success, check TextEdit, Codex and Teams on the installed build, including the first take after relaunching each app.
+
 ### Remaining (Task 10 Steps 4–6)
 
-1. `scripts/build_app.sh --install`. This needs the user's go-ahead because it quits the running app. Check `NSCalendarsFullAccessUsageDescription` and EventKit in the bundle, then restart Claude Desktop and Claude Code.
-2. Acceptance items 1–10 with the user, including dictation into TextEdit, Codex and Teams, and the speaker before/after comparison against the Step 3 baseline.
-3. Record the results here, mark Phase 3 done in the parent plan, then merge.
-
-### Carried in from Phase 2
-
-- The duplicate MCP connection in Claude Code (`speakeasy` via `claude mcp add` and `Speakeasy Meetings` via the extension, so 16 tools) needs no code change. The user should remove one with `claude mcp remove speakeasy`, or turn off the extension there. Task 10 adds the README note.
-- Phase 1 parked items that are **not** in scope here: the 500-row list cap, the `_upgrade_library` `print_exc`, the Event-release test hang, the uninstall script wording, and the frontend minors listed in the parent plan (apart from the duplicate `UpcomingDay`, which Task 7 removes).
+1. Done: build and install. The installed build is `14541f3`, with `NSCalendarsFullAccessUsageDescription` and EventKit in the bundle. Claude Desktop and Claude Code were restarted.
+2. Acceptance still to do:
+   - 10: title-fix dry run on the real library. Apply only if the user says so.
+   - 8: revoke Calendar access. Today should show the denied card, and `get_calendar` should return `[]` within 5 minutes or after a wake. Reconnect afterwards.
+   - 6: speaker check on a real 1-on-1 against the Step 3 baseline. This can happen after the merge.
+3. Record the results here, mark Phase 3 done in the parent plan, then merge and clean up. Merging means merging to master, pushing, and deleting the branch and worktree. Git push needs the user's credentials: from this session it failed with "could not read Username".

@@ -2840,6 +2840,16 @@ Scope: `speakeasy/ui/record_prompt.py` hosting `prompt.html` in a **non-activati
 - **B2:** The "92 meetings upgraded" banner does not fade after 4 s; it stayed visible for minutes with no skipped files. Suspect the fade guard in `LibraryBanner.tsx` treats an empty `skipped` array as "has skipped files", or the timer never arms in embedded mode.
 - **B3:** Esc does not close the speaker popover in the real app (WKWebView); Cancel works. Check how Escape reaches the page. The window may consume it as `cancelOperation:` before the page sees the keydown. Check ConfirmSheet and the sheets too.
 
+**Launch-bug fixes (28 Sep 2026, commits 8d36341, 913e857, 0194124, 496d793; installed build 496d793):**
+Checked in the installed app with `HOME` set to a temp dir holding copies of 3 meetings. The real data dir was untouched.
+- **B1 fixed:** all 5 free-text fields spread a shared `NO_AUTOCORRECT` (`frontend/src/components/noAutocorrect.ts`). In the app, "cognos" typed into search stayed unchanged after blur.
+- **B2 fixed:** the cause was the banner sitting inside App.tsx view branches that unmount when searching or opening Today. Each remount restarted the 4 s timer. A `useLibraryBannerDismissed` hook in App now keys on primitives and pauses while the page is hidden. In the app, "3 meetings upgraded" was gone within 6 s.
+- **B3 fixed:** the web view is made first responder when a window is shown. `frontend/src/meetings/overlayStack.ts` has one capture-phase Esc listener that closes only the topmost overlay, whatever has focus. Other Esc handlers call `preventDefault`, so Esc no longer also exits full screen. The user confirmed by hand in the app: Esc closes the speaker popover (also after clicking its checkbox), the ⋯ menu and the Delete sheet; search Esc clears the field and stays in full screen. The automation tool's Esc is never delivered to the app, so test Esc by hand.
+- **B4 (found and fixed):** transcript speaker names were clipped to "…", because "≈12:43:09 PM" filled the 168 px head column, and the rename popover could not be reached. The column is now 240 px and the head uses flex; confirmed in the app.
+- **B5 (open):** Cmd+A did nothing in the search field. The app's menu bar has only the Apple and Speakeasy menus, with no Edit menu, so Cmd+A/C/V/X/Z are probably dead in every WKWebView text field. Fix: add a standard Edit menu in `ui/menubar.py` `setMainMenu_`.
+- **Deferred minors:** LibraryBanner visibility is read at render but the listener is attached in the effect. `status.skipped.length` is used without `?.`. overlayStack ignores `e.isComposing` (IME). A parent and child overlay activating in the same render register in child-first order. Removing `{' '}` means a text selection copied from the transcript reads "PMSpeaker". The overlay-stack logic has no automated test, and no frontend test runner exists.
+- The temp-HOME instance showed the "Allow Speakeasy to type for you" permission prompt. The normal relaunch did not, and it reached Ready.
+
 **Not yet verified:**
 - the 820×520 minimum window size;
 - deleting a throwaway recording through the sheet;

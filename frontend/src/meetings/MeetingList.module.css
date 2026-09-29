@@ -7,9 +7,11 @@
   border-right: 0.5px solid var(--hairline-lo);
 }
 
+/* No ring around the whole column: when the list has keyboard focus the
+   selected row already shows where you are, and a full-height coral frame
+   read as a stray border. Rows keep their own focus ring (.row:focus-visible). */
 .list:focus-visible {
-  outline: 2px solid var(--coral-1);
-  outline-offset: -2px;
+  outline: none;
 }
 
 .dayHeader {

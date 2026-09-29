@@ -75,6 +75,7 @@ def event_from_ek(ek, calendar_title: str) -> SyncedEvent | None:
     if organizer is not None and all(_identity(p) != _identity(organizer) for p in participants):
         participants.append(organizer)
     declined_self = unknown = False
+    count = 0
     people: dict[str, EventPerson] = {}
     for p in participants:
         if p.isCurrentUser():
@@ -91,7 +92,9 @@ def event_from_ek(ek, calendar_title: str) -> SyncedEvent | None:
         email = _email(p)
         name = (p.name() or "").strip() or email
         if not name:
+            unknown = True   # an address we can't name (X500, urn:): still a voice
             continue
+        count += 1
         role = ("organizer" if organizer is not None and _identity(p) == _identity(organizer)
                 else "attendee")
         people[_identity(p)] = EventPerson(name, email, role)
@@ -101,7 +104,7 @@ def event_from_ek(ek, calendar_title: str) -> SyncedEvent | None:
         calendar_name=calendar_title,
         title=(ek.title() or "").strip() or "Untitled event",
         start=start, end=end, all_day=bool(ek.isAllDay()), declined=declined_self,
-        other_attendees=None if unknown or not ordered else len(ordered),
+        other_attendees=None if unknown or not count else count,
         people=tuple(ordered),
     )
 
@@ -162,6 +165,13 @@ class EventKitStore:
             self._ek.EKEventStoreChangedNotification, self._store, None,
             lambda note: callback())
 
+    def stop_observing(self) -> None:
+        from Foundation import NSNotificationCenter
+
+        if self._observer is not None:
+            NSNotificationCenter.defaultCenter().removeObserver_(self._observer)
+            self._observer = None
+
 
 class CalendarSync:
     """Owns the `calendar` executor. Public methods are safe from any thread."""
@@ -194,10 +204,17 @@ class CalendarSync:
             if self._pending:
                 return
             self._pending = True
-        self._executor.submit(self._run_sync)
+        try:
+            self._executor.submit(self._run_sync)
+        except RuntimeError:   # shut down (quit): may be called from an ObjC block
+            with self._lock:
+                self._pending = False
 
     def request_access(self) -> None:
-        self._executor.submit(self._request_access)
+        try:
+            self._executor.submit(self._request_access)
+        except RuntimeError:
+            pass
 
     def _request_access(self) -> None:
         if self.access() != "unconnected":
@@ -210,11 +227,21 @@ class CalendarSync:
     def _after_access(self, granted: bool) -> None:
         # Any thread. A store created before the grant can keep answering
         # "no calendars", so start from a fresh one.
-        self._executor.submit(self._drop_store)
-        self.request_sync()
+        # One job, so a sync queued earlier can't run on the pre-grant store
+        # with the drop landing after it.
+        try:
+            self._executor.submit(self._drop_store_and_sync)
+        except RuntimeError:
+            pass
+
+    def _drop_store_and_sync(self) -> None:
+        self._drop_store()
+        self._run_sync()
 
     def _drop_store(self) -> None:
-        self._store = None
+        store, self._store = self._store, None
+        if store is not None:
+            store.stop_observing()
 
     def _get_store(self):
         if self._store is None:
@@ -250,5 +277,6 @@ class CalendarSync:
     def shutdown(self, wait: bool = False, restart: bool = False) -> None:
         """`restart=True` (tests) drains the queue, then accepts work again."""
         self._executor.shutdown(wait=wait, cancel_futures=not wait)
+        self._drop_store()
         if restart:
             self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="calendar")

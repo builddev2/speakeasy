@@ -90,6 +90,24 @@ def test_untitled_and_organizer_not_in_attendees():
     assert [p.name for p in out.people] == ["Refayet K"] and out.other_attendees == 1
 
 
+def test_unnameable_participant_makes_count_unknown():
+    x500 = P(None, None)
+    x500._e = None
+    ev = Ev("x", NOW, attendees=[ME, REF, x500])
+    assert cs.event_from_ek(ev, "Work").other_attendees is None
+
+
+def test_same_name_without_email_counts_each_person():
+    ev = Ev("x", NOW, attendees=[ME, P("Sam"), P("Sam")])
+    out = cs.event_from_ek(ev, "Work")
+    assert out.other_attendees == 2
+
+
+def test_organizer_also_attending_is_one_person():
+    ev = Ev("x", NOW, attendees=[ME, REF], organizer=REF)
+    assert cs.event_from_ek(ev, "Work").other_attendees == 1
+
+
 class FakeStore:
     def __init__(self, calendars, events_by_cal):
         self._cals, self._events = calendars, events_by_cal
@@ -102,6 +120,7 @@ class FakeStore:
                 if (e := cs.event_from_ek(ek, cal_id))]
     def request_access(self, done): self.requested.append(done)
     def observe_changes(self, callback): self.observer = callback
+    def stop_observing(self): self.observer = None
 
 
 WORK = cs.CalendarInfo("work", "Calendar", "Exchange", 2)
@@ -215,3 +234,44 @@ def test_constants_match_eventkit():
     assert cs.EVENT_STATUS_CANCELED == EventKit.EKEventStatusCanceled
     assert cs.CALENDAR_TYPE_SUBSCRIPTION == EventKit.EKCalendarTypeSubscription
     assert cs.CALENDAR_TYPE_BIRTHDAY == EventKit.EKCalendarTypeBirthday
+
+
+def test_grant_while_sync_queued_resyncs_on_a_fresh_store(library_path):
+    gate = threading.Event()
+    stores = []
+
+    def factory():
+        st = FakeStore([WORK], {"work": [Ev("1:1", NOW)]})
+        stores.append(st)
+        if len(stores) == 1:
+            st.events = lambda s, e, i: (gate.wait(5), [])[1]
+        return st
+
+    sync = cs.CalendarSync(library=MeetingLibrary(library_path), store_factory=factory,
+                           authorization=lambda: cs.AUTH_FULL, now=lambda: NOW,
+                           read_settings=lambda: {"calendar_choices": {}})
+    sync.request_sync()          # running, blocked on the first (stale) store
+    sync.request_sync()          # queued behind it
+    sync._after_access(True)
+    gate.set()
+    sync.shutdown(wait=True)
+    assert len(stores) == 2
+    assert MeetingLibrary(library_path).calendar_events_between("2026-09-29", "2026-09-29")
+
+
+def test_requests_after_shutdown_do_not_raise_or_stick(library_path):
+    sync = make_sync(library_path, FakeStore([WORK], {}))
+    sync.shutdown(wait=True)
+    sync.request_sync()
+    sync.request_access()
+    sync._after_access(True)
+    assert sync._pending is False
+
+
+def test_shutdown_stops_observing(library_path):
+    store = FakeStore([WORK], {})
+    sync = make_sync(library_path, store)
+    sync.sync_now()
+    assert store.observer is not None
+    sync.shutdown(wait=True)
+    assert store.observer is None

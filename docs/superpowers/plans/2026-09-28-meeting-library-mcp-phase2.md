@@ -2402,6 +2402,8 @@ Implementers ran on Sonnet 5.5. Every task review, re-review and the final whole
 
 Not blockers for merge. Plan them in a new session.
 
+**Planned 29 Sep 2026** in the [Phase 3 plan](2026-09-29-meeting-library-phase3-calendar.md): speaker over-splitting and the 60 s system-track cap are Task 3 (the calendar cap is wired in Task 5); the query and connection items are Task 8; imported titles are Task 9; the duplicate-connection note is in Task 10.
+
 - **Speaker over-splitting (highest value).** Real 1-on-1s show 9 and 14 speakers (for example "1on1 Refayet", 23 min), even with `DIARIZATION_THRESHOLD = 0.7`, so Claude's summaries can't say who said what. Options: merge low-talk-time clusters into their nearest centroid, and in Phase 3 pass the calendar attendee count as `expected_speaker_count` (`diarizer.py` already accepts it).
 - **Cap system-track segments at 60 s** too. The TEST meeting had a single 71.9 s "Speaker 1" segment. This was already noted in Phase 1.
 - **`get_transcript` loads the whole meeting.** It calls `library.get_meeting()` just for the title and the approximate flag (`mcp_tools.py`), which loads every segment and opens a second connection. `transcript_page` also reads every row after the cursor and then trims in Python. Fix: return the meta from `transcript_page` in one transaction, and stop fetching once the character budget is spent. The `get_meeting` tool also loads all segments only to count them and list the speakers; use SQL instead.

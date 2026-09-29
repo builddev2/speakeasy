@@ -1,0 +1,6 @@
+#!/bin/sh
+# Claude Desktop Extension launcher: runs the installed app's MCP server.
+# The extension carries no app code, model or data, only this and a manifest.
+APP_EXE="/Applications/Speakeasy.app/Contents/MacOS/Speakeasy"
+[ -x "$APP_EXE" ] || { echo "Speakeasy is not installed in /Applications. Install Speakeasy, then try again." >&2; exit 1; }
+exec "$APP_EXE" --mcp

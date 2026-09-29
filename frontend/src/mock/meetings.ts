@@ -522,3 +522,28 @@ export const MOCK_UPCOMING: { dayLabel: string; events: AgendaEvent[] }[] = [
     ],
   },
 ];
+
+export interface ClaudeSetupInfo {
+  command: string;
+  desktopJson: string;
+  executable: string;
+  lastUsed: string | null;
+  extensionAvailable: boolean;
+  extensionNote: string | null;
+}
+
+export const MOCK_CLAUDE_SETUP: ClaudeSetupInfo = {
+  command: 'claude mcp add speakeasy -- /Applications/Speakeasy.app/Contents/MacOS/Speakeasy --mcp',
+  desktopJson: `{
+  "mcpServers": {
+    "speakeasy": {
+      "command": "/Applications/Speakeasy.app/Contents/MacOS/Speakeasy",
+      "args": ["--mcp"]
+    }
+  }
+}`,
+  executable: '/Applications/Speakeasy.app/Contents/MacOS/Speakeasy',
+  lastUsed: '2 min ago',
+  extensionAvailable: true,
+  extensionNote: null,
+};

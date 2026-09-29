@@ -15,7 +15,16 @@ import { TodayView } from './TodayView';
 import type { TodayConnection } from './TodayView';
 import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
-import { MOCK_METAS, MOCK_DETAILS, MOCK_FILTERS, MOCK_RESULTS, MOCK_STATUS, MOCK_AGENDA, MOCK_UPCOMING } from '../mock/meetings';
+import {
+  MOCK_METAS,
+  MOCK_DETAILS,
+  MOCK_FILTERS,
+  MOCK_RESULTS,
+  MOCK_STATUS,
+  MOCK_AGENDA,
+  MOCK_UPCOMING,
+  MOCK_CLAUDE_SETUP,
+} from '../mock/meetings';
 import type {
   MeetingMeta,
   MeetingDetail as MeetingDetailType,
@@ -23,6 +32,7 @@ import type {
   SearchResult,
   LibraryStatus,
   Filters,
+  ClaudeSetupInfo,
 } from '../mock/meetings';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
@@ -107,6 +117,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
   const [today, setToday] = useState(TODAY_STATES.includes(mockState));
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
+  const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
   const [embeddedStatus, setEmbeddedStatus] = useState<LibraryStatus>(IDLE_STATUS);
   const todayConnection: TodayConnection =
@@ -305,6 +316,32 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     setToday(false);
     select(meetingId);
   }
+
+  // Fetched on each open so "last used" is fresh; cleared on close so a stale value never flashes.
+  useEffect(() => {
+    if (!connectClaudeOpen) {
+      setClaudeInfo(null);
+      return;
+    }
+    if (embedded) {
+      bridge
+        .call<ClaudeSetupInfo>('claude.setupInfo')
+        .then(setClaudeInfo)
+        .catch((err) => console.error('claude.setupInfo failed', err));
+    } else {
+      setClaudeInfo(MOCK_CLAUDE_SETUP);
+    }
+  }, [connectClaudeOpen, embedded]);
+
+  function copyForClaude(text: string): Promise<void> {
+    // WKWebView can reject navigator.clipboard; the native bridge cannot.
+    if (embedded) return bridge.call('meetings.copyText', { text }).then(() => undefined);
+    return navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.resolve();
+  }
+  const installClaudeExtension = () =>
+    embedded ? bridge.call('claude.installExtension').then(() => undefined) : Promise.resolve();
+  const revealClaudeConfig = () =>
+    embedded ? bridge.call('claude.revealConfig').then(() => undefined) : Promise.resolve();
 
   function closeConnectClaude() {
     setConnectClaudeOpen(false);
@@ -552,7 +589,15 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           />
         )}
 
-        {connectClaudeOpen && <ConnectClaudeSheet onClose={closeConnectClaude} />}
+        {connectClaudeOpen && (
+          <ConnectClaudeSheet
+            onClose={closeConnectClaude}
+            info={claudeInfo}
+            onCopy={copyForClaude}
+            onInstall={installClaudeExtension}
+            onRevealConfig={revealClaudeConfig}
+          />
+        )}
 
         {settingsOpen && (
           <SettingsSheet onClose={closeSettings} onExportAll={() => console.log('export-all-meetings')} />

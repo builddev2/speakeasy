@@ -119,6 +119,24 @@
   color: var(--text-lo);
 }
 
+.note {
+  margin: 8px 0 0;
+  font: 400 11.5px/1.5 var(--sans);
+  color: var(--text-mid);
+}
+
+.error {
+  margin: 0 0 12px;
+  font: 400 12px/1.5 var(--sans);
+  color: var(--red-1);
+}
+
+.installButton:disabled,
+.copyButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .footer {
   display: flex;
   justify-content: flex-end;

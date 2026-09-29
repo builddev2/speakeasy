@@ -10,6 +10,11 @@ def main() -> None:
         from .inference_probe import main as probe_main
         probe_main(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "--mcp":
+        # Before argparse and any heavy import: Claude's client owns stdout.
+        from .mcp_server import main as mcp_main
+        mcp_main()
+        return
 
     parser = argparse.ArgumentParser(prog="speakeasy", description=__doc__)
     parser.add_argument(

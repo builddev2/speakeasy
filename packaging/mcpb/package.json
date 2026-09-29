@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Build-time only: validates and packs the Claude Desktop Extension. Never shipped.",
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}

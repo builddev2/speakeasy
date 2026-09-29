@@ -204,6 +204,18 @@ class SearchHit:
     score: float
 
 
+@dataclass
+class CalendarEvent:
+    event_key: str
+    calendar_name: str
+    title: str
+    start_utc: str
+    end_utc: str
+    all_day: bool
+    declined: bool
+    meeting_ids: list[str]
+
+
 def _plain(snippet: str) -> str:
     return snippet.replace(HIT_OPEN, "").replace(HIT_CLOSE, "").lower()
 
@@ -676,3 +688,72 @@ class MeetingLibrary:
                 "SELECT p.display_name, COUNT(*) FROM people p JOIN meeting_people mp"
                 f" ON mp.person_id = p.id WHERE {where} GROUP BY p.id"
                 " ORDER BY COUNT(*) DESC, p.display_name COLLATE NOCASE", params)]
+
+    # -- MCP reads (phase 2) -------------------------------------------------
+
+    def meeting_tags(self, meeting_id: str) -> list[str]:
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+                raise MeetingNotFound(meeting_id)
+            return self._tags(conn, meeting_id)
+
+    def _calendar_event(self, conn, row) -> CalendarEvent:
+        return CalendarEvent(
+            event_key=row["event_key"], calendar_name=row["calendar_name"],
+            title=row["title"], start_utc=row["start_utc"], end_utc=row["end_utc"],
+            all_day=bool(row["all_day"]), declined=bool(row["declined"]),
+            meeting_ids=[r[0] for r in conn.execute(
+                "SELECT id FROM meetings WHERE calendar_event_id = ?"
+                " ORDER BY started_at, id", (row["event_key"],))],
+        )
+
+    def calendar_events_between(self, from_date: str, to_date: str) -> list[CalendarEvent]:
+        """Cached Calendar.app events overlapping local days [from, to]."""
+        lower, upper = local_day_bounds(from_date, to_date)
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT * FROM calendar_events WHERE start_utc < ? AND end_utc > ?"
+                " ORDER BY start_utc, event_key", (upper, lower)).fetchall()
+            return [self._calendar_event(conn, r) for r in rows]
+
+    def calendar_event(self, event_key: str | None) -> CalendarEvent | None:
+        if not event_key:
+            return None
+        with self._transaction() as conn:
+            row = conn.execute("SELECT * FROM calendar_events WHERE event_key = ?",
+                               (event_key,)).fetchone()
+            return self._calendar_event(conn, row) if row else None
+
+
+class LibraryWatcher:
+    """Notices commits made by any other connection, e.g. Claude saving
+    notes through the MCP server (a separate process nothing in the app
+    hears from). PRAGMA data_version changes exactly when another
+    connection commits; updated_at would not do, since its one-second
+    resolution hides a second change within the same second.
+
+    The one exception to "every call opens its own connection": the
+    watcher keeps one, because data_version is only meaningful across
+    calls on the same connection. It is used only by the thread that made
+    it (sqlite3's check_same_thread enforces this) and sits idle outside
+    a transaction, so it never holds back WAL checkpoints.
+    """
+
+    def __init__(self, library: MeetingLibrary) -> None:
+        self._path = library._path
+        self._conn = None
+        self._version = None
+
+    def changed(self) -> bool:
+        if self._conn is None:
+            self._conn = meeting_store.connect(self._path)
+        version = self._conn.execute("PRAGMA data_version").fetchone()[0]
+        changed = self._version is not None and version != self._version
+        self._version = version
+        return changed
+
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+        self._conn, self._version = None, None

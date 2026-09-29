@@ -397,8 +397,9 @@ the installed app (the `run` skill), not only in the browser.
   edited by Claude through `save_notes`), and the linked event with a
   change/clear control.
 - `meetings.changed` is also emitted after a sync, after an import, and when
-  notes change. The app polls `notes.updated_at` every 10 s while the window
-  is open, to pick up MCP writes.
+  notes change. The app polls SQLite's `PRAGMA data_version` (via `LibraryWatcher`)
+  every 10 s while the window is open, to pick up MCP writes; `updated_at`
+  has one-second resolution and would miss a second change in the same second.
 - New bridge methods: `meetings.search`, `meetings.filters` (tags, people,
   counts), `meetings.linkEvent`, `calendar.today`, `calendar.upcoming`,
   `calendar.requestAccess`, `calendar.openPrivacySettings`, `claude.setupInfo`,

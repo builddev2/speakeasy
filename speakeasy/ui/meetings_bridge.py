@@ -8,10 +8,15 @@ original task brief's literal test expectations and why.
 """
 
 import json
+import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 
+from speakeasy import mcp_setup
 from speakeasy import meetings as meeting_render
-from speakeasy.meeting_library import MeetingLibrary, MeetingNotFound, local_start
+from speakeasy.meeting_library import (
+    LibraryWatcher, MeetingLibrary, MeetingNotFound, local_start,
+)
 from speakeasy.ui.webbridge import day_label, segments_to_lines, snippet_parts
 
 _IDLE = {"state": "idle", "done": 0, "total": 0, "skipped": []}
@@ -54,9 +59,18 @@ def _wallclock_lines(segments, meeting_local_start: datetime) -> list[dict]:
     return lines
 
 
+class BridgeError(Exception):
+    """A named error code (the message) for the page, not a bug."""
+
+
 class MeetingsBridge:
-    def __init__(self, library=None, now=None, set_clipboard=None):
+    def __init__(self, library=None, now=None, set_clipboard=None, open_path=None):
         self.library = library or MeetingLibrary()
+        # Opens a file/folder in its default app; AppKit-backed in the real
+        # window, a no-op here so this module stays pure-Python.
+        self._open_path = open_path or (lambda path: None)
+        # Lazy connection: constructing a bridge stays cheap until first poll.
+        self._watcher = LibraryWatcher(self.library)
         self._now = now or (lambda: datetime.now().astimezone())
         self._status = dict(_IDLE)
         # Injectable so this stays pure-Python/unit-testable; meetings_window.py
@@ -76,6 +90,9 @@ class MeetingsBridge:
             "library.status": self.status_payload,
             "meetings.copyText": self.copy_text_payload,
             "meetings.copy": self.copy_payload,
+            "claude.setupInfo": self.claude_setup_payload,
+            "claude.installExtension": self.install_extension_payload,
+            "claude.revealConfig": self.reveal_config_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 
@@ -86,9 +103,44 @@ class MeetingsBridge:
                 respond(fn(params or {}))
             except MeetingNotFound:
                 respond(error="not_found")
+            except BridgeError as err:
+                respond(error=str(err))
             except (ValueError, IndexError) as err:
                 respond(error=str(err))
         return handler
+
+    # -- Connect Claude (phase 2) ------------------------------------------
+
+    def claude_setup_payload(self, params) -> dict:
+        return mcp_setup.current_setup_info(self._now())
+
+    def install_extension_payload(self, params) -> bool:
+        # Opening the .mcpb hands it to Claude Desktop, which shows its own
+        # install dialog; Speakeasy never writes Claude's config itself.
+        if not mcp_setup.current_setup_info(self._now()).get("extensionAvailable"):
+            raise BridgeError("extension_unavailable")
+        self._open_path(mcp_setup.current_mcpb_path())
+        return True
+
+    def reveal_config_payload(self, params) -> bool:
+        folder = Path.home() / "Library" / "Application Support" / "Claude"
+        if not folder.is_dir():
+            raise BridgeError("claude_desktop_not_found")
+        self._open_path(folder)
+        return True
+
+    def poll_changed(self) -> bool:
+        """True when another connection committed since the last poll (e.g.
+        Claude saved notes through the MCP server, a separate process).
+        The first call only records a baseline. A busy or unreadable library is
+        skipped this tick. Main thread only (the watcher owns one connection)."""
+        try:
+            return self._watcher.changed()
+        except sqlite3.Error:  # busy, or a corrupt file: never raise into the timer
+            return False
+
+    def stop_polling(self) -> None:
+        self._watcher.close()
 
     # -- payloads (shapes = frontend/src/mock/meetings.ts) ----------------
 
@@ -121,7 +173,7 @@ class MeetingsBridge:
             "tags": [{"name": n, "count": c} for n, c in self.library.list_tags()],
             "people": [{"name": n, "count": c} for n, c in self.library.list_people()],
             # Flipped on by phases 2-4 as each feature ships.
-            "features": {"calendar": False, "claude": False, "settings": False},
+            "features": {"calendar": False, "claude": True, "settings": False},
         }
 
     def get_payload(self, params) -> dict:

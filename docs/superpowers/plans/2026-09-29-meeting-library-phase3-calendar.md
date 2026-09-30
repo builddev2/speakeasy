@@ -2977,3 +2977,18 @@ The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED 
   - Add a threaded grace-path variant of `test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field`, with a controllable engine clock, `_hold_started_ns` set, and one case each for accepted and late.
   - Fix the stale "1_000_000 ns hold start" comment in `test_target_status_accepted_records_resolve_time_and_diagnostics`.
   - Record the live 29 Sep results in `docs/insertion-focus-regression.md`, with the status left pending.
+
+**Outcome (30 Sep).** D1 and D2 are done and reviewed with mutation checks. The final review changed D1:
+- **R23: the key-down deadline was removed, so follow-up 1 was not done as written.** Its premise, that "a later answer is discarded anyway", is false. Acceptance allows `max(first_buffer, key-down + 0.3 s)`, and `recorder.first_buffer_ns` is only known at `stop()`, because the helper process reports it. No deadline set during the lookup can mirror that bound. A fixed deadline would have cut retries in the 4 of 138 logged takes whose first buffer came more than 300 ms after key-down. Key-down lookups keep the fixed 4-attempt cap, as in 14541f3. [If wrong: an unresponsive app can hold the worker, and so the streaming decode, for about 1.06 s. A fresh Electron app holds it for about 0.2 s. No audio is lost.]
+- The rest shipped:
+  - `retry_attempts` in `focused_target`, with the recovery paste set to 0 (R22).
+  - Tests that the delivery-time and key-down lookups keep 4 attempts.
+  - The direct accessibility-enable test.
+  - Threaded grace-path tests, and a test that a late first buffer extends acceptance.
+  - The corrected `config.py` comment.
+  - The doc section, with its status still pending.
+- Deferred minors (can wait):
+  - `_hold_started_ns` has several writers. This existed before. Its value can only move later, so the only effect is lenient timing.
+  - The `error == 0` guard in `_enable_accessibility` is untested.
+  - The settable-check test only counts calls.
+  - The `retry_attempts` default mutation is equivalent while the config value is 4.

@@ -137,14 +137,18 @@
 .confirmRow {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 6px;
   width: 100%;
-  margin-top: 6px;
+  margin: 6px 0;
+}
+
+.confirmButtons {
+  display: inline-flex;
+  gap: 6px;
 }
 
 .cancelPrompt {
-  margin-right: auto;
   white-space: nowrap;
   font: 500 11.5px/1 var(--sans);
   color: rgba(255,255,255,0.62);

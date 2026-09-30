@@ -420,21 +420,6 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
                         </button>
                       )}
                     </span>
-                    {cancelStep === 'confirm' && (
-                      <span className={styles.confirmRow}>
-                        <span className={styles.cancelPrompt}>Discard meeting?</span>
-                        <button
-                          type="button"
-                          className={`${styles.cancelBtn} ${styles.cancelDanger}`}
-                          onClick={discardProcessing}
-                        >
-                          Discard
-                        </button>
-                        <button type="button" className={styles.cancelBtn} onClick={() => setCancelStep('idle')}>
-                          Keep
-                        </button>
-                      </span>
-                    )}
                   </>
                 ) : (
                   app.mode === 'mic_failed' ? microphoneFailureText(app.micFailure) : idleInfo!.text
@@ -443,6 +428,24 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
             )
           }
         />
+
+        {app.mode === 'meeting_processing' && cancelStep === 'confirm' && (
+          <div className={styles.confirmRow}>
+            <span className={styles.cancelPrompt}>Discard meeting?</span>
+            <span className={styles.confirmButtons}>
+              <button
+                type="button"
+                className={`${styles.cancelBtn} ${styles.cancelDanger}`}
+                onClick={discardProcessing}
+              >
+                Discard
+              </button>
+              <button type="button" className={styles.cancelBtn} onClick={() => setCancelStep('idle')}>
+                Keep
+              </button>
+            </span>
+          </div>
+        )}
 
         {speakerHint !== null && (
           <div className={styles.speakerHint}>Speakers: up to {speakerHint} (from calendar)</div>

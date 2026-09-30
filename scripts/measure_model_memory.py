@@ -35,7 +35,8 @@ def footprint_mb() -> str:
 def report(stage: str) -> None:
     mb = lambda b: round(b / 2**20)
     print(f"{stage:18s} weights+live={mb(mx.get_active_memory())} MB "
-          f"cache={mb(mx.get_cache_memory())} MB footprint={footprint_mb()}")
+          f"cache={mb(mx.get_cache_memory())} MB peak={mb(mx.get_peak_memory())} MB "
+          f"footprint={footprint_mb()}")
 
 
 def make_audio(folder: str) -> tuple[list[str], str]:
@@ -62,7 +63,9 @@ def main() -> None:
           f"{config.MLX_CACHE_LIMIT_BYTES // 2**20} MiB")
     with tempfile.TemporaryDirectory() as folder:
         clips, long = make_audio(folder)
+        print(f"long clip: {wave.open(long).getnframes() / 16000:.1f} s")
         model = from_pretrained(MODEL)
+        mx.eval(model.parameters())  # MLX is lazy: force the weights to load now
         report("after load")
         for clip in clips:
             model.transcribe(clip)

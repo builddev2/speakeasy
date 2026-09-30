@@ -31,36 +31,49 @@ Accuracy (word error rate vs the script; clean errors are only formatting such a
 | 0 dB noise | 17.1% | 16.4% | 16.4% | 17.1% |
 | long 2.8 min | 5.7% | 5.7% | 5.7% | 5.7% |
 
-## Committed benchmark, run 29 Sep 2026
+The cap changed no transcript (all 25 identical to uncapped bf16). bf16 vs fp32 differed
+on one 0 dB clip only. Timings are single runs and their differences are within
+run-to-run noise, so no speed change is claimed.
+
+## Committed benchmark, run 29 September 2026
 
 `scripts/measure_model_memory.py` (bundled model, synthetic `say` audio). These are
-single runs, not repeated.
+single runs, not repeated. The script forces the weights to load (`mx.eval`) before the
+first reading, so "after load" includes them. `peak` is MLX's high-water mark since
+process start (it includes the load), not reset between stages.
+
+Workload: 4 `say` sentences transcribed one by one, then one long clip made of those 4
+clips repeated 8 times with 1 s of silence after each, transcribed in 120 s chunks with
+15 s overlap. The long clip is 197.2 s (3.3 minutes, printed by the script). This is a
+different workload from the Background table (24 clips, a 2.8-minute clip), so the
+numbers are not like-for-like with it.
 
 Uncapped (`--no-cap`):
 
 ```
 cache cap: off
-after load         weights+live=39 MB cache=39 MB footprint=240 MB
-after 4 clips      weights+live=1218 MB cache=2806 MB footprint=4238 MB
-after long (5.5s)  weights+live=1218 MB cache=6901 MB footprint=8264 MB
+long clip: 197.2 s
+after load         weights+live=1275 MB cache=630 MB peak=1679 MB footprint=2083 MB
+after 4 clips      weights+live=1218 MB cache=1181 MB peak=2008 MB footprint=2586 MB
+after long (4.5s)  weights+live=1218 MB cache=5276 MB peak=3066 MB footprint=6678 MB
 ```
 
 Capped (256 MiB, `config.MLX_CACHE_LIMIT_BYTES`):
 
 ```
 cache cap: 256 MiB
-after load         weights+live=39 MB cache=39 MB footprint=241 MB
-after 4 clips      weights+live=1218 MB cache=256 MB footprint=1708 MB
-after long (4.0s)  weights+live=1218 MB cache=208 MB footprint=1612 MB
+long clip: 197.2 s
+after load         weights+live=1271 MB cache=265 MB peak=1679 MB footprint=1718 MB
+after 4 clips      weights+live=1218 MB cache=249 MB peak=2005 MB footprint=1713 MB
+after long (4.0s)  weights+live=1218 MB cache=257 MB peak=3066 MB footprint=1659 MB
 ```
-
-("after load" is small because MLX loads weights lazily; they materialise on first use.)
 
 ## Caveat
 
 The cap limits the idle buffer cache, not the transient working set. During a 120 s
-meeting chunk the active peak is about 3.1 GB (3,082 MB measured); that is expected
-and not capped.
+meeting chunk the active peak is about 3.1 GB (3,082 MB measured earlier); that is
+expected and not capped. Recheck it with the `peak=` column of the script output
+(3,066 MB in the run above, both modes).
 
 ## How to recheck
 

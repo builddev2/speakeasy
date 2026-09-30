@@ -94,6 +94,13 @@ SOUND_STOP = "/System/Library/Sounds/Bottle.aiff"
 MEETING_CHUNK_SECONDS = 120.0
 MEETING_OVERLAP_SECONDS = 15.0
 
+# --- Model memory --------------------------------------------------------------
+# MLX keeps freed Metal buffers in a reuse cache with no limit by default; after
+# one 2.8-minute transcription it held ~5.7 GB on top of the 1.2 GB bf16 model.
+# 256 MiB keeps the footprint ~1.6 GB with identical transcripts and no
+# measurable slowdown (docs/model-memory.md).
+MLX_CACHE_LIMIT_BYTES = 256 * 1024 * 1024
+
 # Hard cap on a meeting's spooled audio. Frames past this are dropped so an
 # abandoned recording can't fill the disk (~115 MB/hour of int16 WAV).
 MEETING_MAX_SECONDS = 3 * 3600

@@ -95,6 +95,10 @@ contexts are intentionally bounded and single-purpose:
   array is released immediately afterwards. Diarization is CPU/onnxruntime
   with no pinning rule, but it stays on `worker` to keep the pipeline
   sequential rather than adding an executor.
+  `Transcriber.__init__` also caps MLX's process-wide buffer cache
+  (`config.MLX_CACHE_LIMIT_BYTES`, 256 MiB) before loading; without it the
+  idle footprint grows by GBs after meetings. Don't remove it
+  (docs/model-memory.md).
 - **`control`** (1 thread) — recorder `start()`/`stop()`, including
   `MeetingRecorder`. They must never run on the event-tap thread. Recorder
   stop runs under a timeout watchdog

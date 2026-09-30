@@ -416,6 +416,7 @@ _DIAG = {
     "target_retry_count": 1,
     "target_app_switched": False,
     "target_app": "com.example.App",
+    "target_deadline_stop": True,
 }
 
 
@@ -452,6 +453,7 @@ def test_target_status_accepted_records_resolve_time_and_diagnostics(engine):
     assert record["target_retry_ax_error"] == 0
     assert record["target_retry_count"] == 1
     assert record["target_app_switched"] is False
+    assert record["target_deadline_stop"] is True
     assert record["target_app"] == "com.example.App"
 
 

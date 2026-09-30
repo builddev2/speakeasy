@@ -33,6 +33,7 @@ _TARGET_FIELDS = (
     "target_retry_count",
     "target_app_switched",
     "target_app",
+    "target_deadline_stop",
 )
 _BUNDLE_ID = re.compile(r"[A-Za-z0-9._-]{1,200}")
 
@@ -326,7 +327,7 @@ def _valid_record(value: object) -> dict | None:
     ):
         return None
     record["target_retry_count"] = count
-    for name in ("target_ax_enabled", "target_app_switched"):
+    for name in ("target_ax_enabled", "target_app_switched", "target_deadline_stop"):
         flag = value.get(name)
         if flag is not None and not isinstance(flag, bool):
             return None
@@ -810,6 +811,7 @@ class DictationTiming:
             "target_app": (
                 app if isinstance(app, str) and _BUNDLE_ID.fullmatch(app) else None
             ),
+            "target_deadline_stop": flag("target_deadline_stop"),
         }
 
     def format_summary(self, status: str) -> str:

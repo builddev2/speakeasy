@@ -242,6 +242,7 @@ def test_summary_has_fixed_field_order_and_emits_once(capsys):
         "target_retry_count",
         "target_app_switched",
         "target_app",
+        "target_deadline_stop",
     ]
     assert field(line, "trim_ms") == "na"
 
@@ -304,6 +305,7 @@ def test_persistent_record_is_exact_allowlist_and_contains_no_content(
         "target_retry_count",
         "target_app_switched",
         "target_app",
+        "target_deadline_stop",
     ]
     serialized = json.dumps(record)
     assert "private transcript" not in serialized

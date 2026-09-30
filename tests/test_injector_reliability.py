@@ -407,3 +407,46 @@ def test_retry_attempts_zero_queries_once_but_still_enables(monkeypatch):
     assert sleeps == []
     assert enabled == [1]
     assert diagnostics["target_retry_count"] == 0
+
+
+def test_delivery_time_lookups_keep_default_retries_and_no_deadline(monkeypatch):
+    calls = []
+    target = object()
+    monkeypatch.setattr(injector, "focused_target",
+                        lambda diagnostics=None, **kwargs: calls.append((diagnostics, kwargs)) or target)
+    # insert_text
+    pb = Pasteboard({"text": "before"})
+    monkeypatch.setattr(injector, "_pasteboard", lambda: pb)
+    monkeypatch.setattr(injector, "_make_item", lambda values: Item(dict(values)))
+    monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(injector, "_post_cmd_v", lambda: None)
+    injector.insert_text("final", target=target)
+    injector.restore_clipboard(None)
+    assert calls == [(None, {})]
+    # deliver_final
+    calls.clear()
+    monkeypatch.setattr(injector, "insert_text", lambda *a, **k: None)
+    monkeypatch.setattr(injector, "_attribute", lambda e, n: (0, "AXGroup"))
+    injector.deliver_final("final", target)
+    assert calls == [(None, {})]
+
+
+def test_deadline_boundary_equal_still_retries(monkeypatch):
+    # clock + interval == deadline is not past it: strict comparison.
+    target = object()
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (0, target)], [_app()] * 4)
+    diagnostics = {}
+    result = query_focused_target(
+        diagnostics, deadline_ns=1_040_000_000, clock_ns=lambda: 1_000_000_000)
+    assert result is target
+    assert diagnostics["target_deadline_stop"] is False
+    assert sleeps == [.04]
+
+
+def test_deadline_stop_works_without_diagnostics(monkeypatch):
+    sleeps, queries = _retry_setup(
+        monkeypatch, [(-25212, None), (0, object())], [_app()] * 4)
+    assert query_focused_target(deadline_ns=100, clock_ns=lambda: 1_000) is None
+    assert sleeps == []
+    assert len(queries) == 1

@@ -99,11 +99,13 @@ contexts are intentionally bounded and single-purpose:
   held 300–800 MB after meetings (docs/model-memory.md). A failed child
   (`DiarizationFailed`) saves the transcript with one speaker label and records
   `diarization_status`/`diarization_failure` in capture health; cancel
-  terminates the child (measured ≤0.08 s). If the app quits or dies, a
-  parent-death watchdog makes the child exit, because app quit is a hard exit
-  that skips cleanup. The watchdog is a Python thread, so it cannot run while
-  sherpa-onnx's segmentation holds the GIL: the child can linger until the first
-  progress callback (~58 s into a 29.3-min meeting), then exits within ~0.4 s.
+  terminates the child (measured ≤0.08 s). A normal quit kills the child from
+  `Engine.shutdown()` via `ChildDiarizationRunner.terminate_active()`, before
+  the hard exit that skips other cleanup. The parent-death watchdog in the
+  child is only the backstop for crashes and force-quits. It is a Python
+  thread, so it cannot run while sherpa-onnx's segmentation holds the GIL: the
+  child can then linger until the first progress callback (~58 s into a
+  29.3-min meeting), then exits within ~0.4 s.
   `Transcriber.__init__` also caps MLX's process-wide buffer cache
   (`config.MLX_CACHE_LIMIT_BYTES`, 256 MiB) before loading; without it the
   idle footprint grows by GBs after meetings. Don't remove it
@@ -253,7 +255,9 @@ rebuilds.
   (`run_app()` in `ui/menubar.py`) and in the packaging spec's `info_plist`,
   to avoid a Dock-icon flash on launch. The status item is still the primary
   interface; `ui/main_window.py` is a Dock-reachable fallback with the same
-  core actions, for when the status item is hidden by menu-bar overflow.
+  core actions, for when the status item is hidden by menu-bar overflow. While
+  a meeting is processing it shows a Cancel button (`app.cancelProcessing`)
+  with a Discard/Keep confirm.
   `AppDelegate.applicationShouldTerminateAfterLastWindowClosed_` returns
   `False` so closing that window doesn't quit the background service, and
   `applicationShouldHandleReopen_hasVisibleWindows_` reopens it on a Dock

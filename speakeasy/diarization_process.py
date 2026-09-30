@@ -23,7 +23,8 @@ from .meetings import DiarizationTurn
 from .wav_io import read_wav_mono_f32
 
 
-# App quit is a hard C exit: no cleanup runs in the parent, so the child polls.
+# A normal quit kills the child from Engine.shutdown() (terminate_active()).
+# Crashes and force-quits skip that, so the child also polls for parent death.
 _PARENT_POLL_SECONDS = 0.5
 
 
@@ -151,8 +152,9 @@ def _watch_parent() -> None:
 def serve(conn, work) -> None:
     """Child side of the protocol. Only exception type names cross the pipe.
 
-    Exits after the parent dies (see _PARENT_POLL_SECONDS): within ~0.5 s once
-    Python code runs, but not during sherpa-onnx's segmentation, which holds the
+    A normal quit kills the child from Engine.shutdown(). This is the backstop
+    for crashes and force-quits: the child exits after the parent dies (see
+    _PARENT_POLL_SECONDS), within ~0.5 s once Python code runs, but not during sherpa-onnx's segmentation, which holds the
     GIL with no progress callbacks (~58 s on a 29.3-min meeting).
     """
     _watch_parent()

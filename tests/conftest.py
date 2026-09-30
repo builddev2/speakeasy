@@ -5,6 +5,25 @@ import pytest
 from speakeasy import profiles, settings
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path_factory, monkeypatch):
+    """Safety net: no test may touch the real home or App Support folder.
+
+    A test once built Profile("t") without a temp fixture and add_word() wrote
+    profiles/t.json into the real ~/Library/Application Support/Speakeasy.
+    HOME is redirected so Path.home() / expanduser("~") resolve to a throwaway
+    dir, and settings.app_support_dir is patched too in case HOME was already
+    read. Specific fixtures below (profiles_dir, library_path, ...) still
+    override individual dirs; repo-relative paths such as models/ are unaffected.
+    """
+    home = tmp_path_factory.mktemp("home")
+    support = home / "Library" / "Application Support" / "Speakeasy"
+    support.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(settings, "app_support_dir", lambda: support)
+    return home
+
+
 @pytest.fixture
 def profiles_dir(tmp_path, monkeypatch):
     """Point the profiles dir at a throwaway directory for the test."""
@@ -65,7 +84,7 @@ def insertion_target(monkeypatch):
     from speakeasy import injector
     monkeypatch.setattr(injector._transaction, "snapshot", None, raising=False)
     target = object()
-    monkeypatch.setattr(injector, "focused_target", lambda: target)
+    monkeypatch.setattr(injector, "focused_target", lambda diagnostics=None, **kwargs: target)
     monkeypatch.setattr(injector, "_attribute", lambda element, name: (0, "AXGroup"))
     monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", lambda *args: (0, False))
     monkeypatch.setattr(ax, "AXUIElementCopyAttributeNames", lambda *args: (0, []))

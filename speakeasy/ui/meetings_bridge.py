@@ -14,9 +14,12 @@ from pathlib import Path
 
 from speakeasy import mcp_setup
 from speakeasy import meetings as meeting_render
+from speakeasy import settings
 from speakeasy.meeting_library import (
     LibraryWatcher, MeetingLibrary, MeetingNotFound, local_start,
 )
+from speakeasy.meeting_options import MeetingOptions
+from speakeasy.ui import calendar_payloads
 from speakeasy.ui.webbridge import day_label, segments_to_lines, snippet_parts
 
 _IDLE = {"state": "idle", "done": 0, "total": 0, "skipped": []}
@@ -64,7 +67,8 @@ class BridgeError(Exception):
 
 
 class MeetingsBridge:
-    def __init__(self, library=None, now=None, set_clipboard=None, open_path=None):
+    def __init__(self, library=None, now=None, set_clipboard=None, open_path=None,
+                 calendar=None, begin_meeting=None, recording_event_key=None, open_url=None):
         self.library = library or MeetingLibrary()
         # Opens a file/folder in its default app; AppKit-backed in the real
         # window, a no-op here so this module stays pure-Python.
@@ -77,6 +81,11 @@ class MeetingsBridge:
         # supplies injector.set_clipboard for the real app (AppKit stays out of
         # this module, as the module docstring promises).
         self._set_clipboard = set_clipboard or (lambda text: None)
+        # Calendar wiring (phase 3): all None in tests and the MCP server.
+        self._calendar = calendar
+        self._begin_meeting = begin_meeting
+        self._recording_event_key = recording_event_key or (lambda: None)
+        self._open_url = open_url or (lambda url: None)
 
     def register(self, dispatcher) -> None:
         for method, fn in {
@@ -93,6 +102,15 @@ class MeetingsBridge:
             "claude.setupInfo": self.claude_setup_payload,
             "claude.installExtension": self.install_extension_payload,
             "claude.revealConfig": self.reveal_config_payload,
+            "calendar.today": self.calendar_today_payload,
+            "calendar.upcoming": self.calendar_upcoming_payload,
+            "calendar.requestAccess": self.calendar_request_access_payload,
+            "calendar.openPrivacySettings": self.calendar_privacy_payload,
+            "calendar.record": self.calendar_record_payload,
+            "meetings.linkEvent": self.link_event_payload,
+            "meetings.eventsForDay": self.events_for_day_payload,
+            "settings.meetings.get": self.settings_get_payload,
+            "settings.meetings.set": self.settings_set_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 
@@ -128,6 +146,78 @@ class MeetingsBridge:
             raise BridgeError("claude_desktop_not_found")
         self._open_path(folder)
         return True
+
+    # -- calendar (phase 3) ------------------------------------------------
+
+    PRIVACY_CALENDARS_URL = (
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")
+
+    def _access(self) -> str:
+        return self._calendar.access() if self._calendar is not None else "unconnected"
+
+    def calendar_today_payload(self, params) -> dict:
+        access, now = self._access(), self._now()
+        if access != "connected":
+            return {"access": access, "agenda": []}
+        day = now.date().isoformat()
+        return {"access": access, "agenda": calendar_payloads.agenda_payload(
+            self.library.calendar_events_between(day, day), now, self._recording_event_key())}
+
+    def calendar_upcoming_payload(self, params) -> dict:
+        now = self._now()
+        if self._access() != "connected":
+            return {"days": []}
+        return {"days": calendar_payloads.upcoming_payload(
+            self.library.calendar_events_between(
+                (now.date() + timedelta(days=1)).isoformat(),
+                (now.date() + timedelta(days=7)).isoformat()), now)}
+
+    def calendar_request_access_payload(self, params) -> bool:
+        if self._calendar is None:
+            raise BridgeError("calendar_unavailable")
+        self._calendar.request_access()
+        return True
+
+    def calendar_privacy_payload(self, params) -> bool:
+        self._open_url(self.PRIVACY_CALENDARS_URL)
+        return True
+
+    def calendar_record_payload(self, params) -> bool:
+        key = params.get("key")
+        if not isinstance(key, str) or not key:
+            raise ValueError("Unknown calendar event.")
+        if self._begin_meeting is None:
+            raise BridgeError("recording_unavailable")
+        self._begin_meeting(MeetingOptions(calendar_event_key=key))
+        return True
+
+    def link_event_payload(self, params) -> dict:
+        key = params.get("key")
+        if key is not None and not isinstance(key, str):
+            raise ValueError("Unknown calendar event.")
+        self.library.link_event(str(params.get("id", "")), key)
+        return self.get_payload({"id": params.get("id")})
+
+    def events_for_day_payload(self, params) -> list[dict]:
+        m = self.library.get_meeting(str(params.get("id", "")))
+        day = m.local_start.date().isoformat()
+        return calendar_payloads.day_chips(
+            self.library.calendar_events_between(day, day), self._now().tzinfo)
+
+    def settings_get_payload(self, params) -> dict:
+        stored = settings.get_meeting_settings()
+        calendars = self._calendar.calendars if self._calendar is not None else []
+        return {"offerToRecord": stored["offer_to_record"],
+                "accounts": calendar_payloads.calendars_payload(
+                    calendars, stored["calendar_choices"])}
+
+    def settings_set_payload(self, params) -> dict:
+        settings.set_meeting_settings(
+            offer_to_record=params.get("offerToRecord"),
+            calendar_choices=params.get("calendars"))
+        if params.get("calendars") is not None and self._calendar is not None:
+            self._calendar.request_sync()
+        return self.settings_get_payload({})
 
     def poll_changed(self) -> bool:
         """True when another connection committed since the last poll (e.g.
@@ -172,8 +262,8 @@ class MeetingsBridge:
             "total": self.library.count_meetings(),
             "tags": [{"name": n, "count": c} for n, c in self.library.list_tags()],
             "people": [{"name": n, "count": c} for n, c in self.library.list_people()],
-            # Flipped on by phases 2-4 as each feature ships.
-            "features": {"calendar": False, "claude": True, "settings": False},
+            "features": {"calendar": self._calendar is not None, "claude": True,
+                         "settings": True},
         }
 
     def get_payload(self, params) -> dict:
@@ -193,7 +283,10 @@ class MeetingsBridge:
             "lines": _wallclock_lines(m.segments, m.local_start),
             "summary": (m.notes.summary or None) if m.notes else None,
             "actionItems": m.notes.action_items if m.notes else [],
-            "event": None,
+            # Never look up a None key: only linked meetings have an event.
+            "event": (calendar_payloads.event_chip(ev, self._now().tzinfo)
+                      if m.calendar_event_id
+                      and (ev := self.library.calendar_event(m.calendar_event_id)) else None),
         })
         return detail
 

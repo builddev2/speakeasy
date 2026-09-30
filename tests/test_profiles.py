@@ -111,7 +111,7 @@ def test_add_word_dedupes_case_insensitively(make_profile):
     assert p.vocabulary == ["Claude"]
 
 
-def test_add_word_updates_fuzzy_index_without_reload():
+def test_add_word_updates_fuzzy_index_without_reload(profiles_dir):
     # A vocab word added at runtime must be usable by the fuzzy snapper
     # immediately — no app restart / profile reload.
     p = Profile("t")
@@ -212,3 +212,14 @@ def test_import_vocabulary_rebuilds_once(make_profile):
     profile = make_profile()
     assert profile.import_vocabulary(["Kubernetes", "Claude", "Kubernetes", ""]) == 2
     assert profile.apply("kubernetis") == "Kubernetes"
+
+
+def test_tests_are_isolated_from_real_app_support(tmp_path_factory):
+    from pathlib import Path
+    from speakeasy import settings
+    real = Path("/Users") / "jchiu" / "Library" / "Application Support" / "Speakeasy"
+    support = settings.app_support_dir().resolve()
+    assert support != real.resolve()
+    assert not str(support).startswith(str(real.resolve()))
+    assert support == (Path.home() / "Library" / "Application Support" / "Speakeasy").resolve()
+    assert str(tmp_path_factory.getbasetemp().resolve()) in str(support)

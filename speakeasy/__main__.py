@@ -75,9 +75,15 @@ def main() -> None:
                         help="rebuild meeting search indexes and clear the calendar cache")
     parser.add_argument("--export-meetings", metavar="DIR",
                         help="write every meeting as Markdown into DIR")
+    parser.add_argument("--fix-imported-titles", action="store_true",
+                        help="show imported meeting titles that carry the end time; add --apply to fix them")
+    parser.add_argument("--apply", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.apply and not args.fix_imported_titles:
+        parser.error("--apply needs --fix-imported-titles")
 
-    if args.import_json_meetings or args.rebuild_index or args.export_meetings:
+    if (args.import_json_meetings or args.rebuild_index or args.export_meetings
+            or args.fix_imported_titles):
         from . import meeting_store
         from .meeting_export import export_all
         from .meeting_import import import_json_meetings
@@ -97,6 +103,17 @@ def main() -> None:
             print("Rebuilt meeting search index and cleared the calendar cache.")
         if args.export_meetings:
             print(f"Exported {export_all(Path(args.export_meetings))} meeting(s).")
+        if args.fix_imported_titles:
+            from .meeting_library import MeetingLibrary
+
+            library = MeetingLibrary()
+            fixes = library.imported_title_fixes()
+            for _, old, new in fixes:
+                print(f"{old}  →  {new}")
+            if args.apply:
+                print(f"Renamed {library.apply_title_fixes(fixes)} meeting(s).")
+            else:
+                print(f"{len(fixes)} title(s) would change. Run again with --apply to rename them.")
         return
 
     from .dictation_diagnostic import sweep_temporary_audio

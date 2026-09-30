@@ -23,7 +23,7 @@ AlignedSentence without importing it.
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from . import config, settings
@@ -89,6 +89,23 @@ class DiarizationTurn:
     confidence: float | None = None
     overlap: bool = False
     profile_id: str | None = None
+
+
+def flag_overlaps(turns):
+    """Return `turns` with `overlap` set exactly where two different voices
+    are concurrent. Precondition: `turns` is sorted by start."""
+    overlapping = set()
+    for left, first in enumerate(turns):
+        for right in range(left + 1, len(turns)):
+            second = turns[right]
+            if second.start >= first.end:
+                break
+            if first.speaker != second.speaker and second.end > first.start:
+                overlapping.update((left, right))
+    return [
+        replace(turn, overlap=index in overlapping)
+        for index, turn in enumerate(turns)
+    ]
 
 
 class Meeting:
@@ -356,6 +373,7 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
             segments
             and segments[-1].speaker == labels[speaker]
             and segments[-1].overlap == overlap
+            and end - segments[-1].start <= config.DIARIZED_MAX_SEGMENT_SECONDS
         ):
             segments[-1].text = (segments[-1].text + " " + text).strip()
             segments[-1].end = end

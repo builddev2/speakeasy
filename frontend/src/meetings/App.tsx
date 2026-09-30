@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
 import { Sidebar } from './Sidebar';
@@ -24,6 +24,8 @@ import {
   MOCK_AGENDA,
   MOCK_UPCOMING,
   MOCK_CLAUDE_SETUP,
+  MOCK_EVENTS_FOR_DAY,
+  MOCK_MEETING_SETTINGS,
 } from '../mock/meetings';
 import type {
   MeetingMeta,
@@ -33,6 +35,11 @@ import type {
   LibraryStatus,
   Filters,
   ClaudeSetupInfo,
+  AgendaEvent,
+  CalendarAccess,
+  UpcomingDay,
+  EventChip,
+  MeetingSettings,
 } from '../mock/meetings';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
@@ -86,6 +93,16 @@ interface MeetingsAppProps {
   colorCodeSpeakers?: boolean;
 }
 
+function minutesNow(): number {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+// A fixed mock "now" (4:29 PM) — it sits between the Design Sync row that's
+// still recording (started 3:30) and the 4:30 Roadmap Review Record row, so
+// both make sense next to the now-line.
+const MOCK_NOW_MINUTES = 16 * 60 + 29;
+
 const IDLE_STATUS: LibraryStatus = { state: 'idle', done: 0, total: 0, skipped: [] };
 
 const EMPTY_FILTERS: Filters = {
@@ -120,8 +137,18 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
   const [embeddedStatus, setEmbeddedStatus] = useState<LibraryStatus>(IDLE_STATUS);
-  const todayConnection: TodayConnection =
+  const mockConnection: TodayConnection =
     mockState === 'today-denied' ? 'denied' : mockState === 'today-unconnected' ? 'unconnected' : 'connected';
+  const [calendar, setCalendar] = useState<{ access: CalendarAccess; agenda: AgendaEvent[]; upcoming: UpcomingDay[] }>({
+    access: 'unconnected',
+    agenda: [],
+    upcoming: [],
+  });
+  const [nowMinutes, setNowMinutes] = useState(() => minutesNow());
+  const [meetingSettings, setMeetingSettings] = useState<MeetingSettings | null>(
+    isMock ? MOCK_MEETING_SETTINGS : null,
+  );
+  const todayConnection: TodayConnection = isMock ? mockConnection : calendar.access;
   const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
   const [searchFocusToken, setSearchFocusToken] = useState<number | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -244,6 +271,115 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     // Mount-only: deliberately excludes `filter` (read via filterRef instead).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded]);
+
+  // Today's agenda and Upcoming come from the calendar thread's cached table.
+  const refreshCalendar = useCallback(() => {
+    if (!embedded) return;
+    void Promise.all([
+      bridge.call<{ access: CalendarAccess; agenda: AgendaEvent[] }>('calendar.today'),
+      bridge.call<{ days: UpcomingDay[] }>('calendar.upcoming'),
+    ])
+      .then(([todayData, upcomingData]) =>
+        setCalendar({ access: todayData.access, agenda: todayData.agenda, upcoming: upcomingData.days }),
+      )
+      .catch((err) => console.error('calendar refresh failed', err));
+  }, [embedded]);
+
+  useEffect(() => {
+    refreshCalendar();
+    // A new recording flips an agenda row to Recorded, so meetings.changed refreshes too.
+    const offCalendar = bridge.on('calendar.changed', refreshCalendar);
+    const offMeetings = bridge.on('meetings.changed', refreshCalendar);
+    return () => {
+      offCalendar();
+      offMeetings();
+    };
+  }, [refreshCalendar]);
+
+  useEffect(() => {
+    // The now-line and Record buttons move with time.
+    const id = window.setInterval(() => {
+      setNowMinutes(minutesNow());
+      refreshCalendar();
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [refreshCalendar]);
+
+  // Settings are fetched on each open so they reflect the latest calendar list.
+  useEffect(() => {
+    if (!embedded) return;
+    if (!settingsOpen) {
+      setMeetingSettings(null);
+      return;
+    }
+    bridge
+      .call<MeetingSettings>('settings.meetings.get')
+      .then(setMeetingSettings)
+      .catch((err) => {
+        console.error('settings.meetings.get failed', err);
+        setSettingsOpen(false);
+      });
+  }, [embedded, settingsOpen]);
+
+  function onChangeSettings(patch: { offerToRecord?: boolean; calendars?: Record<string, boolean> }) {
+    if (embedded) {
+      bridge
+        .call<MeetingSettings>('settings.meetings.set', patch)
+        .then(setMeetingSettings)
+        .catch((err) => console.error('settings.meetings.set failed', err));
+      return;
+    }
+    setMeetingSettings((prev) =>
+      prev
+        ? {
+            offerToRecord: patch.offerToRecord ?? prev.offerToRecord,
+            accounts: prev.accounts.map((account) => ({
+              ...account,
+              calendars: account.calendars.map((cal) =>
+                patch.calendars && cal.id in patch.calendars ? { ...cal, enabled: patch.calendars[cal.id] } : cal,
+              ),
+            })),
+          }
+        : prev,
+    );
+  }
+
+  function loadEventsForMeeting(): Promise<EventChip[]> {
+    if (!embedded) return Promise.resolve(MOCK_EVENTS_FOR_DAY);
+    if (!selectedId) return Promise.resolve([]);
+    return bridge.call<EventChip[]>('meetings.eventsForDay', { id: selectedId });
+  }
+
+  function onLinkEvent(key: string | null) {
+    if (!selectedId) return;
+    const id = selectedId;
+    if (embedded) {
+      bridge
+        .call<MeetingDetailType>('meetings.linkEvent', { id, key })
+        .then((d) => {
+          setDetails((prev) => ({ ...prev, [id]: d }));
+          refreshCalendar();
+          // Linking overwrites the title and people, so the list row and the
+          // sidebar counts go stale unless we re-list (selection is kept).
+          void refreshList(filterParams(filterRef.current), true);
+          void bridge
+            .call<Filters>('meetings.filters')
+            .then(setFilters)
+            .catch((err) => console.error('meetings.filters failed', err));
+        })
+        .catch((err) => {
+          if (isNotFoundError(err)) recoverFromNotFound(id);
+          else console.error('meetings.linkEvent failed', err);
+        });
+      return;
+    }
+    const chosen = key === null ? null : (MOCK_EVENTS_FOR_DAY.find((e) => e.key === key) ?? null);
+    setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], event: chosen } } : prev));
+    if (chosen) {
+      setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title: chosen.title } } : prev));
+      setMetas((prev) => prev.map((m) => (m.id === id ? { ...m, title: chosen.title } : m)));
+    }
+  }
 
   // Step 3: debounced search already happens in MeetingDetail before
   // onSearchChange fires; here we just call the bridge once it settles.
@@ -506,7 +642,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           filters={filters}
           activeFilter={filter}
           activeToday={today}
-          todayCount={isMock && todayConnection === 'connected' ? MOCK_AGENDA.length : undefined}
+          todayCount={
+            todayConnection === 'connected' ? (isMock ? MOCK_AGENDA : calendar.agenda).length : undefined
+          }
           onSelectFilter={onSelectFilter}
           onSelectToday={onSelectToday}
           onConnectClaude={() => setConnectClaudeOpen(true)}
@@ -544,12 +682,30 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         {today ? (
           <TodayView
             connection={todayConnection}
-            agenda={isMock ? MOCK_AGENDA : []}
-            upcoming={isMock ? MOCK_UPCOMING : []}
+            agenda={isMock ? MOCK_AGENDA : calendar.agenda}
+            upcoming={isMock ? MOCK_UPCOMING : calendar.upcoming}
+            nowMinutes={isMock ? MOCK_NOW_MINUTES : nowMinutes}
             onSelectMeeting={onSelectTodayMeeting}
-            onRecord={(key) => console.log('record', key)}
-            onConnectCalendar={() => console.log('connect-calendar')}
-            onOpenPrivacySettings={() => console.log('open-privacy-settings')}
+            onRecord={(key) => {
+              if (embedded) {
+                void bridge.call('calendar.record', { key }).catch((err) => console.error('calendar.record failed', err));
+              } else console.log('record', key);
+            }}
+            onConnectCalendar={() => {
+              if (embedded) {
+                void bridge
+                  .call('calendar.requestAccess')
+                  .then(refreshCalendar)
+                  .catch((err) => console.error('calendar.requestAccess failed', err));
+              } else console.log('connect-calendar');
+            }}
+            onOpenPrivacySettings={() => {
+              if (embedded) {
+                void bridge
+                  .call('calendar.openPrivacySettings')
+                  .catch((err) => console.error('calendar.openPrivacySettings failed', err));
+              } else console.log('open-privacy-settings');
+            }}
           />
         ) : (
           <MeetingDetail
@@ -586,6 +742,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             }}
             jumpTarget={jumpTarget}
             searchFocusToken={searchFocusToken}
+            onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
+            onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
           />
         )}
 
@@ -599,8 +757,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           />
         )}
 
-        {settingsOpen && (
-          <SettingsSheet onClose={closeSettings} onExportAll={() => console.log('export-all-meetings')} />
+        {settingsOpen && meetingSettings && (
+          <SettingsSheet
+            settings={meetingSettings}
+            calendarConnected={todayConnection === 'connected'}
+            onChange={onChangeSettings}
+            onClose={closeSettings}
+            onExportAll={() => console.log('export-all-meetings')}
+          />
         )}
 
         {popover && (

@@ -27,12 +27,19 @@ export interface MeetingMeta {
   people: string[];
 }
 
+export type CalendarAccess = 'connected' | 'denied' | 'unconnected';
+export interface EventChip { key: string; title: string; time: string }
+export interface UpcomingDay { dayLabel: string; events: AgendaEvent[] }
+export interface CalendarToggle { id: string; name: string; enabled: boolean }
+export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
+export interface MeetingSettings { offerToRecord: boolean; accounts: CalendarAccountSettings[] }
+
 export interface MeetingDetail extends MeetingMeta {
   date: string;
   lines: TranscriptLine[];
   summary: string | null;
   actionItems: string[];
-  event: { title: string; time: string } | null; // phase 3; null until then
+  event: EventChip | null;
 }
 
 export interface Filters {
@@ -247,7 +254,7 @@ function detail(meta: MeetingMeta, extra: Omit<MeetingDetail, keyof MeetingMeta>
 
 const standupDetail = detail(standupMeta, {
   date: 'Sun 27 Sep',
-  event: { title: 'Stand-up', time: '9:00 AM' },
+  event: { key: 'a1', title: 'Stand-up', time: '9:00 AM' },
   summary:
     'Quick sync on sprint progress. Mobile offline sync is still dropping on airplane mode and is now a P1. ' +
     'Revenue dashboard is on track for Friday. No other blockers.',
@@ -265,7 +272,7 @@ const standupDetail = detail(standupMeta, {
 
 const oneOnOneDetail = detail(oneOnOneMeta, {
   date: 'Sun 27 Sep',
-  event: { title: 'Weekly 1:1 — Alex', time: '1:00 PM' },
+  event: { key: 'a2', title: 'Weekly 1:1 — Alex', time: '1:00 PM' },
   summary:
     'Alex and Jordan covered career growth goals for the quarter, the staffing gap on the mobile team, ' +
     'and agreed to revisit the roadmap after the offline-sync fix ships.',
@@ -294,7 +301,7 @@ const designReviewDetail = detail(designReviewMeta, {
 
 const sprintPlanningDetail = detail(sprintPlanningMeta, {
   date: 'Sat 26 Sep',
-  event: { title: 'Sprint Planning', time: '3:00 PM' },
+  event: { key: 'e-sprint', title: 'Sprint Planning', time: '3:00 PM' },
   summary:
     'Planned sprint 15: offline sync fix, dashboard polish and onboarding flow rework carry over. ' +
     'Team agreed to hold scope steady given the mobile hire starts mid-sprint.',
@@ -310,7 +317,7 @@ const sprintPlanningDetail = detail(sprintPlanningMeta, {
 
 const customerCallDetail = detail(customerCallMeta, {
   date: 'Thu 24 Sep',
-  event: { title: 'Customer Call — Fenwick Labs', time: '2:15 PM' },
+  event: { key: 'e-fenwick', title: 'Customer Call — Fenwick Labs', time: '2:15 PM' },
   summary:
     'Fenwick Labs reported the export feature is working well for their team. They asked about calendar ' +
     'integration timing and requested a follow-up demo once Today view ships.',
@@ -340,7 +347,7 @@ const retroDetail = detail(retroMeta, {
 
 const q3KickoffDetail = detail(q3KickoffMeta, {
   date: 'Wed 12 Aug',
-  event: { title: 'Q3 Kickoff', time: '10:00 AM' },
+  event: { key: 'e-kickoff', title: 'Q3 Kickoff', time: '10:00 AM' },
   summary:
     'Kicked off Q3 priorities: mobile reliability, the onboarding rework, and a customer-facing export feature. ' +
     'Team agreed on rough milestones for each and a mid-quarter check-in.',
@@ -499,7 +506,7 @@ export const MOCK_AGENDA: AgendaEvent[] = [
 // events are omitted, as the spec asks.
 // ---------------------------------------------------------------------------
 
-export const MOCK_UPCOMING: { dayLabel: string; events: AgendaEvent[] }[] = [
+export const MOCK_UPCOMING: UpcomingDay[] = [
   {
     dayLabel: 'Mon 28 Sep',
     events: [
@@ -546,4 +553,34 @@ export const MOCK_CLAUDE_SETUP: ClaudeSetupInfo = {
   lastUsed: '2 min ago',
   extensionAvailable: true,
   extensionNote: null,
+};
+
+// Two fixed same-day events for the event chip menu in the browser preview.
+export const MOCK_EVENTS_FOR_DAY: EventChip[] = [
+  { key: 'a1', title: 'Stand-up', time: '9:00 AM' },
+  { key: 'a2', title: 'Weekly 1:1 — Alex', time: '1:00 PM' },
+];
+
+// Invented calendar accounts for the mock (holiday/birthday calendars off by
+// default, per the spec).
+export const MOCK_MEETING_SETTINGS: MeetingSettings = {
+  offerToRecord: true,
+  accounts: [
+    {
+      name: 'iCloud',
+      calendars: [
+        { id: 'ic-personal', name: 'Personal', enabled: true },
+        { id: 'ic-family', name: 'Family', enabled: true },
+        { id: 'ic-holidays', name: 'Holidays', enabled: false },
+      ],
+    },
+    {
+      name: 'Work',
+      calendars: [
+        { id: 'wk-work', name: 'Work', enabled: true },
+        { id: 'wk-team', name: 'Team Events', enabled: true },
+        { id: 'wk-birthdays', name: 'Birthdays', enabled: false },
+      ],
+    },
+  ],
 };

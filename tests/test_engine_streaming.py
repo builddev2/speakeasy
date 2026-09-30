@@ -5,6 +5,7 @@ from concurrent.futures import Future
 import numpy as np
 import pytest
 
+from speakeasy import config
 from speakeasy.dictation_benchmark import DictationTiming
 from speakeasy.dictation_stream import StreamResult, StreamStatus, StreamingSession
 from speakeasy.engine import DictationEngine, State, _RecorderStopResult
@@ -53,7 +54,7 @@ class Worker:
         if function.__name__ == "_resolve_dictation_target":
             from speakeasy import injector
             future = Future()
-            future.set_result((injector.focused_target(), 0))
+            future.set_result((injector.focused_target(), 0, {}))
             return future
         self.submissions.append((function, args))
         return self.future
@@ -370,12 +371,13 @@ def enable_streaming_for_stream_path_tests(monkeypatch):
     monkeypatch.setattr("speakeasy.config.DICTATION_STREAMING_ENABLED", True)
 
 
-def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, monkeypatch):
+def test_slow_focus_lookup_without_hold_start_uses_first_buffer_rule(engine, monkeypatch):
+    # No _hold_started_ns is set here, so this covers only the strict first-buffer fallback.
     from concurrent.futures import ThreadPoolExecutor
     import threading
     from speakeasy import injector
     entered, release = threading.Event(), threading.Event()
-    def delayed():
+    def delayed(diagnostics=None, **kwargs):
         entered.set()
         assert release.wait(2)
         return object()
@@ -400,9 +402,234 @@ def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, mo
             engine.worker = original
 
 
+def _threaded_slow_lookup(engine, monkeypatch, resolved_clock_ns):
+    """Run a take whose blocked lookup finishes at engine-clock `resolved_clock_ns`.
+
+    Returns (fake's received kwargs, timing of the stopped take, returned target).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from speakeasy import injector
+    entered, release = threading.Event(), threading.Event()
+    returned, received, submitted = object(), {}, []
+
+    def delayed(diagnostics=None, **kwargs):
+        received.update(kwargs)
+        entered.set()
+        assert release.wait(2)
+        return returned
+    monkeypatch.setattr(injector, "focused_target", delayed)
+    monkeypatch.setattr(engine, "_transcribe_and_paste",
+                        lambda *args: submitted.append(args))
+    clock = [0]
+    engine._dictation_clock_ns = lambda: clock[0]
+    engine._dictation_stream_disabled = True
+    engine._hold_started_ns = 0
+    engine.recorder.first_buffer_ns = 11_500_000
+    original = engine.worker
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        engine.worker = worker
+        try:
+            engine._start_recording()
+            assert entered.wait(1)
+            assert engine.state is State.RECORDING
+            assert not engine._target_future.done()
+            clock[0] = resolved_clock_ns
+            release.set()
+            engine._target_future.result(timeout=1)
+            engine._stop_recording()
+            worker.shutdown(wait=True)
+        finally:
+            release.set()
+            engine.worker = original
+    timings = [arg for args in submitted for arg in args if isinstance(arg, DictationTiming)]
+    assert len(timings) == 1
+    return received, timings[0], returned
+
+
+def test_slow_focus_lookup_within_grace_binds_key_down_target(engine, monkeypatch):
+    received, timing, returned = _threaded_slow_lookup(engine, monkeypatch, 250_000_000)
+    assert engine._dictation_target is returned
+    assert timing.record("success")["target_status"] == "accepted"
+
+
+def test_slow_focus_lookup_past_grace_is_late_and_not_bound(engine, monkeypatch):
+    received, timing, _ = _threaded_slow_lookup(engine, monkeypatch, 350_000_000)
+    assert engine._dictation_target is None
+    assert timing.record("success")["target_status"] == "late"
+
+
 def test_target_resolved_before_first_buffer_is_retained(engine, monkeypatch):
     from speakeasy import injector
     engine._dictation_stream_disabled = True
     engine._start_recording()
     engine._stop_recording()
     assert engine._dictation_target is injector.focused_target()
+
+
+_DIAG = {
+    "target_first_ax_error": -25212,
+    "target_ax_enabled": True,
+    "target_retry_ax_error": 0,
+    "target_retry_count": 1,
+    "target_app_switched": False,
+    "target_app": "com.example.App",
+}
+
+
+def _stopped_timing(engine, future):
+    """Stop a take whose target future is `future`; return the take's timing."""
+    engine._dictation_stream_disabled = True
+    engine._start_recording()
+    engine._hold_started_ns = 0
+    engine._target_future = future
+    engine._stop_recording()
+    for function, args in reversed(engine.worker.submissions):
+        for arg in args:
+            if isinstance(arg, DictationTiming):
+                return arg
+    raise AssertionError("no timing submitted")
+
+
+def _done(*result):
+    future = Future()
+    future.set_result(result)
+    return future
+
+
+def test_target_status_accepted_records_resolve_time_and_diagnostics(engine):
+    target = object()
+    timing = _stopped_timing(engine, _done(target, 1, dict(_DIAG)))
+    assert engine._dictation_target is target
+    record = timing.record("success")
+    assert record["target_status"] == "accepted"
+    assert record["target_resolve_ms"] == 0.0  # 1 ns after key-down
+    # _stopped_timing sets hold start 0; the fake recorder's first buffer is 1 ns
+    # and the target resolved at 1 ns.
+    assert record["target_first_ax_error"] == -25212
+    assert record["target_ax_enabled"] is True
+    assert record["target_retry_ax_error"] == 0
+    assert record["target_retry_count"] == 1
+    assert record["target_app_switched"] is False
+    assert record["target_app"] == "com.example.App"
+
+
+def test_target_status_late_when_resolved_after_grace_window(engine):
+    # 350 ms after key-down and after the first buffer: not bound.
+    timing = _stopped_timing(engine, _done(object(), 350_000_000, dict(_DIAG)))
+    assert engine._dictation_target is None
+    record = timing.record("success")
+    assert record["target_status"] == "late"
+    assert record["target_resolve_ms"] == 350.0
+
+
+def test_target_accepted_when_resolved_after_first_buffer_within_grace(engine):
+    # Teams: first buffer 11.5 ms, AX lookup resolved at 15.3 ms.
+    target = object()
+    engine.recorder.first_buffer_ns = 11_500_000
+    timing = _stopped_timing(engine, _done(target, 15_300_000, dict(_DIAG)))
+    assert engine._dictation_target is target
+    record = timing.record("success")
+    assert record["target_status"] == "accepted"
+    assert record["target_resolve_ms"] == 15.3
+
+
+def test_target_grace_boundary_is_inclusive(engine):
+    grace_ns = int(config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000)
+    target = object()
+    _stopped_timing(engine, _done(target, grace_ns, dict(_DIAG)))
+    assert engine._dictation_target is target
+
+
+def test_target_without_hold_start_uses_first_buffer_rule(engine):
+    engine.recorder.first_buffer_ns = 11_500_000
+    for resolved, bound in ((11_500_000, True), (15_300_000, False)):
+        engine._dictation_target = None
+        engine._dictation_stream_disabled = True
+        engine._start_recording()
+        engine._hold_started_ns = None
+        target = object()
+        engine._target_future = _done(target, resolved, dict(_DIAG))
+        engine._stop_recording()
+        assert (engine._dictation_target is target) is bound
+
+
+def test_target_without_first_buffer_uses_grace_window(engine):
+    engine.recorder.first_buffer_ns = None
+    target = object()
+    _stopped_timing(engine, _done(target, 15_300_000, dict(_DIAG)))
+    assert engine._dictation_target is target
+    engine._dictation_target = None
+    _stopped_timing(engine, _done(object(), 350_000_000, dict(_DIAG)))
+    assert engine._dictation_target is None
+
+
+def test_target_status_missing_when_lookup_returns_none(engine):
+    timing = _stopped_timing(engine, _done(None, 1_000_100, {
+        **_DIAG, "target_retry_ax_error": -25212}))
+    assert engine._dictation_target is None
+    record = timing.record("insertion_blocked")
+    assert record["target_status"] == "missing"
+    assert record["target_retry_ax_error"] == -25212
+    assert record["target_resolve_ms"] == 1.0
+
+
+def test_target_status_pending_cancelled_and_error(engine):
+    assert _stopped_timing(engine, Future()).record("success")["target_status"] == "pending"
+    cancelled = Future()
+    cancelled.cancel()
+    record = _stopped_timing(engine, cancelled).record("success")
+    assert record["target_status"] == "cancelled"
+    assert record["target_resolve_ms"] is None
+    failed = Future()
+    failed.set_exception(RuntimeError("private"))
+    record = _stopped_timing(engine, failed).record("success")
+    assert record["target_status"] == "error"
+    assert record["target_first_ax_error"] is None
+
+
+
+
+
+
+def test_paste_last_dictation_lookup_makes_no_retries(engine, monkeypatch):
+    from speakeasy import injector
+    seen = []
+    monkeypatch.setattr(
+        injector, "focused_target",
+        lambda diagnostics=None, **kwargs: seen.append(kwargs) or object())
+    engine.last_dictation_text = "recovered"
+    engine.state = State.READY
+    engine.paste_last_dictation()
+    assert seen == [{"retry_attempts": 0}]
+
+
+
+
+
+def test_first_buffer_extends_acceptance_beyond_grace(engine):
+    # Mic starts late: first buffer at 500 ms; lookup resolved at 400 ms (> 300 ms grace).
+    engine._dictation_stream_disabled = True
+    engine._start_recording()
+    engine._hold_started_ns = 0
+    engine.recorder.first_buffer_ns = 500_000_000
+    target = object()
+    engine._target_future = _done(target, 400_000_000, dict(_DIAG))
+    engine._stop_recording()
+    assert engine._dictation_target is target
+    timing = next(arg for f, args in reversed(engine.worker.submissions)
+                  for arg in args if isinstance(arg, DictationTiming))
+    assert timing.record("success")["target_status"] == "accepted"
+
+
+def test_key_down_lookup_uses_default_retries(engine, monkeypatch):
+    from speakeasy import injector
+    seen = []
+    monkeypatch.setattr(
+        injector, "focused_target",
+        lambda diagnostics=None, **kwargs: seen.append((diagnostics, kwargs)) or object())
+    engine._resolve_dictation_target(engine._dictation_generation)
+    assert len(seen) == 1
+    diagnostics, kwargs = seen[0]
+    assert isinstance(diagnostics, dict)
+    assert kwargs.get("retry_attempts") is None

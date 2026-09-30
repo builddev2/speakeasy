@@ -146,19 +146,13 @@ def _markdown(snippet: str) -> str:
     return snippet.replace(HIT_OPEN, "**").replace(HIT_CLOSE, "**")
 
 
-def _distinct_speakers(segments) -> list[str]:
-    seen: dict[str, None] = {}
-    for seg in segments:
-        seen.setdefault(seg.speaker, None)
-    return list(seen)
-
-
 def _event(e) -> dict:
     local = lambda iso: datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=timezone.utc).astimezone().isoformat(timespec="minutes")
     return {"id": e.event_key, "title": e.title, "calendar": e.calendar_name,
             "start": local(e.start_utc), "end": local(e.end_utc),
-            "all_day": e.all_day, "declined": e.declined, "meeting_ids": e.meeting_ids}
+            "all_day": e.all_day, "declined": e.declined, "meeting_ids": e.meeting_ids,
+            "people": [p.name for p in e.people]}
 
 
 # -- "last used by Claude" ---------------------------------------------------
@@ -216,7 +210,7 @@ def build_tools(library) -> dict[str, Tool]:
         }
 
     def get_meeting(args):
-        m = library.get_meeting(_meeting_id(args))
+        m = library.get_meeting(_meeting_id(args), with_segments=False)
         notes = None
         if m.notes is not None:
             notes = {"summary": m.notes.summary, "action_items": m.notes.action_items,
@@ -226,8 +220,8 @@ def build_tools(library) -> dict[str, Tool]:
             "id": m.meeting_id, "title": m.title,
             "start": _start(m.started_at, m.tz_offset_minutes),
             "duration_minutes": _minutes(m.duration_seconds),
-            "speakers": _distinct_speakers(m.segments),
-            "segment_count": len(m.segments), "people": m.people, "tags": m.tags,
+            "speakers": m.speakers,
+            "segment_count": m.segment_count, "people": m.people, "tags": m.tags,
             "calendar_event": _event(event) if event else None, "notes": notes,
             "timestamps_approximate": m.timestamps_approximate, "source": m.source,
         }
@@ -253,13 +247,12 @@ def build_tools(library) -> dict[str, Tool]:
             meeting_id, start_seconds=_seconds(args, "start_seconds"),
             end_seconds=_seconds(args, "end_seconds"), cursor=cursor,
             max_chars=_int(args, "max_chars", 20_000, 1_000, 60_000))
-        m = library.get_meeting(meeting_id)
         return {
-            "id": meeting_id, "title": m.title,
+            "id": meeting_id, "title": page.title,
             "text": "\n".join(f"[{_hms(seg.start)}] {seg.speaker}: {seg.text}"
                               for _, seg in page.segments),
             "next_cursor": page.next_cursor,
-            "timestamps_approximate": m.timestamps_approximate,
+            "timestamps_approximate": page.timestamps_approximate,
         }
 
     def get_calendar(args):

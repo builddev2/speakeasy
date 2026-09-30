@@ -14,12 +14,30 @@ class MeetingsWindowController(NSObject):
         self = objc.super(MeetingsWindowController, self).init()
         if self is None:
             return None
+        from AppKit import NSWorkspace
+        from Foundation import NSURL
+
         from speakeasy import injector
+        from speakeasy.ui import services
+
+        engine = services.engine
+
+        def recording_event_key():
+            # Read once: the control thread can clear meeting_event between
+            # two reads, and the bridge doesn't catch AttributeError.
+            event = engine.meeting_event if engine is not None else None
+            return event.event_key if event is not None else None
 
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
-        self._bridge = MeetingsBridge(set_clipboard=injector.set_clipboard,
-                                      open_path=self._open_path)
+        self._bridge = MeetingsBridge(
+            set_clipboard=injector.set_clipboard, open_path=self._open_path,
+            calendar=services.calendar_sync,
+            begin_meeting=engine.begin_meeting if engine is not None else None,
+            recording_event_key=recording_event_key,
+            open_url=lambda url: NSWorkspace.sharedWorkspace().openURL_(
+                NSURL.URLWithString_(url)),
+        )
         self._poll_timer = None
         dispatcher = BridgeDispatcher()
         self._bridge.register(dispatcher)
@@ -60,6 +78,9 @@ class MeetingsWindowController(NSObject):
 
     def meetingSaved_(self, meeting_id):
         self._web.emit("meetings.changed")
+
+    def calendarChanged_(self, _):
+        self._web.emit("calendar.changed")
 
     def libraryStatus_(self, payload):
         # apply_status_json (MeetingsBridge, tested there) decides what to

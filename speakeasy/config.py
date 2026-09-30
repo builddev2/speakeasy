@@ -38,6 +38,25 @@ DICTATION_STREAM_BUFFER_SECONDS = 30.0
 # batch final on the same MLX worker after the streaming context has closed.
 DICTATION_BATCH_FINAL_SECONDS = 15.0
 
+# A dictation target resolved within this long of the hotkey press is bound to
+# the take. The mic's first buffer lands 5-20 ms after key-down, the same order
+# as an AX focus lookup (Teams ~15 ms), so a first-buffer cutoff discarded
+# correct targets at random. Nobody moves to a different field within 300 ms of
+# pressing the hotkey, and deliver_final still refuses a changed focus
+# (focus_changed).
+DICTATION_TARGET_GRACE_SECONDS = 0.3
+
+# Fresh Electron apps (Codex, Teams) answer AXFocusedUIElement with NoValue
+# until their accessibility tree is built. Retry the lookup this many times,
+# sleeping the interval before each attempt. Worst case is about 1.06 s for an
+# unresponsive app (0.1 s first query + up to 4 x 0.1 s enable calls + 4 x
+# (0.04 + 0.1) s retries) and about 0.2 s for a freshly launched Electron app.
+# Key-down lookups have no deadline: the acceptance bound depends on the first
+# buffer, which is known only at stop. The recovery paste on the main thread
+# makes no retries.
+DICTATION_TARGET_RETRY_ATTEMPTS = 4
+DICTATION_TARGET_RETRY_INTERVAL_SECONDS = 0.04
+
 # How long to wait for the recorder to stop before giving up on it. A wedged
 # CoreAudio call must not freeze the control thread (and with it the hotkey),
 # so past this the stream is abandoned and the mic forcibly released.
@@ -87,6 +106,20 @@ DIARIZATION_MIN_OFF = 0.5
 # A run of tokens attributed to a different speaker must last this long before
 # it splits an ASR sentence. Shorter runs are treated as boundary jitter.
 DIARIZATION_SPLIT_MIN_SECONDS = 0.6
+
+# Diarization over-splits real meetings. In the imported library, 1-on-1s
+# (two voices) came out with up to 74 speaker labels. In 1on1 Jim (58 min),
+# 57 of 74 labels held under 15 s of talk each, while the two largest (You
+# and one remote voice) held 74% of it. Clusters with less total talk than
+# this are folded into the nearest real voice. The cost: a genuinely quiet
+# participant (<15 s in the whole meeting) may be labelled as someone else.
+SPEAKER_MIN_TALK_SECONDS = 15.0
+# Audio per cluster fed to the embedding model when merging (longest turns
+# first). Enough for a stable embedding without re-embedding whole meetings.
+SPEAKER_MERGE_EMBED_SECONDS = 10.0
+# Diarised (system/remote) segments split at this length, like the mic track,
+# so search can cite a moment; the TEST meeting had one 71.9 s segment.
+DIARIZED_MAX_SEGMENT_SECONDS = 60.0
 
 # Cosine-similarity floor for attaching an enrolled local voice profile to a
 # diarized cluster. Below this, keep the anonymous "Speaker N" label.

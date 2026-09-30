@@ -15,7 +15,7 @@ def _tables(conn):
 
 def test_connect_creates_schema_wal_and_private_file(library_path):
     conn = meeting_store.connect()
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert {
@@ -36,7 +36,7 @@ def test_connect_uses_row_factory(library_path):
 def test_connect_twice_is_idempotent(library_path):
     meeting_store.connect().close()
     conn = meeting_store.connect()
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     conn.close()
 
 
@@ -86,6 +86,28 @@ def test_concurrent_first_connect_all_succeed_and_report_wal(tmp_path):
 
         assert errors == [None] * n, (k, errors)
         assert results == ["wal"] * n, (k, results)
+        check = sqlite3.connect(path)
+        try:
+            assert (check.execute("PRAGMA user_version").fetchone()[0]
+                    == meeting_store.SCHEMA_VERSION), k
+        finally:
+            check.close()
+
+
+def test_migrate_converges_when_a_slower_v1_resets_the_version(library_path):
+    """The fresh-library interleave: both connections read version 0, A runs
+    v1 and v2, then B's v1 sets user_version back to 1 and B's v2 hits
+    'duplicate column'. migrate() must land on SCHEMA_VERSION anyway."""
+    a = meeting_store.connect()
+    a.close()
+    b = sqlite3.connect(library_path)
+    try:
+        b.executescript(meeting_store._SCHEMA_V1)
+        assert b.execute("PRAGMA user_version").fetchone()[0] == 1
+        meeting_store.migrate(b)
+        assert b.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
+    finally:
+        b.close()
 
 
 def test_wal_pragma_non_locked_error_is_not_retried(library_path, monkeypatch):

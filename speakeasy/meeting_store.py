@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import settings
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -158,13 +158,24 @@ PRAGMA user_version = 1;
 COMMIT;
 """
 
-# (target version, script). Append; never edit a shipped entry. A later
-# migration script must re-check `PRAGMA user_version` right after its own
-# BEGIN IMMEDIATE: migrate() reads the starting version before it takes the
-# write lock, so a concurrent migration could already have moved the
-# version by the time this one acquires it. v1 is safe unguarded because
-# every statement here is IF NOT EXISTS (a second run is a no-op).
-_MIGRATIONS = [(1, _SCHEMA_V1)]
+# v2 (phase 3): how many *other* people were invited (the user, rooms,
+# resources and people who declined excluded). NULL means unknown, e.g. a
+# distribution-list invite, and then diarization must not be capped by it.
+_SCHEMA_V2 = """
+BEGIN IMMEDIATE;
+ALTER TABLE calendar_events ADD COLUMN other_attendees INTEGER;
+PRAGMA user_version = 2;
+COMMIT;
+"""
+
+# (target version, script). Append; never edit a shipped entry. migrate()
+# reads the starting version before it takes the write lock, so two fresh
+# connections can both start from 0 and both run v1 (idempotent: IF NOT
+# EXISTS); the slower one's v1 then sets `user_version` back to 1. Its v2
+# ALTER fails with "duplicate column name" and migrate() repairs the version
+# itself (see below). A later non-idempotent migration needs the same
+# treatment: detect "already applied" from the error and set the version.
+_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05
@@ -220,7 +231,20 @@ def migrate(conn: sqlite3.Connection) -> None:
         )
     for target, script in _MIGRATIONS:
         if version < target:
-            conn.executescript(script)
+            try:
+                conn.executescript(script)
+            except sqlite3.OperationalError as exc:
+                # v2's ALTER is not idempotent: if a concurrent connection
+                # migrated between our version read and our lock, the column
+                # already exists. Roll back and accept that as done.
+                if "duplicate column name" not in str(exc):
+                    raise
+                conn.rollback()
+                # The other connection's slower v1 may have set the version
+                # back to 1 after its v2 ran; the duplicate column proves this
+                # script's only statement already applied, so record it, or
+                # every later connection would retry the failing ALTER.
+                conn.execute(f"PRAGMA user_version = {target}")
             version = target
 
 

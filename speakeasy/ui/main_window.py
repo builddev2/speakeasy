@@ -13,6 +13,7 @@ from AppKit import NSWorkspace
 from Foundation import NSObject
 
 from speakeasy.engine import MeetingOptions, State
+from speakeasy.ui import calendar_payloads, services
 from speakeasy.system_audio import eligible_process_ids
 from speakeasy.ui.webbridge import BridgeDispatcher, capture_application_options
 from speakeasy.ui.webwindow import WebWindow
@@ -43,6 +44,8 @@ class MainWindowController(NSObject):
         dispatcher.register("app.openWindow", self._open_window)
         dispatcher.register("app.quit", self._quit)
         dispatcher.register("app.retryMicrophone", self._retry_microphone)
+        dispatcher.register("app.meetingEvents", self._meeting_events)
+        dispatcher.register("app.linkMeetingEvent", self._link_meeting_event)
         self._web = WebWindow("Speakeasy", 360, 430, "dock", dispatcher)
         self._web.window.setDelegate_(self)
         return self
@@ -106,6 +109,10 @@ class MainWindowController(NSObject):
                 meeting_recorder, "system_audio_status", "unavailable"
             ),
             "captureHealth": health.to_dict() if health is not None else {},
+            "linkedEvent": calendar_payloads.linked_event_payload(
+                self.engine.meeting_event,
+                getattr(meeting_recorder, "capture_mode", "mic_only"),
+            ),
         }
 
     @objc.python_method
@@ -134,6 +141,32 @@ class MainWindowController(NSObject):
                 ),
             )
         )  # submits to control internally
+        respond(True)
+
+    @objc.python_method
+    def _meeting_events(self, params, respond):
+        sync = services.calendar_sync
+        if sync is None or sync.access() != "connected":
+            # The Dock hides its event UI on this error (no Calendar, no menu).
+            respond(error="calendar_unavailable")
+            return
+        from datetime import datetime
+
+        from speakeasy.meeting_library import MeetingLibrary
+
+        now = datetime.now().astimezone()
+        today = now.date().isoformat()
+        respond(calendar_payloads.day_chips(
+            MeetingLibrary().calendar_events_between(today, today), now.tzinfo))
+
+    @objc.python_method
+    def _link_meeting_event(self, params, respond):
+        key = params.get("key")
+        if key is not None and (not isinstance(key, str) or not 0 < len(key) <= 300):
+            respond(error="Unknown calendar event.")
+            return
+        # The engine reports the change through on_state_changed, which pushes state.
+        self.engine.link_meeting_event(key)
         respond(True)
 
     @objc.python_method

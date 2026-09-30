@@ -30,3 +30,7 @@ pyobjc-framework-ApplicationServices==12.2.1
 # Hosts the built frontend/ pages (dock, meetings, training windows) in
 # transparent WKWebViews — see ui/webwindow.py.
 pyobjc-framework-WebKit==12.2.1
+# Reads the work calendar from Calendar.app on this Mac (titles, times,
+# attendees; never notes, locations or links). No network: EventKit reads the
+# local store that macOS keeps in sync.
+pyobjc-framework-EventKit==12.2.1

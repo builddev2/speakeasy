@@ -104,6 +104,29 @@ def _normalise_tags(tags) -> list[str]:
     return result
 
 
+@dataclass(frozen=True)
+class EventPerson:
+    name: str
+    email: str | None
+    role: str  # "attendee" | "organizer"
+
+
+@dataclass(frozen=True)
+class SyncedEvent:
+    """One Calendar.app occurrence as calendar_sync hands it over. It has no
+    notes, location or URL fields on purpose: those often hold dial-in codes
+    and passwords, and are never stored."""
+    key: str
+    calendar_name: str
+    title: str
+    start: datetime
+    end: datetime
+    all_day: bool
+    declined: bool
+    other_attendees: int | None
+    people: tuple[EventPerson, ...] = ()
+
+
 @dataclass
 class NewMeeting:
     segments: list[MeetingSegment]
@@ -119,6 +142,7 @@ class NewMeeting:
     calendar_event_id: str | None = None
     source: str = "recorded"
     timestamps_approximate: bool = False
+    people: list[EventPerson] = field(default_factory=list)
 
 
 @dataclass
@@ -171,6 +195,8 @@ class StoredMeeting:
     notes: Notes | None
     tags: list[str]
     people: list[str]
+    speakers: list[str] = field(default_factory=list)
+    segment_count: int = 0
 
     @property
     def local_start(self) -> datetime:
@@ -186,6 +212,8 @@ class StoredMeeting:
 class TranscriptPage:
     segments: list[tuple[int, MeetingSegment]]
     next_cursor: int | None
+    title: str = ""
+    timestamps_approximate: bool = False
 
 
 @dataclass
@@ -214,6 +242,8 @@ class CalendarEvent:
     all_day: bool
     declined: bool
     meeting_ids: list[str]
+    other_attendees: int | None = None
+    people: list[EventPerson] = field(default_factory=list)
 
 
 def _plain(snippet: str) -> str:
@@ -342,6 +372,11 @@ class MeetingLibrary:
                 for i, s in enumerate(new.segments)
             ],
         )
+        for person in new.people:
+            conn.execute(
+                "INSERT OR IGNORE INTO meeting_people (meeting_id, person_id, role)"
+                " VALUES (?, ?, ?)",
+                (meeting_id, self._person_id(conn, person.name, person.email), person.role))
         return meeting_id
 
     def import_meetings(self, batch, expected) -> None:
@@ -380,6 +415,39 @@ class MeetingLibrary:
         with self._transaction() as conn:
             self._touch(conn, meeting_id)
             conn.execute("UPDATE meetings SET title = ? WHERE id = ?", (title, meeting_id))
+
+    def imported_title_fixes(self) -> list[tuple[str, str, str]]:
+        """Imported titles ending in the recording's *end* time (the old app
+        stamped titles when processing finished), with that time replaced by
+        the start. Preview only; apply_title_fixes writes."""
+        def stamp(d: datetime) -> str:
+            return d.strftime("%b %-d, %-I:%M %p")
+
+        fixes = []
+        with self._transaction() as conn:
+            for r in conn.execute(
+                    "SELECT id, title, started_at, tz_offset_minutes, duration_seconds"
+                    " FROM meetings WHERE source = 'imported_json' ORDER BY started_at"):
+                start = local_start(r["started_at"], r["tz_offset_minutes"])
+                end = start + timedelta(seconds=r["duration_seconds"])
+                suffix = " — " + stamp(end)
+                if stamp(end) != stamp(start) and r["title"].endswith(suffix):
+                    fixes.append((r["id"], r["title"],
+                                  r["title"][: -len(suffix)] + " — " + stamp(start)))
+        return fixes
+
+    def apply_title_fixes(self, fixes) -> int:
+        """Rename only where the title still equals the previewed one, so a
+        title the user edited after the preview is never overwritten."""
+        changed = 0
+        with self._transaction() as conn:
+            for meeting_id, old, new in fixes:
+                cur = conn.execute("UPDATE meetings SET title = ? WHERE id = ? AND title = ?",
+                                   (new, meeting_id, old))
+                if cur.rowcount:
+                    self._touch(conn, meeting_id)
+                    changed += 1
+        return changed
 
     def relabel_speaker(self, meeting_id: str, segment_index: int, label: str,
                         *, all_matching: bool = False) -> None:
@@ -443,14 +511,20 @@ class MeetingLibrary:
         return Notes(row["summary"], json.loads(row["action_items_json"]),
                      row["updated_at"], row["updated_by"])
 
-    def get_meeting(self, meeting_id: str) -> StoredMeeting:
+    def get_meeting(self, meeting_id: str, *, with_segments: bool = True) -> StoredMeeting:
         _check_id(meeting_id)
         with self._transaction() as conn:
             m = conn.execute("SELECT * FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
             if m is None:
                 raise MeetingNotFound(meeting_id)
+            speakers = [r[0] for r in conn.execute(
+                "SELECT speaker FROM segments WHERE meeting_id = ? GROUP BY speaker"
+                " ORDER BY MIN(idx)", (meeting_id,))]
+            segment_count = conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE meeting_id = ?", (meeting_id,)).fetchone()[0]
             segments = [_segment(r) for r in conn.execute(
-                "SELECT * FROM segments WHERE meeting_id = ? ORDER BY idx", (meeting_id,))]
+                "SELECT * FROM segments WHERE meeting_id = ? ORDER BY idx",
+                (meeting_id,))] if with_segments else []
             return StoredMeeting(
                 meeting_id=m["id"], title=m["title"], started_at=m["started_at"],
                 tz_offset_minutes=m["tz_offset_minutes"],
@@ -465,6 +539,7 @@ class MeetingLibrary:
                 notes=self._notes(conn, meeting_id),
                 tags=self._tags(conn, meeting_id),
                 people=self._people(conn, meeting_id),
+                speakers=speakers, segment_count=segment_count,
             )
 
     def list_meetings(self, *, from_date=None, to_date=None, tag=None,
@@ -483,7 +558,18 @@ class MeetingLibrary:
                 " (SELECT group_concat(speaker, char(31)) FROM ("
                 "   SELECT speaker, MIN(idx) AS first_idx FROM segments"
                 "   WHERE meeting_id = m.id GROUP BY speaker ORDER BY first_idx"
-                " )) AS speakers_blob"
+                " )) AS speakers_blob,"
+                # Tags and people ride along for the same reason: one SELECT
+                # however many rows come back. Order matches _tags/_people.
+                " (SELECT group_concat(name, char(31)) FROM ("
+                "   SELECT t.name FROM meeting_tags mt JOIN tags t ON t.id = mt.tag_id"
+                "   WHERE mt.meeting_id = m.id ORDER BY t.name COLLATE NOCASE"
+                " )) AS tags_blob,"
+                " (SELECT group_concat(display_name, char(31)) FROM ("
+                "   SELECT p.display_name FROM meeting_people mp"
+                "   JOIN people p ON p.id = mp.person_id WHERE mp.meeting_id = m.id"
+                "   ORDER BY mp.role DESC, p.display_name COLLATE NOCASE"
+                " )) AS people_blob"
                 f" FROM meetings m WHERE {where}"
                 " ORDER BY m.started_at DESC, m.id DESC LIMIT ? OFFSET ?",
                 (*params, limit, max(0, int(offset))),
@@ -496,8 +582,8 @@ class MeetingLibrary:
                     speaker_count=r["speaker_count"],
                     has_summary=bool(r["has_summary"]),
                     timestamps_approximate=bool(r["timestamps_approximate"]),
-                    tags=self._tags(conn, r["id"]),
-                    people=self._people(conn, r["id"]),
+                    tags=r["tags_blob"].split("\x1f") if r["tags_blob"] else [],
+                    people=r["people_blob"].split("\x1f") if r["people_blob"] else [],
                     speakers=(r["speakers_blob"].split("\x1f")
                               if r["speakers_blob"] else []),
                 )
@@ -516,22 +602,26 @@ class MeetingLibrary:
             clauses.append("start_seconds <= ?")
             params.append(float(end_seconds))
         with self._transaction() as conn:
-            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+            meta = conn.execute(
+                "SELECT title, timestamps_approximate FROM meetings WHERE id = ?",
+                (meeting_id,)).fetchone()
+            if meta is None:
                 raise MeetingNotFound(meeting_id)
-            rows = conn.execute(
-                f"SELECT * FROM segments WHERE {' AND '.join(clauses)} ORDER BY idx",
-                params,
-            ).fetchall()
-        page, used = [], 0
-        for i, row in enumerate(rows):
-            # Progress guard: always admit at least one segment before
-            # checking the budget, so a single oversized segment still
-            # advances the cursor instead of stalling the pager forever.
-            if page and used + len(row["text"]) > max_chars:
-                return TranscriptPage(page, rows[i]["idx"])
-            page.append((row["idx"], _segment(row)))
-            used += len(row["text"])
-        return TranscriptPage(page, None)
+            title, approximate = meta["title"], bool(meta["timestamps_approximate"])
+            page, used = [], 0
+            # Iterate the cursor lazily and stop once the budget is spent, so a
+            # page of a long meeting reads a page of rows, not the whole tail.
+            for row in conn.execute(
+                    f"SELECT * FROM segments WHERE {' AND '.join(clauses)} ORDER BY idx",
+                    params):
+                # Progress guard: always admit at least one segment before
+                # checking the budget, so a single oversized segment still
+                # advances the cursor instead of stalling the pager forever.
+                if page and used + len(row["text"]) > max_chars:
+                    return TranscriptPage(page, row["idx"], title, approximate)
+                page.append((row["idx"], _segment(row)))
+                used += len(row["text"])
+        return TranscriptPage(page, None, title, approximate)
 
     # -- notes, tags, people ---------------------------------------------
 
@@ -643,7 +733,14 @@ class MeetingLibrary:
                 hits = self._search(conn, match, where, params, limit * 4)
                 if hits:
                     break
-        hits.sort(key=lambda h: h.score)
+        # bm25 scores from the transcript and notes FTS tables are not comparable
+        # (different table sizes and document lengths), so order by rank within
+        # each kind and interleave, transcript first on ties.
+        rank = {}
+        for kind in ("transcript", "notes"):
+            of_kind = sorted((h for h in hits if h.kind == kind), key=lambda h: h.score)
+            rank.update((id(h), i) for i, h in enumerate(of_kind))
+        hits.sort(key=lambda h: (rank[id(h)], 0 if h.kind == "transcript" else 1))
         return collapse_echoes(hits)[:limit]
 
     def _search(self, conn, match, where, params, fetch) -> list[SearchHit]:
@@ -706,7 +803,91 @@ class MeetingLibrary:
             meeting_ids=[r[0] for r in conn.execute(
                 "SELECT id FROM meetings WHERE calendar_event_id = ?"
                 " ORDER BY started_at, id", (row["event_key"],))],
+            other_attendees=row["other_attendees"],
+            people=[EventPerson(r[0], r[1], r[2]) for r in conn.execute(
+                "SELECT p.display_name, p.email, cep.role FROM calendar_event_people cep"
+                " JOIN people p ON p.id = cep.person_id WHERE cep.event_key = ?"
+                " ORDER BY cep.role DESC, p.display_name COLLATE NOCASE",
+                (row["event_key"],))],
         )
+
+    @staticmethod
+    def _drop_orphan_people(conn) -> None:
+        # People arrive with calendar events; once neither a meeting nor a
+        # cached event refers to them they are just stale contact data.
+        conn.execute(
+            "DELETE FROM people WHERE id NOT IN (SELECT person_id FROM meeting_people)"
+            " AND id NOT IN (SELECT person_id FROM calendar_event_people)")
+
+    def replace_calendar_window(self, events, window_start: datetime,
+                                window_end: datetime) -> None:
+        """Make the cached events starting in [window_start, window_end)
+        exactly `events`. One transaction, so a reader never sees a half-synced
+        window; events outside it (older history) are left alone."""
+        lo, hi = utc_iso(window_start), utc_iso(window_end)
+        now = _now_iso()
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM calendar_events WHERE start_utc >= ? AND start_utc < ?",
+                         (lo, hi))
+            for e in events:
+                if e.start.tzinfo is None or e.end.tzinfo is None:
+                    raise ValueError("Calendar event times must be timezone-aware.")
+                conn.execute(
+                    "INSERT OR REPLACE INTO calendar_events (event_key, calendar_name,"
+                    " title, start_utc, end_utc, all_day, declined, other_attendees,"
+                    " synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (e.key, e.calendar_name, e.title, utc_iso(e.start), utc_iso(e.end),
+                     int(e.all_day), int(e.declined), e.other_attendees, now))
+                # Explicit: REPLACE's implicit delete is not relied on to
+                # cascade to the people rows.
+                conn.execute("DELETE FROM calendar_event_people WHERE event_key = ?", (e.key,))
+                for p in e.people:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO calendar_event_people (event_key, person_id,"
+                        " role) VALUES (?, ?, ?)",
+                        (e.key, self._person_id(conn, p.name, p.email), p.role))
+            self._drop_orphan_people(conn)
+
+    def clear_calendar_cache(self) -> None:
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM calendar_events")
+            self._drop_orphan_people(conn)
+
+    def calendar_events_overlapping(self, start: datetime, end: datetime) -> list[CalendarEvent]:
+        """Cached events with start < `end` and end > `start` (UTC instants)."""
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT * FROM calendar_events WHERE start_utc < ? AND end_utc > ?"
+                " ORDER BY start_utc, event_key", (utc_iso(end), utc_iso(start))).fetchall()
+            return [self._calendar_event(conn, r) for r in rows]
+
+    def link_event(self, meeting_id: str, event_key: str | None) -> None:
+        """Link a meeting to a cached event (taking its title and people), or
+        unlink it. Unlinking keeps the title and people: the user may have
+        renamed it since, and the spec keeps them when an event disappears."""
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+                raise MeetingNotFound(meeting_id)
+            if event_key is None:
+                conn.execute("UPDATE meetings SET calendar_event_id = NULL WHERE id = ?",
+                             (meeting_id,))
+                self._touch(conn, meeting_id)
+                return
+            row = conn.execute("SELECT * FROM calendar_events WHERE event_key = ?",
+                               (event_key,)).fetchone()
+            if row is None:
+                raise ValueError("That calendar event is no longer in the calendar.")
+            event = self._calendar_event(conn, row)
+            conn.execute("UPDATE meetings SET calendar_event_id = ?, title = ? WHERE id = ?",
+                         (event_key, event.title, meeting_id))
+            conn.execute("DELETE FROM meeting_people WHERE meeting_id = ?", (meeting_id,))
+            for p in event.people:
+                conn.execute(
+                    "INSERT OR IGNORE INTO meeting_people (meeting_id, person_id, role)"
+                    " VALUES (?, ?, ?)",
+                    (meeting_id, self._person_id(conn, p.name, p.email), p.role))
+            self._touch(conn, meeting_id)
 
     def calendar_events_between(self, from_date: str, to_date: str) -> list[CalendarEvent]:
         """Cached Calendar.app events overlapping local days [from, to]."""

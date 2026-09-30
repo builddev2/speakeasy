@@ -20,6 +20,7 @@ no extra thread.
 """
 
 import dataclasses
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -36,39 +37,18 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config, injector, meeting_import, meeting_recorder, meetings, settings
+from . import calendar_match, config, injector, meeting_import, meeting_recorder, meetings, settings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_benchmark import MeetingTiming
 from .meeting_library import MeetingLibrary, NewMeeting
+from .meeting_options import MeetingOptions  # noqa: F401  (re-exported)
 from .meeting_recorder import MeetingCaptureRecorder, MeetingRecording
 from .meeting_stream import MeetingASRSession, MeetingASRStatus
 from .profiles import Profile
 from .recorder import Recorder, RecorderBusy
 from .transcriber import MeetingCancelled, Transcriber, read_wav_mono_f32
-
-
-@dataclass(frozen=True)
-class MeetingOptions:
-    # Remote speakers in dual-track mode. In mic-only fallback, source
-    # separation is impossible, so this constrains every voice audible on mic.
-    expected_speaker_count: int | None = None
-    expected_voice_profile_names: tuple[str, ...] = ()
-    system_audio_pid: int | None = None
-
-    def __post_init__(self) -> None:
-        if (
-            self.expected_speaker_count is not None
-            and not 1 <= self.expected_speaker_count <= 20
-        ):
-            raise ValueError("Expected speaker count must be between 1 and 20.")
-        if self.system_audio_pid is not None and (
-            not isinstance(self.system_audio_pid, int)
-            or isinstance(self.system_audio_pid, bool)
-            or self.system_audio_pid <= 0
-        ):
-            raise ValueError("Selected application is no longer available.")
 
 
 @dataclass(frozen=True)
@@ -115,6 +95,9 @@ class DictationEngine:
         self.control = ThreadPoolExecutor(max_workers=1)
         self.transcriber: Transcriber | None = None
         self.diarizer = None  # built lazily on the first meeting (loads ONNX)
+        # Speaker embedding for cluster merging; built lazily (loads ONNX).
+        # Tests inject a fake.
+        self.speaker_embedder = None
         self.profile: Profile | None = None
         self.overlay = None
         self.state = State.LOADING
@@ -136,6 +119,9 @@ class DictationEngine:
         self.meeting_processing_error = None
         self._meeting_cancel = threading.Event()
         self._meeting_options = MeetingOptions()
+        # The calendar event this recording belongs to (cached copy). UI
+        # threads read it; it is only ever replaced whole, never mutated.
+        self.meeting_event = None
         self._meeting_asr_session: MeetingASRSession | None = None
         self._meeting_asr_future: Future | None = None
         self._diarizer_speaker_count: int | None = None
@@ -345,9 +331,10 @@ class DictationEngine:
 
     def _resolve_dictation_target(self, generation):
         if self._shutting_down or generation != self._dictation_generation:
-            return None, self._dictation_clock_ns()
-        target = injector.focused_target()
-        return target, self._dictation_clock_ns()
+            return None, self._dictation_clock_ns(), {}
+        diagnostics: dict = {}
+        target = injector.focused_target(diagnostics)
+        return target, self._dictation_clock_ns(), diagnostics
 
     def _transcribe_stream_with_fallback(
         self, session: StreamingSession
@@ -432,15 +419,42 @@ class DictationEngine:
         if first_buffer is not None:
             timing.mark("first_buffer", first_buffer)
         target_future = getattr(self, "_target_future", None)
-        if target_future is not None and target_future.done() and not target_future.cancelled():
+        if target_future is None:
+            pass
+        elif target_future.cancelled():
+            timing.target_status = "cancelled"
+        elif not target_future.done():
+            timing.target_status = "pending"
+        else:
             try:
-                target, resolved = target_future.result()
-                # A busy worker or slow AX lookup must not bind to a field
-                # selected later during speech. Keep the final for recovery.
-                if first_buffer is not None and resolved <= first_buffer:
+                target, resolved, diagnostics = target_future.result()
+                # A busy worker or very slow AX lookup must not bind to a field
+                # selected later during speech. The first buffer lands only
+                # 5-20 ms after key-down, the same order as an AX lookup, so
+                # accept anything resolved within the grace window after
+                # key-down (or the first buffer, if later). Without a known
+                # key-down time, keep the strict first-buffer rule. Late
+                # targets keep the final for recovery.
+                if hold_started is not None:
+                    bound = hold_started + int(
+                        config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000)
+                    if first_buffer is not None:
+                        bound = max(first_buffer, bound)
+                    accepted = resolved <= bound
+                else:
+                    accepted = first_buffer is not None and resolved <= first_buffer
+                if accepted:
                     self._dictation_target = target
+                timing.target_status = (
+                    "missing" if target is None
+                    else "accepted" if accepted else "late"
+                )
+                if hold_started is not None:
+                    timing.target_resolve_ms = round(
+                        (resolved - hold_started) / 1_000_000, 1)
+                timing.target_diagnostics = diagnostics
             except Exception:
-                pass
+                timing.target_status = "error"
         recorder_busy, self._recorder_busy = self._recorder_busy, False
         try:
             too_short = (
@@ -802,6 +816,48 @@ class DictationEngine:
     def end_meeting(self) -> None:
         self.control.submit(self._end_meeting)
 
+    def link_meeting_event(self, event_key: str | None) -> None:
+        """Change or clear the current recording's event (Dock menu)."""
+        self.control.submit(self._link_meeting_event, event_key)
+
+    def _link_meeting_event(self, event_key: str | None) -> None:
+        if self.state is not State.MEETING_RECORDING:
+            return
+        event = None
+        if event_key is not None:
+            try:
+                event = self.library.calendar_event(event_key)
+            except sqlite3.Error:
+                return
+            if event is None:
+                return
+        self.meeting_event = event
+        self.on_state_changed(self.state)
+
+    def _resolve_meeting_event(self, event_key, started_at):
+        try:
+            if event_key is not None:
+                return self.library.calendar_event(event_key)
+            return calendar_match.pick_event(
+                self.library.calendar_events_overlapping(
+                    started_at,
+                    started_at + calendar_match.MATCH_EARLY_JOIN + timedelta(seconds=1)),
+                started_at)
+        except (sqlite3.Error, ValueError, RuntimeError):
+            print("  → calendar match skipped (library unavailable)")
+            return None
+
+    def _saved_meeting_event(self):
+        """The event re-read at save time (renamed since?), else the copy
+        held since the start (deleted from Calendar since?)."""
+        held = self.meeting_event
+        if held is None:
+            return None
+        try:
+            return self.library.calendar_event(held.event_key) or held
+        except sqlite3.Error:
+            return held
+
     def cancel_meeting_processing(self) -> None:
         """Abort processing and discard the meeting. Just sets the event —
         the worker polls it between transcription chunks and phases, so no
@@ -815,6 +871,7 @@ class DictationEngine:
         self.meeting_start_error = reason
         self._cancel_meeting_pretranscription()
         self._meeting_active = False
+        self.meeting_event = None
         if not self._user_paused and not self._shutting_down:
             self._listener.resume()
         try:
@@ -875,6 +932,13 @@ class DictationEngine:
         self._meeting_started_at = datetime.now().astimezone()
         self._set_state(State.MEETING_RECORDING)
         print("● meeting recording...")
+        # Only after capture is running: a busy library can hold a read for
+        # up to 5 s, and that must never delay the recording itself.
+        self.meeting_event = self._resolve_meeting_event(
+            options.calendar_event_key if options is not None else None,
+            self._meeting_started_at)
+        if self.meeting_event is not None:
+            self.on_state_changed(self.state)   # the Dock shows the title
 
     def _end_meeting(self) -> None:
         if not self._meeting_active or self.state is not State.MEETING_RECORDING:
@@ -895,6 +959,7 @@ class DictationEngine:
                 pretranscription_session.cancel()
             # Nothing made it to disk; back to dictation.
             self._meeting_active = False
+            self.meeting_event = None
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
@@ -990,7 +1055,14 @@ class DictationEngine:
             cancel=self._meeting_cancel,
         )
 
-    def _diarize_track(self, audio, progress, timing: MeetingTiming | None = None):
+    def _diarize_track(
+        self,
+        audio,
+        progress,
+        timing: MeetingTiming | None = None,
+        *,
+        max_speakers: int | None = None,
+    ):
         expected_count = self._meeting_options.expected_speaker_count
         if self.diarizer is None or self._diarizer_speaker_count != expected_count:
             from .diarizer import Diarizer
@@ -1004,6 +1076,15 @@ class DictationEngine:
         finally:
             if timing is not None:
                 timing.finish("diarization")
+        if expected_count is None:
+            # The user's own count is exact and wins. Otherwise fold the
+            # over-split clusters (and apply the calendar cap) before naming
+            # voices, so profile matching sees whole voices.
+            from . import speaker_merge
+
+            turns = speaker_merge.tidy_speakers(
+                audio, turns, self._speaker_embedding, max_speakers=max_speakers,
+                cancelled=self._meeting_cancel.is_set)
         if timing is not None:
             timing.start("voice_identification")
         if self._meeting_options.expected_voice_profile_names:
@@ -1018,6 +1099,13 @@ class DictationEngine:
         if timing is not None:
             timing.finish("voice_identification")
         return turns
+
+    def _speaker_embedding(self, samples):
+        if self.speaker_embedder is None:
+            from .voice_profiles import VoiceProfileStore
+
+            self.speaker_embedder = VoiceProfileStore().embed
+        return self.speaker_embedder(samples)
 
     def _process_meeting(
         self,
@@ -1058,6 +1146,9 @@ class DictationEngine:
                 timing.mic_frames = mic_frames
                 timing.system_frames = system_frames
             dual_track = recording.capture_mode == "mic_and_system" and system_frames
+            event = self._saved_meeting_event()
+            speaker_cap = calendar_match.remote_speaker_cap(
+                event, "mic_and_system" if dual_track else "mic_only")
             if not mic_frames and not system_frames:
                 raise ValueError("Meeting contained no readable audio")
 
@@ -1107,6 +1198,7 @@ class DictationEngine:
                         f"Identifying remote speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
+                    max_speakers=speaker_cap,
                 )
                 del system_audio
                 if self._meeting_cancel.is_set():
@@ -1166,6 +1258,7 @@ class DictationEngine:
                         f"Identifying speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
+                    max_speakers=speaker_cap,
                 )
                 del audio
                 if self._meeting_cancel.is_set():
@@ -1207,6 +1300,9 @@ class DictationEngine:
                     recording.health.to_dict() if recording.health else {}
                 ),
                 capture_scope=recording.capture_scope,
+                title=event.title if event is not None else None,
+                calendar_event_id=event.event_key if event is not None else None,
+                people=list(event.people) if event is not None else [],
             )
             if self._meeting_cancel.is_set():
                 raise MeetingCancelled
@@ -1254,6 +1350,7 @@ class DictationEngine:
                 finally:
                     meeting_recorder.release_spool(path)
             self._meeting_active = False
+            self.meeting_event = None
             if not self._user_paused:
                 self._listener.resume()
             self._set_state(self._idle_state())
@@ -1493,7 +1590,12 @@ class DictationEngine:
         # Explicit recovery shares the model worker's serialized insertion path.
         if self.state not in {State.READY, State.MIC_FAILED}:
             return
-        target = injector.focused_target()
+        # Runs on the AppKit main thread. The lookup stays at click time so it
+        # binds the field the user meant (on the worker it would bind whatever
+        # is focused when the worker frees up, possibly mid streaming decode).
+        # No retries/sleeps: the main thread blocks at most the AX timeouts
+        # (~0.5 s), typically a few ms; a take already made the app build its tree.
+        target = injector.focused_target(retry_attempts=0)
         generation = self._dictation_generation
         self.worker.submit(self._paste_last_dictation, target, generation)
 

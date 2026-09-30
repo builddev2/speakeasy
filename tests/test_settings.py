@@ -52,3 +52,29 @@ def test_corrupt_settings_json_is_ignored(support_dir):
 
 def test_model_path_in_dev_is_model_id():
     assert settings.model_path() == config.MODEL_ID
+
+
+def test_meeting_settings_defaults_and_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    assert settings.get_meeting_settings() == {"offer_to_record": True, "calendar_choices": {}}
+    settings.set_meeting_settings(offer_to_record=False, calendar_choices={"cal-1": False})
+    settings.set_meeting_settings(calendar_choices={"cal-2": True})
+    assert settings.get_meeting_settings() == {
+        "offer_to_record": False, "calendar_choices": {"cal-1": False, "cal-2": True}}
+
+
+def test_meeting_settings_reject_bad_values(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    import pytest
+    with pytest.raises(ValueError):
+        settings.set_meeting_settings(offer_to_record="yes")
+    with pytest.raises(ValueError):
+        settings.set_meeting_settings(calendar_choices={"cal": "on"})
+
+
+def test_meeting_settings_ignore_corrupt_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    (tmp_path / "settings.json").write_text('{"meetings": {"offer_to_record": 1,'
+                                            ' "calendar_choices": {"a": 1, "b": false}}}')
+    assert settings.get_meeting_settings() == {"offer_to_record": True,
+                                               "calendar_choices": {"b": False}}

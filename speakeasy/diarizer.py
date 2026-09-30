@@ -18,7 +18,6 @@ dependency installed.
 """
 
 from collections.abc import Callable
-from dataclasses import replace
 
 import numpy as np
 
@@ -86,15 +85,4 @@ class Diarizer:
         ]
         # sherpa returns concurrent segments for overlapping voices. Preserve
         # that information instead of silently forcing overlap onto one label.
-        overlapping = set()
-        for left, first in enumerate(turns):
-            for right in range(left + 1, len(turns)):
-                second = turns[right]
-                if second.start >= first.end:
-                    break
-                if first.speaker != second.speaker and second.end > first.start:
-                    overlapping.update((left, right))
-        return [
-            replace(turn, overlap=True) if index in overlapping else turn
-            for index, turn in enumerate(turns)
-        ]
+        return meetings.flag_overlaps(turns)

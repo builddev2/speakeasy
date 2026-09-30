@@ -147,3 +147,87 @@ Historical failures and earlier build-specific acceptance statements remain
 unchanged. Do not restore the shared cold-start/warm-command timeout: helper
 launch has one absolute four-second budget, warm commands retain 1.5 seconds,
 and a launch timeout does not trigger an immediate second cold launch.
+
+## Target discard and fresh-Electron lookup — 29 September 2026
+
+Installed build c81273e logged the new target fields:
+
+| Take | App | key_down→first_buffer (ms) | target_resolve_ms | target_status | first AX error | AX enabled |
+|---|---|---|---|---|---|---|
+| 1st | Codex (fresh launch) | 174.3 | 77.2 | missing | -25212 (NoValue) | False, so no retry |
+| 2nd | Codex | 16.3 | 6.5 | accepted | 0 | |
+| 1st | Teams (fresh launch) | 11.5 | 15.3 | late | 0 | |
+| 2nd | Teams | 18.4 | 15.2 | accepted | 0 | |
+
+Two causes:
+
+1. The `f2378aa` rule accepted the key-down target only if it resolved before
+   the first audio buffer. That buffer arrives 5-20 ms after key-down, the same
+   order as an AX lookup (Teams about 15 ms), so correct targets were discarded
+   at random (first Teams take: AX succeeded, status "late").
+2. In a freshly launched Electron app the first AXFocusedUIElement query returns
+   NoValue. The single retry ran only if `_enable_accessibility` returned True;
+   for Codex it returned False, so there was no retry (first Codex take: "missing").
+
+Fix: a target is accepted when it resolved at or before
+`max(first_buffer, key_down + DICTATION_TARGET_GRACE_SECONDS)` (0.3 s); with no
+key-down time the old first-buffer rule applies, and with no first buffer the
+grace bound alone applies. "late" now means past that bound. `focused_target`
+retries AXFocusedUIElement up to `DICTATION_TARGET_RETRY_ATTEMPTS` (4) times,
+sleeping `DICTATION_TARGET_RETRY_INTERVAL_SECONDS` (0.04 s) before each, whether
+or not accessibility enabling reported success, re-checking the frontmost app
+after each attempt (change: no target, `target_app_switched`). It never
+substitutes an application or window element. New diagnostic and latency field
+`target_retry_count`. Unchanged: secure-field and subrole rules, the
+`current != target` check in deliver_final (focus_changed), clipboard
+ownership, fail-closed on app switch.
+
+### Live check and follow-ups — 29–30 September 2026
+
+Installed build `14541f3` (712 tests). On 29 September the user checked
+dictation in TextEdit, Codex and Teams, including the first take after
+relaunching Codex and Teams. All inserted.
+
+Neither race occurred in that run. Every take had `target_retry_count` 0 and
+every lookup finished before the first buffer. So the run shows the fix does
+not regress. It does not yet show the fix working live.
+
+Residual risk from the fix: a non-secure field that gains focus within 300 ms of
+key-down, and is still focused at release, receives the text. The old rule held
+it for recovery. Password fields stay blocked.
+
+Follow-ups made on 30 September (D1):
+
+- Retries at key-down keep the fixed 4-attempt cap. A deadline was tried and
+  removed: the acceptance bound depends on the first buffer, which is known only
+  at stop. Four of 138 logged takes had a first buffer later than 300 ms, and a
+  deadline would have cut their retries.
+- Delivery-time lookups keep 4 attempts.
+- The recovery paste lookup (AppKit main thread) makes no retries (ruling R22).
+  It keeps the click-time field. Worst case is about 0.5 s of AX timeouts.
+- Worst-case lookup: about 1.06 s for an unresponsive app (0.1 s first query
+  + up to 4 x 0.1 s enable calls + 4 x (0.04 + 0.1) s retries), and about 0.2 s for a fresh Electron app.
+
+Status: **pending**. It stays pending until a take with `target_retry_count > 0`,
+or one whose lookup finished between the first buffer and key-down + 300 ms, is
+seen inserting correctly in Codex or Teams on an installed build.
+
+### Installed check on `4ddb41d` — 30 September 2026
+
+The user checked TextEdit, then the first and second takes after relaunching Codex and Teams. TextEdit and both second takes inserted. **Both first takes after a relaunch failed** with `permission_or_focus_unavailable`.
+
+| Take | App | key_down→first_buffer (ms) | target_resolve_ms | status | first / last AX error | retries | AX enabled |
+|---|---|---|---|---|---|---|---|
+| 1st | Codex (fresh launch) | 57.6 | 316.5 | missing | -25212 / -25212 | 4 | False |
+| 2nd | Codex | 32.9 | 3.2 | accepted | 0 | 0 | |
+| 1st | Teams (fresh launch) | 202.9 | 321.9 | missing | -25212 / -25212 | 4 | False |
+| 2nd | Teams | 46.2 | 18.9 | accepted | 0 | 0 | |
+| — | TextEdit | 47.3 | 31.6 | accepted | 0 | 0 | |
+
+The key-down lookup is the same as in `14541f3`; only the recovery paste changed. So this is not a regression from the 30 Sep follow-ups. The 29 Sep pass came from a run in which no retry was needed.
+
+The R21 retries (4 × 40 ms) did not help. Every query in the fresh apps answered NoValue for about 320 ms. `target_ax_enabled` was False in both takes, so `_enable_accessibility` wrote nothing. It writes `AXManualAccessibility` and `AXEnhancedUserInterface` only when `AXUIElementIsAttributeSettable` reports them as settable.
+
+Hypothesis, not yet tested: Electron accepts a write to `AXManualAccessibility` even though it does not report the attribute as settable. If so, the fresh app never gets asked to build its tree, and the tree only appears later by some other route.
+
+Next step: a read-only probe of a freshly launched Codex or Teams. It should record what the settable check returns for each attribute, whether a direct write succeeds, and how long until `AXFocusedUIElement` answers. Do this before changing the rule that unsupported attributes are not written. **Status: the first-take failure is open.**

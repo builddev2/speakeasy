@@ -43,6 +43,7 @@ pyobjc-core==12.2.1
 pyobjc-framework-ApplicationServices==12.2.1
 pyobjc-framework-Cocoa==12.2.1
 pyobjc-framework-CoreText==12.2.1
+pyobjc-framework-EventKit==12.2.1
 pyobjc-framework-Quartz==12.2.1
 pytest==9.1.1
 PyYAML==6.0.3

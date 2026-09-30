@@ -207,6 +207,14 @@ class StatusItemController(NSObject):
         )
         self._status_line.setEnabled_(False)
         menu.addItem_(self._status_line)
+        # Shown only while a recording is linked to a calendar event; a
+        # separate item so it never hides the capture-health warnings above.
+        self._event_line = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "", None, ""
+        )
+        self._event_line.setEnabled_(False)
+        self._event_line.setHidden_(True)
+        menu.addItem_(self._event_line)
         menu.addItem_(NSMenuItem.separatorItem())
 
         profile_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -346,6 +354,10 @@ class StatusItemController(NSObject):
 
     @objc.python_method
     def _sync_meeting_items(self, state):
+        event = self.engine.meeting_event if state is State.MEETING_RECORDING else None
+        self._event_line.setHidden_(event is None)
+        if event is not None:
+            self._event_line.setTitle_(f"Recording · {event.title}")
         if state is State.MEETING_RECORDING:
             self._meeting_item.setTitle_("End Meeting (00:00)")
             self._meeting_item.setEnabled_(True)
@@ -567,6 +579,7 @@ class AppDelegate(NSObject):
             return None
         self._preselected = str(profile_name) if profile_name else None
         self.engine = None
+        self.calendar_sync = None
         self.controller = None
         self.main_window = None
         return self
@@ -574,11 +587,36 @@ class AppDelegate(NSObject):
     def systemDidWake_(self, notification):
         if self.engine is not None and not self.engine._shutting_down:
             self.engine.system_woke()
+        self.calendarTick_(None)
+
+    def calendarTick_(self, timer):
+        sync = getattr(self, "calendar_sync", None)
+        if sync is not None:
+            sync.tick()
+
+    def calendarSynced_(self, _):
+        window = getattr(self.controller, "meetings_window", None)
+        if window is not None:
+            window.calendarChanged_(None)
 
     def applicationDidFinishLaunching_(self, notification):
         engine = DictationEngine()
         engine.set_profile(_initial_profile(self._preselected))
         self.engine = engine
+
+        from ..calendar_sync import CalendarSync
+        from . import services
+
+        services.engine = engine
+        self.calendar_sync = CalendarSync(
+            on_synced=lambda: self.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"calendarSynced:", None, False))
+        services.calendar_sync = self.calendar_sync
+        # Never prompt at launch: only an explicit Connect Calendar click asks.
+        self.calendar_sync.tick()
+        # Backstop for changes EventKit doesn't announce (and missed wakes).
+        self._calendar_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            300.0, self, b"calendarTick:", None, True)
         NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
             self, b"systemDidWake:", NSWorkspaceDidWakeNotification, None,
         )
@@ -659,6 +697,8 @@ class AppDelegate(NSObject):
         print(f"Speakeasy in the menu bar{profile_tag}. Hold [{hotkey_name}] to dictate.")
 
     def applicationWillTerminate_(self, notification):
+        if getattr(self, "calendar_sync", None) is not None:
+            self.calendar_sync.shutdown()
         if self.engine is not None:
             self.engine.shutdown()
 

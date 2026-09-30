@@ -55,6 +55,8 @@ a = Analysis(
             "speakeasy.mcp_tools",
             "speakeasy.mcp_setup",
             "WebKit",
+            "EventKit",
+            "speakeasy.calendar_sync",
         ]
     ),
     excludes=[
@@ -122,6 +124,11 @@ app = BUNDLE(
             "Speakeasy captures system audio during meetings so remote "
             "participants are transcribed while you use headphones. Audio "
             "is processed on-device and deleted after transcription."
+        ),
+        "NSCalendarsFullAccessUsageDescription": (
+            "Speakeasy reads Calendar on this Mac to title meeting recordings, "
+            "list attendees and offer to record meetings as they start. Event "
+            "notes, locations and links are never read. Nothing leaves this Mac."
         ),
         "NSHumanReadableCopyright": "Local-only dictation. No network, ever.",
     },

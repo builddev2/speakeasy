@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GlassPanel } from '../components/GlassPanel';
 import { TitleBar } from '../components/TitleBar';
 import { AppIdentity } from '../components/AppIdentity';
@@ -26,6 +26,7 @@ interface AppState {
   captureMode: 'mic_only' | 'mic_and_system';
   captureScope: 'global' | 'selected' | 'mic_only' | 'selected_app_unavailable';
   systemAudioStatus: string;
+  linkedEvent?: { key: string; title: string; time: string; speakerHint: number | null } | null;
   captureHealth: {
     system_first_buffer?: boolean;
     system_nonzero_signal?: boolean;
@@ -46,6 +47,18 @@ interface DockAppProps {
 interface LinkedEvent {
   title: string;
 }
+
+interface EventChoice {
+  key: string;
+  title: string;
+  time: string;
+}
+
+// Browser preview only: two fixed events for the mock event menu.
+const MOCK_EVENT_CHOICES: EventChoice[] = [
+  { key: 'a2', title: 'Weekly 1:1 — Alex', time: '1:00 PM' },
+  { key: 'a3', title: 'Design Sync', time: '3:30 PM' },
+];
 
 /** Browser preview only: reads `?state=recording-linked` to mock the Dock's
  * "recording, linked to a calendar event" appearance. Real linking is wired
@@ -156,11 +169,16 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   const [captureApps, setCaptureApps] = useState<CaptureApplication[]>([]);
   const [captureSelection, setCaptureSelection] = useState('global');
   const [tick, setTick] = useState(0);
-  const [linkedEvent, setLinkedEvent] = useState<LinkedEvent | null>(
-    mockLinked ? { title: 'Weekly 1:1 — Alex' } : null,
+  const [mockLinkedEvent, setMockLinkedEvent] = useState<(LinkedEvent & { key: string }) | null>(
+    mockLinked ? { key: 'a2', title: 'Weekly 1:1 — Alex' } : null,
   );
+  const [eventChoices, setEventChoices] = useState<EventChoice[]>([]);
+  // True once app.meetingEvents has answered without error, i.e. Calendar is usable.
+  const [calendarAvailable, setCalendarAvailable] = useState(false);
   const [eventMenuOpen, setEventMenuOpen] = useState(false);
   const eventMenuRef = useRef<HTMLDivElement>(null);
+  const eventListRef = useRef<HTMLDivElement>(null);
+  const [eventListMax, setEventListMax] = useState<number | undefined>(undefined);
   const baselineRef = useRef<number | null>(
     mockLinked ? Date.now() - MOCK_LINKED_ELAPSED * 1000 : null,
   );
@@ -185,6 +203,44 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       document.removeEventListener('keydown', onDocKeyDown);
     };
   }, [eventMenuOpen]);
+
+  // Cap the list so the whole menu fits inside the (small) Dock window, then
+  // bring the linked event into view. Unlink sits above the list, always reachable.
+  useLayoutEffect(() => {
+    if (!eventMenuOpen) return;
+    const list = eventListRef.current;
+    if (!list) return;
+    const top = list.getBoundingClientRect().top;
+    setEventListMax(Math.max(72, window.innerHeight - top - 8 - 4));
+    list.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [eventMenuOpen, eventChoices]);
+
+  function loadEventChoices() {
+    if (!bridge.embedded) {
+      setEventChoices(MOCK_EVENT_CHOICES);
+      return;
+    }
+    bridge.call<EventChoice[]>('app.meetingEvents')
+      .then((list) => {
+        setEventChoices(list);
+        setCalendarAvailable(true);
+      })
+      .catch(() => {
+        setEventChoices([]);
+        setCalendarAvailable(false);
+      });
+  }
+
+  function linkEvent(key: string | null) {
+    setEventMenuOpen(false);
+    if (!bridge.embedded) {
+      const chosen = key === null ? null : MOCK_EVENT_CHOICES.find((e) => e.key === key) ?? null;
+      setMockLinkedEvent(chosen);
+      return;
+    }
+    // The linked event returns to us through the next `state` push.
+    void bridge.call('app.linkMeetingEvent', { key }).catch(() => {});
+  }
 
   function applyState(next: AppState) {
     if (next.mode === 'meeting_recording') {
@@ -217,7 +273,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       setApp((current) => {
         const recording = current.mode === 'meeting_recording';
         baselineRef.current = recording ? null : Date.now();
-        if (recording) setLinkedEvent(null);
+        if (recording) setMockLinkedEvent(null);
         return { ...current, mode: recording ? 'ready' : 'meeting_recording', elapsedSeconds: 0 };
       });
     }
@@ -226,6 +282,21 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   }, []);
 
   const isRecording = app.mode === 'meeting_recording';
+
+  // Probe Calendar once per recording so the event menu only appears when it can work.
+  useEffect(() => {
+    if (!isRecording) {
+      if (bridge.embedded) setCalendarAvailable(false);
+      return;
+    }
+    if (bridge.embedded) loadEventChoices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (eventMenuOpen) loadEventChoices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventMenuOpen]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -255,7 +326,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
       setApp((current) => {
         const recording = current.mode === 'meeting_recording';
         baselineRef.current = recording ? null : Date.now();
-        if (recording) setLinkedEvent(null);
+        if (recording) setMockLinkedEvent(null);
         return { ...current, mode: recording ? 'ready' : 'meeting_recording', elapsedSeconds: 0 };
       });
     }
@@ -273,10 +344,13 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   }
 
   const idleInfo = isRecording ? null : STATUS[app.mode as Exclude<EngineMode, 'meeting_recording'>];
-  // Phase 3 (event linking) is not wired yet. The real, embedded Dock keeps the
-  // pre-phase-3 "Recording meeting" label and no event menu; only the approved
-  // mock `?state=recording-linked` preview shows the new label and menu.
-  const showEventUI = isMock && dockMockState === 'recording-linked';
+  const showEventUI = isMock ? dockMockState === 'recording-linked' : isRecording && calendarAvailable;
+  const linkedEvent: { key: string; title: string } | null = bridge.embedded
+    ? (app.linkedEvent ?? null)
+    : mockLinkedEvent;
+  // A manual remote-speaker count is exact and wins over the calendar's guess.
+  const speakerHint =
+    isRecording && bridge.embedded && expectedSpeakerCount === '' ? (app.linkedEvent?.speakerHint ?? null) : null;
   const name = bridge.embedded ? app.profileName : operatorName;
   const selectedAppAvailable = captureSelection === 'global'
     || captureApps.some((application) => String(application.pid) === captureSelection);
@@ -321,6 +395,9 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
           }
         />
 
+        {speakerHint !== null && (
+          <div className={styles.speakerHint}>Speakers: up to {speakerHint} (from calendar)</div>
+        )}
         {isRecording && <Waveform />}
         {isRecording && (
           <div className={styles.recStatus}>
@@ -341,41 +418,38 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
               </button>
               {eventMenuOpen && (
                 <div className={styles.eventMenu} role="menu">
-                  {linkedEvent ? (
+                  {linkedEvent && (
                     <>
-                      <button
-                        role="menuitem"
-                        className={styles.eventMenuItem}
-                        onClick={() => {
-                          setEventMenuOpen(false);
-                          console.log('change-event');
-                        }}
-                      >
-                        Change Event…
-                      </button>
-                      <button
-                        role="menuitem"
-                        className={styles.eventMenuItem}
-                        onClick={() => {
-                          setEventMenuOpen(false);
-                          setLinkedEvent(null);
-                        }}
-                      >
+                      <button role="menuitem" className={styles.eventMenuItem} onClick={() => linkEvent(null)}>
                         Unlink
                       </button>
+                      <div className={styles.eventMenuDivider} role="separator" />
                     </>
-                  ) : (
-                    <button
-                      role="menuitem"
-                      className={styles.eventMenuItem}
-                      onClick={() => {
-                        setEventMenuOpen(false);
-                        console.log('link-to-event');
-                      }}
-                    >
-                      Link to Event…
-                    </button>
                   )}
+                  <div
+                    className={styles.eventMenuList}
+                    ref={eventListRef}
+                    style={eventListMax ? { maxHeight: eventListMax } : undefined}
+                  >
+                    {eventChoices.length === 0 && !linkedEvent && (
+                      <div className={styles.eventMenuEmpty}>No events today</div>
+                    )}
+                    {eventChoices.map((choice) => {
+                      const current = linkedEvent?.key === choice.key;
+                      return (
+                        <button
+                          key={choice.key}
+                          role="menuitemradio"
+                          aria-checked={current}
+                          className={styles.eventMenuItem}
+                          onClick={() => linkEvent(current ? null : choice.key)}
+                        >
+                          <span className={styles.eventMenuCheck} aria-hidden="true">{current ? '✓' : ''}</span>
+                          {choice.time} · {choice.title}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

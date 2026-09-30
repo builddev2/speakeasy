@@ -2827,7 +2827,194 @@ git commit -m "Add a previewable fix for imported titles that carry the end time
 
 (Record deviations, surprises and review findings here during execution.)
 
-### Carried in from Phase 2
+### Status (29 Sep 2026)
 
-- The duplicate MCP connection in Claude Code (`speakeasy` via `claude mcp add` and `Speakeasy Meetings` via the extension, so 16 tools) needs no code change. The user should remove one with `claude mcp remove speakeasy`, or turn off the extension there. Task 10 adds the README note.
-- Phase 1 parked items that are **not** in scope here: the 500-row list cap, the `_upgrade_library` `print_exc`, the Event-release test hang, the uninstall script wording, and the frontend minors listed in the parent plan (apart from the duplicate `UpcomingDay`, which Task 7 removes).
+- **Tasks 1–9 done**, each reviewed with mutation checks. **Task 10:** Steps 1–3 done. Steps 4–6 (build and install, acceptance with the user, final notes) are **not done**.
+- Branch `meeting-library-phase3`, worktree `.claude/worktrees/meeting-library-phase3`, head `e4afaf2` at the final fix wave. Nothing is merged.
+- **Test results (not launched):** full suite **697 passed**, against a baseline of 593 on master. `npm --prefix frontend run build` is clean. The mock screens were checked in the browser pane: Today in all three access states, Settings, the event-chip menu and the Dock event menu.
+- **Final whole-branch review (Opus):**
+  - Critical: revoking Calendar access never cleared the cache, because the plan's menubar code only synced when access was "connected". Fixed with `CalendarSync.tick()`, which runs on launch, wake and the 5-minute timer and syncs whenever access is not "unconnected".
+  - Important: a fresh library opened by two connections at once could leave `user_version` stuck at 1. Fixed in `migrate`.
+  - Both fixes were re-reviewed, and mutation checks caught both.
+- **Step 2 measurement (Task 8):** `transcript_page` took **1.02 ms** per page (3600 segments, 20 000 chars). That is under 20 ms, so connections stay per-call.
+- **Step 3 re-measure** on a read-only `.backup` copy (92 imported and 2 recorded meetings). Each figure is total labels / labels that hold at least 15 s of talk; the second number estimates the fold with no calendar:
+  - Canada expansion: 144/27 (26 Aug), 139/34 (19 Aug), 112/27 (12 Aug)
+  - 1on1 Jim: 74/17
+  - 1on1 Victor: 69/30
+  - 1on1 Bing: 57/20, 50/18, 39/13
+
+  Imported meetings don't change, because no audio is kept. This is the "before" baseline for acceptance step 6.
+- **Title-fix dry run on the copy:** 74 fixes, which matches the plan. For example, `Mesa Meeting — Jul 13, 12:28 PM → 12:05 PM`. Nothing has been applied.
+
+### Surprises
+
+- **A test wrote into real user data.** `test_add_word_updates_fuzzy_index_without_reload` (which predates this phase) saved `profiles/t.json` into the real App Support folder on every suite run. It now uses the `profiles_dir` fixture. An autouse `isolated_home` fixture in `tests/conftest.py` points HOME and `settings.app_support_dir` at a tmp dir for every test. The junk `t.json` was moved to the Trash at the user's request.
+- **Stale `.pyc` after a mutation.** A same-length mutation (`!=` → `==`) that was restored within the same second left a stale `.pyc`, and later runs failed on it. Mutation runs now use `python -B`, and `__pycache__` is cleared afterwards.
+- **Empty `node_modules`.** The main checkout's `frontend/node_modules` was empty, so `npm ci` was run in the worktree. `pyobjc-framework-EventKit==12.2.1` was installed into the shared `.venv`.
+- **Install note (Step 4):** after installing, restart Claude Desktop and Claude Code. An MCP server process started before the install still expects schema v1, and it refuses the v2 library until it is relaunched.
+
+### Rulings made during execution (the cost if wrong is in brackets)
+
+- R1. Task 5's "explicit event wins" test seeds both events in one window. [none]
+- R2. `get_payload` looks up an event only when the meeting is linked. [none]
+- R3. v2 uses `BEGIN IMMEDIATE` framing. [none]
+- R5. Commit trailers name the model that wrote the commit. [cosmetic]
+- R6. One shared `meetings.flag_overlaps` replaces the overlap loop that was duplicated in `diarizer.py`. [a small refactor]
+- R7. `tidy_speakers` catches the same errors as `identify`. [none]
+- R8. `event_from_ek` never undercounts. An unnameable attendee makes the count unknown, and people with the same name are counted individually. [some caps become None]
+- R9. Added post-grant fresh-store resync, observer removal and quiet shutdown. [extra code]
+- R10. The bridge reads `meeting_event` once. [none]
+- R11. The Dock `app.meetingEvents` errors with `calendar_unavailable` when Calendar is off, and the Dock re-probes when a recording starts. [the Dock UI is hidden if the probe fails for another reason]
+- R12. Three frontend fixes: Settings reset on a failed load, the token colour, and "No calendars found." shown only while connected. [none]
+- R13. Two plan tests that could not detect regressions were strengthened. [none]
+- R14. Test isolation from the real App Support folder. [none]
+- R15. The revoke-clears-cache fix, through `CalendarSync.tick()`. [a cheap store-less sync every 5 min while denied]
+- R16. Fixed the stale migration comment. `--apply` alone is now an error. Added a comment on the thread-safety of `access()`. [none]
+- R17. Parked: `migrate` records the target version on any duplicate-column error. That is safe for v2, which has a single statement. **A multi-statement v3 must guard it** with a target check or a column-exists check. [a v3 could be marked done early]
+- R18. Parked: after a revoke, a store built while connected keeps observing until quit or the next grant. [harmless]
+
+### Deferred minors (final review: all can wait)
+
+- **Calendar cache and matching**
+  - Moving an event in Calendar changes its key, so a meeting linked to it loses its chip. Its title and people are kept.
+  - Today's list and the day chips include events that started the previous evening.
+  - An equal-distance tie can pick an event that hasn't started yet over the running one.
+  - `link_event` doesn't drop orphaned people (the next sync does).
+  - Naive datetimes are not rejected in the window and overlap helpers.
+  - An attendee name that contains `\x1f` would split in `list_meetings`.
+- **Recording and speakers**
+  - Record on a Today row does nothing visible when the engine isn't READY.
+  - The event is re-read before ASR, not exactly at save.
+  - Partial embeddings can leave an unembedded cluster standing during the cap merge.
+  - `tidy_speakers` time is untimed.
+- **Search:** echo collapse can leave two notes hits adjacent.
+- **Frontend**
+  - `bridge.call<T>` is an unchecked cast. No key-set contract test ties the Python payloads to the TS types.
+  - Settings toggles are not optimistic.
+  - The chip menu shows the previous list while loading and has no empty state.
+  - Clicking the checked event behaves differently in the Dock and in the chip menu.
+  - Dock link errors are swallowed.
+  - Mock mode cannot preview the Dock speaker hint.
+- **Test gaps**
+  - Organizer-first event people order.
+  - The window-end boundary.
+  - The observer firing a coalesced sync.
+  - The engine's embedding path and the 15 s anchor boundary.
+  - Clearing `meeting_event` on start failure.
+  - The title fix in a non-machine time zone, and its sub-minute guard.
+  - Upcoming, the privacy URL, the Dock handlers and the menubar wiring.
+  - The isolation test hard-codes `/Users/jchiu`.
+- **Title fix:** truncated import seconds can make the end stamp a minute early, which can only cause a missed fix.
+- **Threading:** `shutdown()` drops the store off the executor. `access()` runs on the main thread (a documented exception).
+
+### Acceptance run (29 Sep 2026, installed builds 46918ca → 14541f3)
+
+Passed:
+1. No calendar prompt at launch.
+2. Connect Calendar prompts, and Today lists the events.
+3. Settings shows the ticks, and unticking a calendar removes its events.
+4. Dock "Recording · pickup": the event menu switches events, and Unlink saves the meeting unlinked.
+5. Record from the Today row links the event and saves its title. The user renamed one test meeting themselves.
+7. `get_calendar` returns events with people (1,186 cached).
+9. Dictation into TextEdit, Codex and Teams works, including the first take after relaunching Codex and Teams.
+
+Not done yet:
+- 6: speaker check on a real 1-on-1.
+- 8: revoke access.
+- 10: title-fix dry run on the real library. It already ran on a copy and found 74 fixes.
+
+Bugs found and fixed during acceptance:
+- **`35a46f5`**: the Dock event menu ran off the window, so Unlink couldn't be reached. Unlink now comes first and the list scrolls, in both menus.
+- **`e563df9`**: an old coral focus frame around the whole meeting list.
+- **`c81273e` + `14541f3`**: the first dictation into a freshly launched Electron app was blocked (`permission_or_focus_unavailable`). The diagnostic log showed two causes:
+  - The key-down target was only kept if its lookup beat the mic's first buffer (5–20 ms), and AX lookups take about 15 ms. This random loss could hit any take.
+  - A fresh Electron app answers the first query with `kAXErrorNoValue`, and the retry only ran if switching accessibility on succeeded.
+
+  The fix has two parts:
+  - **R20:** accept the target if it resolved within 300 ms of key-down, or before the first buffer. Delivery still refuses if focus changed.
+  - **R21:** retry the lookup up to 4 times, 40 ms apart, whatever the switch-on returned. Stop if the frontmost app changes.
+
+  Opus review: no Critical or Important findings, and 11 of 11 mutations were caught. Live check: the first takes in Codex and Teams inserted, but neither race condition happened in that run, with 0 retries and every lookup ahead of the buffer. So this is confirmed not to regress; the fix itself is not yet confirmed live. **Residual risk:** a non-secure field that gains focus within 300 ms of key-down and is still focused at release gets the text. The old rule held it for recovery. Password fields stay blocked.
+- Build `14541f3` passes 712 tests.
+
+### Follow-ups for the dictation fix (next session)
+
+1. Stop the retry loop in `injector.focused_target` at the grace deadline: key-down + `DICTATION_TARGET_GRACE_SECONDS`. A later answer is discarded as late anyway, so extra retries only hold the single worker, which also runs streaming decode. `focused_target` doesn't know key-down, so pass a deadline in from `_resolve_dictation_target`. The delivery-time and `paste_last_dictation` calls have no key-down, so keep the fixed 4-attempt cap there.
+2. Fix the `config.py` comment on the worst case. It is about 1.06 s for an unresponsive app: 0.1 s AX timeout per call, up to 4 enable calls, and 4 × (0.04 + 0.1) s. It is about 0.2 s for a fresh Electron app.
+3. `paste_last_dictation` calls `focused_target()` on the AppKit main thread (`menubar.py:509` → `engine.py:~1593`). With no focused field it now blocks for about 0.2 s, up to about 1 s. Either move the lookup off the main thread without changing the recovery semantics, or cap it at a single attempt there. Decide, and document why.
+4. Restore a direct test that `focused_target` writes `AXManualAccessibility` / `AXEnhancedUserInterface` through `_enable_accessibility`. The deleted `test_lazy_accessibility_retry_is_bounded_and_checks_foreground` covered it; now it is caught only through a diagnostics flag.
+5. `tests/test_engine_streaming.py` `test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field` never sets `_hold_started_ns`, so it only exercises the hold-started-None fallback. Add a threaded variant that goes through the grace path. Also fix the stale "1_000_000 ns hold start" comment near line 449.
+6. `docs/insertion-focus-regression.md`: record the live 29 Sep results above, including that neither race condition happened in that run. Leave the status pending until a take with `target_retry_count > 0`, or with a lookup that finished between the first buffer and 300 ms, is seen inserting correctly.
+
+Rules:
+- Read CLAUDE.md, AGENTS.md (the recurring insertion rules) and `docs/insertion-focus-regression.md` first.
+- Keep secure-field, target-identity, clipboard-ownership and fail-closed behaviour.
+- Don't log PIDs or field content.
+- Before claiming success, check TextEdit, Codex and Teams on the installed build, including the first take after relaunching each app.
+
+### Remaining (Task 10 Steps 4–6)
+
+1. Done: build and install. The installed build is `14541f3`, with `NSCalendarsFullAccessUsageDescription` and EventKit in the bundle. Claude Desktop and Claude Code were restarted.
+2. Acceptance still to do:
+   - 10: title-fix dry run on the real library. Apply only if the user says so.
+   - 8: revoke Calendar access. Today should show the denied card, and `get_calendar` should return `[]` within 5 minutes or after a wake. Reconnect afterwards.
+   - 6: speaker check on a real 1-on-1 against the Step 3 baseline. This can happen after the merge.
+3. Record the results here, mark Phase 3 done in the parent plan, then merge and clean up. Merging means merging to master, pushing, and deleting the branch and worktree.
+
+### Dictation follow-up tasks (30 Sep 2026 session)
+
+The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED run recorded, then the full suite (Bash timeout 300000). Reviews are on Opus and use mutation checks.
+
+- **D1 (follow-ups 1–3): bound the lookup.**
+  - `injector.focused_target(diagnostics=None, *, deadline_ns=None, clock_ns=time.perf_counter_ns, retry_attempts=None)`. `retry_attempts=None` means `config.DICTATION_TARGET_RETRY_ATTEMPTS` (4).
+  - Before each retry sleep: if `deadline_ns` is set and `clock_ns() + interval_ns > deadline_ns`, stop retrying. Set diagnostics `target_deadline_stop=True` (default False) and return None. Never return a target that was not found.
+  - `_start_recording` passes the take's hold-start to `_resolve_dictation_target(generation, hold_started_ns)`. It uses `deadline_ns = hold_started_ns + DICTATION_TARGET_GRACE_SECONDS·1e9` with `clock_ns=self._dictation_clock_ns`, or no deadline when the hold-start is None.
+  - Delivery-time calls (`insert_text`, `deliver_final`) keep the 4-attempt cap and no deadline.
+  - `paste_last_dictation` (AppKit main thread) calls `focused_target(retry_attempts=0)`: one query plus the enable, and no sleeps. **Ruling R22:** keep the lookup at click time, on the main thread. Moving it to the worker would bind whatever field has focus when the worker gets free, which may be during a streaming decode. By recovery time the app has already answered a take's lookup, so its tree exists. The worst case is 0.5 s of AX timeouts, and the typical case is a few ms. [If wrong: the first recovery paste into a just-relaunched Electron app reports unavailable, and a second click works.]
+  - `config.py` comment worst case, without a deadline: about 1.06 s for an unresponsive app (0.1 s first query, plus up to 4 × 0.1 s enable calls, plus 4 × (0.04 + 0.1) s retries), and about 0.2 s for a fresh Electron app. With the key-down deadline, no retry starts after key-down + 0.3 s, so the worst case is about 0.5 s.
+- **D2 (follow-ups 4–6): tests and docs.**
+  - Add a direct test that a failed first query writes `AXManualAccessibility` and `AXEnhancedUserInterface` = True on the owner app element, only when settable.
+  - Add a threaded grace-path variant of `test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field`, with a controllable engine clock, `_hold_started_ns` set, and one case each for accepted and late.
+  - Fix the stale "1_000_000 ns hold start" comment in `test_target_status_accepted_records_resolve_time_and_diagnostics`.
+  - Record the live 29 Sep results in `docs/insertion-focus-regression.md`, with the status left pending.
+
+**Outcome (30 Sep).** D1 and D2 are done and reviewed with mutation checks. The final review changed D1:
+- **R23: the key-down deadline was removed, so follow-up 1 was not done as written.** Its premise, that "a later answer is discarded anyway", is false. Acceptance allows `max(first_buffer, key-down + 0.3 s)`, and `recorder.first_buffer_ns` is only known at `stop()`, because the helper process reports it. No deadline set during the lookup can mirror that bound. A fixed deadline would have cut retries in the 4 of 138 logged takes whose first buffer came more than 300 ms after key-down. Key-down lookups keep the fixed 4-attempt cap, as in 14541f3. [If wrong: an unresponsive app can hold the worker, and so the streaming decode, for about 1.06 s. A fresh Electron app holds it for about 0.2 s. No audio is lost.]
+- The rest shipped:
+  - `retry_attempts` in `focused_target`, with the recovery paste set to 0 (R22).
+  - Tests that the delivery-time and key-down lookups keep 4 attempts.
+  - The direct accessibility-enable test.
+  - Threaded grace-path tests, and a test that a late first buffer extends acceptance.
+  - The corrected `config.py` comment.
+  - The doc section, with its status still pending.
+- Deferred minors (can wait):
+  - `_hold_started_ns` has several writers. This existed before. Its value can only move later, so the only effect is lenient timing.
+  - The `error == 0` guard in `_enable_accessibility` is untested.
+  - The settable-check test only counts calls.
+  - The `retry_attempts` default mutation is equivalent while the config value is 4.
+
+**Installed check on `4ddb41d` (30 Sep).**
+- TextEdit and the second takes in Codex and Teams inserted.
+- **The first take after relaunching Codex and after relaunching Teams failed** (`permission_or_focus_unavailable`). Every lookup answered NoValue across the 4 retries (about 320 ms), and `target_ax_enabled` was False: nothing was written.
+- The key-down path is the same as in `14541f3`, so this is not a regression. The R21 retries are not enough on their own.
+- The evidence and a hypothesis (Electron may accept an `AXManualAccessibility` write it does not report as settable) are in `docs/insertion-focus-regression.md`.
+- **Open bug**, for its own debugging session. Probe a fresh Codex/Teams launch read-only before changing the rule that unsupported attributes are not written.
+
+**Acceptance 10 (30 Sep): done.**
+- The dry run on the real library found 74 fixes, the same as on the copy. The user approved, and `--apply` renamed 74 meetings.
+- A second dry run then reported 0 fixes, and `Mesa Meeting — Jul 13, 12:05 PM` is correct.
+- Backup taken before applying: `~/Library/Application Support/Speakeasy/library-before-title-fix-2026-09-30.sqlite`.
+
+**Acceptance 8 (30 Sep): done.**
+- After the user revoked Calendar access, Today showed the denied card.
+- `get_calendar` for 1 Sep to 31 Oct returned `[]`. The cached `calendar_events` and `calendar_event_people` tables hold 0 rows, down from 1,186 events on 29 Sep.
+- Reconnecting afterwards is the user's step.
+
+### Status at merge (30 Sep 2026)
+
+**Phase 3 is done and merged to master.** Full suite: 721 passed. Installed and checked build: `4ddb41d`. Acceptance steps 1–5 and 7–10 passed, except the first dictation after relaunching Codex and Teams.
+
+Still open:
+- **Bug: the first dictation after relaunching Codex or Teams fails.** It is not a regression. See `docs/insertion-focus-regression.md`, "Installed check on `4ddb41d`". Next step: a read-only probe of a fresh launch, checking settable, a direct write of `AXManualAccessibility`, and the time until focus answers.
+- Acceptance 6: a speaker check on a real 1-on-1, against the Step 3 baseline.
+- The deferred minors listed above.

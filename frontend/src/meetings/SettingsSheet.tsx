@@ -1,65 +1,23 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
+import type { MeetingSettings } from '../mock/meetings';
 import { Sheet } from './Sheet';
 import { Switch } from '../components/Switch';
 import { PrimaryButton } from '../components/PrimaryButton';
 import styles from './SettingsSheet.module.css';
 
-interface Calendar {
-  name: string;
-  enabled: boolean;
-}
-
-interface CalendarAccount {
-  name: string;
-  calendars: Calendar[];
-}
-
 interface SettingsSheetProps {
+  settings: MeetingSettings;
+  /** "No calendars found." only makes sense once access is granted. */
+  calendarConnected: boolean;
+  onChange: (patch: { offerToRecord?: boolean; calendars?: Record<string, boolean> }) => void;
   onClose: () => void;
   onExportAll: () => void;
 }
 
-// Invented calendar accounts for the mock (holiday/birthday calendars off by
-// default, per the spec).
-const INITIAL_ACCOUNTS: CalendarAccount[] = [
-  {
-    name: 'iCloud',
-    calendars: [
-      { name: 'Personal', enabled: true },
-      { name: 'Family', enabled: true },
-      { name: 'Holidays', enabled: false },
-    ],
-  },
-  {
-    name: 'Work',
-    calendars: [
-      { name: 'Work', enabled: true },
-      { name: 'Team Events', enabled: true },
-      { name: 'Birthdays', enabled: false },
-    ],
-  },
-];
-
 /** Meetings section of Settings: recording offer toggle, calendar checklist, export. */
-export function SettingsSheet({ onClose, onExportAll }: SettingsSheetProps) {
-  const [offerToRecord, setOfferToRecord] = useState(true);
-  const [accounts, setAccounts] = useState<CalendarAccount[]>(INITIAL_ACCOUNTS);
+export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll }: SettingsSheetProps) {
+  const { offerToRecord, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
-
-  function toggleCalendar(accountName: string, calendarName: string) {
-    setAccounts((prev) =>
-      prev.map((account) =>
-        account.name !== accountName
-          ? account
-          : {
-              ...account,
-              calendars: account.calendars.map((cal) =>
-                cal.name === calendarName ? { ...cal, enabled: !cal.enabled } : cal,
-              ),
-            },
-      ),
-    );
-  }
 
   return (
     <Sheet ariaLabel="Settings" onClose={onClose} initialFocusRef={doneRef} className={styles.sheet}>
@@ -67,20 +25,21 @@ export function SettingsSheet({ onClose, onExportAll }: SettingsSheetProps) {
 
       <div className={styles.toggleRow}>
         <span id="offer-to-record-label">Offer to record calendar meetings</span>
-        <Switch checked={offerToRecord} onChange={setOfferToRecord} ariaLabelledBy="offer-to-record-label" />
+        <Switch checked={offerToRecord} onChange={(value) => onChange({ offerToRecord: value })} ariaLabelledBy="offer-to-record-label" />
       </div>
 
       <div className={styles.sectionTitle}>Calendars</div>
       <div className={styles.calendarList}>
+        {accounts.length === 0 && calendarConnected && <div className={styles.accountName}>No calendars found.</div>}
         {accounts.map((account) => (
           <div key={account.name} className={styles.accountGroup}>
             <div className={styles.accountName}>{account.name}</div>
             {account.calendars.map((cal) => (
-              <label key={cal.name} className={styles.calendarRow}>
+              <label key={cal.id} className={styles.calendarRow}>
                 <input
                   type="checkbox"
                   checked={cal.enabled}
-                  onChange={() => toggleCalendar(account.name, cal.name)}
+                  onChange={() => onChange({ calendars: { [cal.id]: !cal.enabled } })}
                 />
                 <span>{cal.name}</span>
               </label>

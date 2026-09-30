@@ -69,6 +69,16 @@ visibly to the original mic-only diarization mode. See README's
   `save_notes` writes, only the fields given, with `updated_by` "claude".
 - **`--mcp` stays import-light** (no AppKit, MLX, sherpa-onnx or UI modules);
   `test_mcp_mode_imports_nothing_heavy` in `tests/test_mcp_server.py` enforces it.
+- **Calendar privacy.** EventKit is used only on the `calendar` thread
+  (`calendar_sync.py`); the engine and MCP server read the cached
+  `calendar_events` table. Event notes, location, URLs and structured
+  locations are never read or stored (`SyncedEvent` has no field for them).
+  Calendar access is never requested at launch, wake or on a timer; only the
+  user's Connect Calendar click may show the macOS prompt, and revoked access
+  clears the cache.
+- **Test isolation.** Tests never touch the real App Support folder: the
+  autouse `isolated_home` fixture in `tests/conftest.py` redirects it. Never
+  bypass it, and never create an `EKEventStore` in a test.
 
 ## Threading model (load-bearing — don't violate)
 
@@ -100,6 +110,11 @@ contexts are intentionally bounded and single-purpose:
   for a batch final on the same worker; no draft is ever published. Meeting
   capture remains in-process and uses the process-wide
   `coreaudio.teardown` guard; never clear that marker from force-close.
+- **`calendar`** (1 thread, `calendar_sync.CalendarSync`) — the only place
+  EventKit is used. Syncs Calendar.app into `calendar_events` at launch (only
+  if access is already granted), after wake, on `EKEventStoreChangedNotification`
+  and every 5 minutes. Never touches audio or the model. The engine never calls
+  EventKit: it reads the cached table.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the

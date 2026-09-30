@@ -134,7 +134,18 @@
   vertical-align: middle;
 }
 
+.confirmRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+}
+
 .cancelPrompt {
+  margin-right: auto;
+  white-space: nowrap;
   font: 500 11.5px/1 var(--sans);
   color: rgba(255,255,255,0.62);
 }

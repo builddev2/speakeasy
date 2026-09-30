@@ -414,27 +414,27 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
                           Cancel
                         </button>
                       )}
-                      {cancelStep === 'confirm' && (
-                        <>
-                          <span className={styles.cancelPrompt}>Discard meeting?</span>
-                          <button
-                            type="button"
-                            className={`${styles.cancelBtn} ${styles.cancelDanger}`}
-                            onClick={discardProcessing}
-                          >
-                            Discard
-                          </button>
-                          <button type="button" className={styles.cancelBtn} onClick={() => setCancelStep('idle')}>
-                            Keep
-                          </button>
-                        </>
-                      )}
                       {cancelStep === 'cancelling' && (
                         <button type="button" className={styles.cancelBtn} disabled>
                           Cancelling…
                         </button>
                       )}
                     </span>
+                    {cancelStep === 'confirm' && (
+                      <span className={styles.confirmRow}>
+                        <span className={styles.cancelPrompt}>Discard meeting?</span>
+                        <button
+                          type="button"
+                          className={`${styles.cancelBtn} ${styles.cancelDanger}`}
+                          onClick={discardProcessing}
+                        >
+                          Discard
+                        </button>
+                        <button type="button" className={styles.cancelBtn} onClick={() => setCancelStep('idle')}>
+                          Keep
+                        </button>
+                      </span>
+                    )}
                   </>
                 ) : (
                   app.mode === 'mic_failed' ? microphoneFailureText(app.micFailure) : idleInfo!.text

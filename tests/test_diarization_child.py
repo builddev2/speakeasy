@@ -96,3 +96,17 @@ def test_no_child_left_running():
         _call(ChildDiarizationRunner(stubs.stub_slow), cancel=cancel)
     assert [p for p in multiprocessing.active_children()
             if p.name == "speakeasy-diarization"] == []
+
+
+def test_launch_deadline_stops_after_ready():
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_slow, launch_timeout=0.5)
+    turns = _call(runner)
+    assert turns == [meetings.DiarizationTurn(0.0, 1.0, 1)]
+
+
+def test_progress_is_throttled():
+    progress = []
+    assert _call(ChildDiarizationRunner(stubs.stub_many_progress),
+                 progress=progress.append) == []
+    assert 2 <= len(progress) <= 101
+    assert progress[-1] == 1.0

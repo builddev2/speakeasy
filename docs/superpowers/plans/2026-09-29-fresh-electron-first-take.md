@@ -64,7 +64,7 @@ This is a gate. The Teams evidence so far comes only from the log, so check that
 **Interfaces:**
 - Produces: `_enable_accessibility(owner) -> bool`. Its signature is unchanged; it now returns True when a settable attribute's write returns 0 **or** reading it back gives `true`.
 
-- [ ] **Step 1: Write the failing test** (add after `test_unsupported_accessibility_activation_does_not_write_or_retry`):
+- [x] **Step 1: Write the failing test** (add after `test_unsupported_accessibility_activation_does_not_write_or_retry`):
 
 ```python
 def test_enable_accessibility_counts_read_back_true(monkeypatch):
@@ -92,12 +92,12 @@ def test_enable_accessibility_failed_write_that_reads_back_false_is_not_enabled(
     assert injector._enable_accessibility(object()) is False
 ```
 
-- [ ] **Step 2: Run the tests to verify the first fails**
+- [x] **Step 2: Run the tests to verify the first fails**
 
 Run: `.venv/bin/python -m pytest tests/test_injector_reliability.py -k enable_accessibility -v`
 Expected: `test_enable_accessibility_counts_read_back_true` FAILS (returns False). The other two pass.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def _enable_accessibility(owner):
@@ -129,12 +129,12 @@ In `test_retry_runs_even_when_accessibility_enable_returns_false`, change the co
 
 Note: `value is True` works because PyObjC returns a Python bool for a CFBoolean. If the tree test fakes return `1`, use `bool(value)` instead and keep the `(0, False)` test failing correctly.
 
-- [ ] **Step 4: Run the file's tests**
+- [x] **Step 4: Run the file's tests**
 
 Run: `.venv/bin/python -m pytest tests/test_injector_reliability.py -v`
 Expected: all pass. The existing fakes in `_retry_setup` return a single reply iterator for every `AXUIElementCopyAttributeValue` call. If an `enable=True` test now fails because the read-back uses up a focus reply, route the fake by name: return `(0, True)` for `AXManualAccessibility`/`AXEnhancedUserInterface` and `next(iterator)` otherwise. **Do not change the expected values.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/injector.py tests/test_injector_reliability.py
@@ -156,7 +156,7 @@ git commit -m "Count an accessibility write that reads back true as enabled"
   - `.shutdown() -> None`
   - `activated_pid(notification) -> int | None`. Reads `userInfo()[NSWorkspaceApplicationKey].processIdentifier()` and returns None on any missing piece.
 
-- [ ] **Step 1: Add the config constants**
+- [x] **Step 1: Add the config constants**
 
 ```python
 # A freshly launched Chromium/Electron app (Codex, Teams) builds its
@@ -169,7 +169,7 @@ AX_WARMUP_ATTEMPTS = 5
 AX_WARMUP_RETRY_INTERVAL_SECONDS = 0.5
 ```
 
-- [ ] **Step 2: Write the failing tests** in `tests/test_ax_warmup.py`:
+- [x] **Step 2: Write the failing tests** in `tests/test_ax_warmup.py`:
 
 ```python
 from concurrent.futures import Future
@@ -349,12 +349,12 @@ def test_activated_pid_reads_notification_and_tolerates_gaps():
     assert ax_warmup.activated_pid(SimpleNamespace(userInfo=lambda: {})) is None
 ```
 
-- [ ] **Step 3: Run to verify they fail**
+- [x] **Step 3: Run to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_ax_warmup.py -v`
 Expected: collection error, `ModuleNotFoundError: speakeasy.ax_warmup`.
 
-- [ ] **Step 4: Implement `speakeasy/ax_warmup.py`**
+- [x] **Step 4: Implement `speakeasy/ax_warmup.py`**
 
 ```python
 """Switch on a fresh Chromium/Electron app's accessibility tree before dictation.
@@ -473,12 +473,12 @@ class AccessibilityWarmer:
         self._executor.shutdown(wait=False, cancel_futures=True)
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `.venv/bin/python -m pytest tests/test_ax_warmup.py -v`
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add speakeasy/ax_warmup.py speakeasy/config.py tests/test_ax_warmup.py
@@ -495,7 +495,7 @@ git commit -m "Add AccessibilityWarmer: enable a fresh app's AX tree on activati
 **Interfaces:**
 - Consumes: `AccessibilityWarmer`, `activated_pid` from Task 3.
 
-- [ ] **Step 1: Wire it up.** In the `AppKit` import list add `NSWorkspaceDidActivateApplicationNotification`. In `applicationDidFinishLaunching_`, right after the `systemDidWake:` observer:
+- [x] **Step 1: Wire it up.** In the `AppKit` import list add `NSWorkspaceDidActivateApplicationNotification`. In `applicationDidFinishLaunching_`, right after the `systemDidWake:` observer:
 
 ```python
         from ..ax_warmup import AccessibilityWarmer
@@ -530,7 +530,7 @@ In `applicationWillTerminate_`, before `self.engine.shutdown()`:
 
 Also add `self.ax_warmer = None` in `init` next to `self.calendar_sync = None`.
 
-- [ ] **Step 2: AGENTS.md.** Threading model, after the `calendar` bullet:
+- [x] **Step 2: AGENTS.md.** Threading model, after the `calendar` bullet:
 
 ```markdown
 - **`ax-warmup`** (1 thread, `ax_warmup.AccessibilityWarmer`) — on every app
@@ -550,14 +550,14 @@ In "Recurring insertion regression", add this bullet after the "Preserve app-own
   miss by lengthening key-down retries or relaxing the acceptance bound.
 ```
 
-- [ ] **Step 3: Regression doc.** Change the status line of "Fresh-launch probe" to: `**Status: fix implemented on branch fix-fresh-electron-first-take (activation warm-up); pending the installed three-app check.**`
+- [x] **Step 3: Regression doc.** Change the status line of "Fresh-launch probe" to: `**Status: fix implemented on branch fix-fresh-electron-first-take (activation warm-up); pending the installed three-app check.**`
 
-- [ ] **Step 4: Full suite**
+- [x] **Step 4: Full suite**
 
 Run (Bash timeout 600000): `.venv/bin/python -m pytest -q`
 Expected: all pass (721 before this branch, plus the new tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/ui/menubar.py AGENTS.md docs/insertion-focus-regression.md
@@ -566,14 +566,14 @@ git commit -m "Warm accessibility on app activation; document the ax-warmup thre
 
 ### Task 5: Review (opus, by mutation)
 
-- [ ] A fresh Opus reviewer checks the whole branch against this plan and AGENTS.md's insertion rules. They should break each of the following, confirm the suite fails, and then restore it (use `python -B` and clear `__pycache__`):
+- [x] A fresh Opus reviewer checks the whole branch against this plan and AGENTS.md's insertion rules. They should break each of the following, confirm the suite fails, and then restore it (use `python -B` and clear `__pycache__`):
   - remove the `focus_answers` early return;
   - accept `result == 0` only (drop the read-back) in both places;
   - drop the `busy` retry;
   - drop the in-flight dedupe;
   - drop the `_stopped` check in `warm`;
   - skip the own-pid check.
-- [ ] Any mutation the suite doesn't notice gets a test before merge.
+- [x] Any mutation the suite doesn't notice gets a test before merge.
 
 ### Task 6 (user + me): Installed check — the acceptance gate
 
@@ -590,3 +590,8 @@ git commit -m "Warm accessibility on app activation; document the ax-warmup thre
 
 - 29 Sep 2026: cause found (probe). Plan written on branch `fix-fresh-electron-first-take`. No code changed.
 - 29 Sep 2026: Task 1 done. Teams: AXManualAccessibility unsupported; the AXEnhancedUserInterface write returns -25208 but reads back true; focus answers 212 ms after the write. Gate passed. Next: Task 2.
+- 29 Sep 2026: Tasks 2–5 done (subagent-driven). Commits: 8ef8508 (read-back counts as enabled), 2c40e6e (AccessibilityWarmer), eb43718 (menu-bar wiring + docs), 436b993 (tests for three read-back guards found by mutation; one stdout line per warm-up outcome). Full suite: 742 passed. The app was **not** launched. Next: Task 6, the installed three-app check (needs the user).
+  - Task 5 mutations: all six listed were caught. Three more survived at first and now have tests: injector `read_error == 0`, warm-up `_run`'s `except`, and warm-up's post-write `error == 0`.
+  - Added beyond the plan: `_run` prints `  → ax warm-up pid <pid>: <outcome>` for each outcome except `focus_answers`/`shutdown`, or `failed (<ExceptionType>)`. Use it in Task 6 to see whether warm-up ran and what it returned.
+  - Left on purpose: the menu-bar wiring has no unit test, so Task 6 is its only check. Retry sleeps can't be interrupted, so quitting can wait up to about 1 s. `_stopped` is read without the lock (harmless). The in-flight-clearing half of `test_run_swallows_ax_exception_and_clears_in_flight` proves nothing; the same `finally` is covered by the dedupe test.
+  - Watch in Task 6: warm-up writes `AXEnhancedUserInterface` to any settable app whose focus answers NoValue, including native apps with nothing focused. That flag can affect window animations and Chromium CPU use.

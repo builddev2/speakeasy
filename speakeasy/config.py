@@ -57,6 +57,15 @@ DICTATION_TARGET_GRACE_SECONDS = 0.3
 DICTATION_TARGET_RETRY_ATTEMPTS = 4
 DICTATION_TARGET_RETRY_INTERVAL_SECONDS = 0.04
 
+# A freshly launched Chromium/Electron app (Codex, Teams) builds its
+# accessibility tree only after AXEnhancedUserInterface is written, and takes
+# about 2 s to do so (probe, 29 Sep 2026) -- far longer than the key-down
+# retries. ax_warmup writes it when the app is activated. An app still
+# launching answers CannotComplete; retry that this many times, this far apart
+# (covers about the first 2.5 s of a launch).
+AX_WARMUP_ATTEMPTS = 5
+AX_WARMUP_RETRY_INTERVAL_SECONDS = 0.5
+
 # How long to wait for the recorder to stop before giving up on it. A wedged
 # CoreAudio call must not freeze the control thread (and with it the hotkey),
 # so past this the stream is abandoned and the mic forcibly released.

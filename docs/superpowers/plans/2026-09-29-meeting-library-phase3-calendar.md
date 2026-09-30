@@ -3004,3 +3004,8 @@ The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED 
 - The dry run on the real library found 74 fixes, the same as on the copy. The user approved, and `--apply` renamed 74 meetings.
 - A second dry run then reported 0 fixes, and `Mesa Meeting — Jul 13, 12:05 PM` is correct.
 - Backup taken before applying: `~/Library/Application Support/Speakeasy/library-before-title-fix-2026-09-30.sqlite`.
+
+**Acceptance 8 (30 Sep): done.**
+- After the user revoked Calendar access, Today showed the denied card.
+- `get_calendar` for 1 Sep to 31 Oct returned `[]`. The cached `calendar_events` and `calendar_event_people` tables hold 0 rows, down from 1,186 events on 29 Sep.
+- Reconnecting afterwards is the user's step.

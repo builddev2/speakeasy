@@ -168,7 +168,11 @@ echo "==> Done: $APP ($(du -sh "$APP" | cut -f1))"
 if [ "$INSTALL" = 1 ]; then
     echo "==> Installing to $DEST"
     # Quit a running instance first — replacing files under a live bundle can
-    # crash it mid-write.
+    # crash it mid-write. The pkill below also stops any `Speakeasy --mcp`
+    # server Claude Desktop started (same executable), and Desktop does not
+    # respawn it, so every connector tool fails until the user reconnects.
+    MCP_STOPPED=0
+    pgrep -f "$DEST/Contents/MacOS/Speakeasy --mcp" >/dev/null 2>&1 && MCP_STOPPED=1
     if pgrep -f "$DEST/Contents/MacOS/Speakeasy" >/dev/null 2>&1; then
         echo "  quitting the running Speakeasy…"
         osascript -e 'quit app "Speakeasy"' 2>/dev/null || true
@@ -192,6 +196,11 @@ if [ "$INSTALL" = 1 ]; then
     codesign --verify --deep --strict "$DEST"
     echo "installed: $DEST"
     echo "Launch:  open $DEST"
+    if [ "$MCP_STOPPED" = 1 ]; then
+        echo "note: Claude's Speakeasy Meetings connector was stopped by this install."
+        echo "      Claude Desktop: Settings → Connectors → Speakeasy Meetings, switch it off and on"
+        echo "      (or quit and reopen Claude Desktop), then start a new chat."
+    fi
 else
     echo "Try it:   open $APP"
     echo "Install:  $0 --install   (updates $DEST in place, preserving TCC grants)"

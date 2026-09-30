@@ -620,3 +620,16 @@ def test_first_buffer_extends_acceptance_beyond_grace(engine):
     timing = next(arg for f, args in reversed(engine.worker.submissions)
                   for arg in args if isinstance(arg, DictationTiming))
     assert timing.record("success")["target_status"] == "accepted"
+
+
+def test_key_down_lookup_uses_default_retries(engine, monkeypatch):
+    from speakeasy import injector
+    seen = []
+    monkeypatch.setattr(
+        injector, "focused_target",
+        lambda diagnostics=None, **kwargs: seen.append((diagnostics, kwargs)) or object())
+    engine._resolve_dictation_target(engine._dictation_generation)
+    assert len(seen) == 1
+    diagnostics, kwargs = seen[0]
+    assert isinstance(diagnostics, dict)
+    assert kwargs.get("retry_attempts") is None

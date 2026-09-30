@@ -91,10 +91,15 @@ contexts are intentionally bounded and single-purpose:
   bounded writer-owned handoff. `_process_meeting` queues behind that job,
   reuses its result, finishes system-track ASR, then performs diarization,
   alignment, and save. A failed/overflowed handoff falls back to the complete
-  spool. Only the track selected for diarization is loaded fully, and that
-  array is released immediately afterwards. Diarization is CPU/onnxruntime
-  with no pinning rule, but it stays on `worker` to keep the pipeline
-  sequential rather than adding an executor.
+  spool. Diarization (diarize → speaker merge → voice identification) runs
+  in a spawned child process per meeting (`speakeasy/diarization_process.py`,
+  `engine.diarization_runner`); the worker job blocks on it, so the pipeline
+  stays sequential. The child reads the spool itself and exits, which returns
+  onnxruntime's arenas and freed buffers to macOS; keeping the models in-process
+  held 300–800 MB after meetings (docs/model-memory.md). A failed child
+  (`DiarizationFailed`) saves the transcript with one speaker label and records
+  `diarization_status`/`diarization_failure` in capture health; cancel
+  terminates the child.
   `Transcriber.__init__` also caps MLX's process-wide buffer cache
   (`config.MLX_CACHE_LIMIT_BYTES`, 256 MiB) before loading; without it the
   idle footprint grows by GBs after meetings. Don't remove it
@@ -189,6 +194,9 @@ scripts/build_app.sh --install           # build AND update /Applications in pla
   `sherpa_onnx` lazily inside `__init__` specifically so the module (and
   anything importing it, like `engine.py`) stays importable in tests without
   the dependency installed.
+  Engine meeting tests inject `InProcessDiarizationRunner(fake_diarizer)` as
+  `engine.diarization_runner`; child-process tests spawn stub targets from
+  `tests/diarization_child_stubs.py` and never load sherpa-onnx.
 - `build_app.sh` also runs `npm --prefix packaging/mcpb ci`, stages
   `packaging/mcpb/` and packs it with the pinned, build-time-only
   `@anthropic-ai/mcpb` (2.1.2) into

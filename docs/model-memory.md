@@ -104,3 +104,92 @@ Single measurements, not repeated.
   The likely source is the sherpa-onnx diarizer, which `engine.py` keeps loaded after
   the first meeting. This is an inference, not measured per component; it is a
   separate follow-up.
+
+## Post-meeting CPU heap and the diarization child (30 September 2026)
+
+The installed-app check above missed the "≤ 2,000 MB after a meeting" target
+(2,314 MB total). The extra was CPU heap, not MLX: "Malloc Large" went from
+8.6 MB to 301 MB and "Malloc Small" from 260 MB to 384 MB. Diarization
+(sherpa-onnx segmentation plus speaker embedding) now runs in a spawned child
+process per meeting (`speakeasy/diarization_process.py`), so those allocations
+live in a process that exits after the meeting.
+
+### What was measured (synthetic audio, temp HOME, `footprint -p`)
+
+Synthetic meetings made with macOS `say` (four voices, 16 kHz), 3.2 and 29.3
+minutes; the synthetic 3.2-minute meeting diarizes in 19.0–20.4 s against 17.8 s
+for the real one. Five meetings in one process (3.2, 3.2, 29.3, 3.2, 3.2 min),
+diarize plus speaker merge. Parent-process footprint in MB:
+
+| After meeting | Keep models (today) | Release each time | Release + `MallocLargeCache=0` | Child process (parent footprint) |
+|---|---|---|---|---|
+| baseline | 53 MB | 52 | 44 | 26 |
+| 1 (3.2 min) | 302 | 302 | 54 | 26 |
+| 2 (3.2 min) | 312 | 309 | 54 | 26 |
+| 3 (29.3 min) | 804 | 356 | 59 | 25 |
+| 4 (3.2 min) | 807 | 432 | 59 | 25 |
+| 5 (3.2 min) | 723 | 438 | 59 | 25 |
+
+Keeping the models is a plateau at the high-water mark, not a leak: the diarizer
+alone is +89 MB to construct and +145 MB after its first 3.2-minute run, then
+flat at 310 MB; the speaker-embedding extractor adds about 255 MB.
+
+### macOS keeps freed large blocks in the footprint
+
+On this OS (Darwin 27), libmalloc's large-allocation cache keeps freed blocks
+dirty and they still count in `footprint`. In plain numpy, allocating then
+freeing a 400 MB array left the footprint 519 MB above baseline; with
+`MallocLargeCache=0` it returned to 17 MB. Freeing 12 and 107 MB arrays behaved
+the same way (+12 and +119 MB kept by default). `malloc_zone_pressure_relief`
+returned 0 MB every time, so deleting the Diarizer returned nothing (310 to
+309 MB). `MallocLargeCache` is not in `man malloc`: it is an undocumented
+switch, which is why it was rejected as the fix.
+
+### No arena setting
+
+sherpa-onnx 1.13.4 calls `EnableCpuMemArena` internally and its Python configs
+expose only `model`, `num_threads`, `provider` and `debug`. Changing the arena
+needs a rebuilt sherpa-onnx, which is ruled out because the dependency is pinned.
+
+### Cost of the child
+
+Spawn, import of sherpa-onnx and pipe overhead measured 0.67–0.69 s per meeting
+during the design experiments (3.2 min: 20.1–20.9 s wall; 29.3 min: 182.0 s wall).
+In the committed benchmark below the medians were equal to within noise (19.1 s
+for both), so the overhead is under the 1.5 s limit; the negative figure is
+run-to-run noise, not a speed-up.
+
+### Benchmark output (`scripts/measure_diarization_memory.py`, 30 September 2026)
+
+Actual output, one run, real bundled dev models, real child runner:
+
+```
+parent baseline: 31 MB
+meeting 1 (meeting_3.2min): 19.2 s wall, 3 speakers, parent 31 MB (+0 MB)
+meeting 2 (meeting_3.2min): 19.0 s wall, 3 speakers, parent 26 MB (-5 MB)
+meeting 3 (meeting_29.3min): 180.2 s wall, 4 speakers, parent 26 MB (-5 MB)
+meeting 4 (meeting_3.2min): 19.1 s wall, 3 speakers, parent 26 MB (-5 MB)
+meeting 5 (meeting_3.2min): 19.0 s wall, 3 speakers, parent 26 MB (-5 MB)
+3.2 min: child median 19.1 s, in-process median 19.1 s, overhead -0.04 s; 29.3 min in-process 179.9 s
+PASS  parent growth <= 5 MB after every meeting
+PASS  child overhead <= 1.5 s (3.2 min, medians)
+PASS  child turns == in-process turns (3.2 min)
+PASS  child turns == in-process turns (29.3 min)
+```
+
+The parent never grew after any meeting (baseline 31 MB, then 26 MB), and the
+child's speaker turns were identical to the in-process turns for both meeting
+lengths. Recheck with:
+
+```
+.venv/bin/python -B scripts/measure_diarization_memory.py
+```
+
+It takes about 8 minutes, uses synthetic audio only, and redirects HOME to a temp
+directory before importing speakeasy.
+
+Not measured: the unexplained part of the installed app's "Malloc Small" rise
+(124 MB; the synthetic runs account for about 45 MB) may come from the 20
+dictations.
+
+Installed-app check after this change: pending (step 4 of the plan).

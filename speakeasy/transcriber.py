@@ -143,6 +143,9 @@ class Transcriber:
 
     def __init__(self) -> None:
         source = settings.model_path()
+        # Process-wide; set before loading so the fp32→bf16 cast's freed
+        # buffers are trimmed too. See config.MLX_CACHE_LIMIT_BYTES.
+        mx.set_cache_limit(config.MLX_CACHE_LIMIT_BYTES)
         print(f"Loading speech model from {source}")
         started = time.perf_counter_ns()
         self._model = from_pretrained(source)

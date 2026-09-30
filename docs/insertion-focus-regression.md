@@ -231,3 +231,23 @@ The R21 retries (4 × 40 ms) did not help. Every query in the fresh apps answere
 Hypothesis, not yet tested: Electron accepts a write to `AXManualAccessibility` even though it does not report the attribute as settable. If so, the fresh app never gets asked to build its tree, and the tree only appears later by some other route.
 
 Next step: a read-only probe of a freshly launched Codex or Teams. It should record what the settable check returns for each attribute, whether a direct write succeeds, and how long until `AXFocusedUIElement` answers. Do this before changing the rule that unsupported attributes are not written. **Status: the first-take failure is open.**
+
+### Fresh-launch probe: cause found — 29 September 2026
+
+`scripts/ax_fresh_probe.py` was run from Terminal (which has Accessibility permission) against a freshly launched Codex (`com.openai.codex`). Each run waited 4 s after launch before its first AX call and then queried `AXFocusedUIElement` every 20 ms for up to 8 s. It records only error codes, true/false results, roles and timings.
+
+| Run | `AXManualAccessibility` | `AXEnhancedUserInterface` | Write result | Focus answered |
+|---|---|---|---|---|
+| observe (no write) | unsupported (-25205) for settable, read and names | settable, value false | — | never (NoValue, 274 queries) |
+| write `AXManualAccessibility` | same | same | -25205, reading back also fails | never (285 queries) |
+| write `AXEnhancedUserInterface` | same | same | **-25208 (NotImplemented) after 3.9 ms; reading back gives `true`** | **2154 ms after the write**, role `AXWebArea` |
+
+In every run the focused window existed and had 4 children. Short -25204 blips appeared while the app was busy.
+
+Cause:
+
+1. **Only `AXEnhancedUserInterface` makes Codex build its tree.** Codex doesn't implement `AXManualAccessibility`, so the earlier hypothesis is false. Querying alone never makes the tree appear.
+2. **The write returns an error even though it takes effect.** Chromium applies the value but returns NotImplemented. `_enable_accessibility` counts only 0 as success, so it logged `target_ax_enabled=False` although the write happened. The write did happen: that is why the second take worked.
+3. **The tree needs about 2.15 s after the write.** Key-down retries last about 320 ms. Waiting longer at key-down is not allowed: AGENTS.md forbids binding to a later focus or delaying the microphone.
+
+Planned fix: switch accessibility on when an app comes to the front, not at key-down. Plan: `docs/superpowers/plans/2026-09-29-fresh-electron-first-take.md`. Teams has not yet been probed. **Status: the cause is known; the fix is not yet implemented.**

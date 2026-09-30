@@ -97,4 +97,19 @@
 
 ## Status
 
-- 30 Sep 2026: plan approved; two-step confirm chosen for item 5. Not started.
+- 30 Sep 2026: plan approved; two-step confirm chosen for item 5.
+- 30 Sep 2026: Tasks 1-2 and Task 3's docs done on branch `quit-kills-diarization-child` (worktree `../speakeasy-quit-kills-child`). Commits 4ebdbbd, 1f2b7f0 (Task 1), 4f4c41a (Task 2), 91792ce (docs), c179110 (final-review fixes), 88c1099 and 2a72f0d (dock layout). Full suite 782 passed. Task reviews and the final review used mutation checks; nothing Critical or Important is open.
+  - Final-review fixes added a cancel check before `process.start()`, so no child is spawned once shutdown or Cancel has set the flag.
+  - The dock's confirm row sits on its own line below the header. Inline, it squashed the progress text to three lines at the dock width. Checked in the browser mock at 360 px: Cancel, Keep, Discard, the disabled "Cancelling…" and the reset when mode changes all work.
+  - Left as they are (minor): no comment on the harmless concurrent `waitpid` between `terminate_active` and `_reap`; the runner-test helper uses a fixed 1 s sleep to wait for ready.
+- 30 Sep 2026: installed-app and real-model checks. Branch build 60fa627 installed with `scripts/build_app.sh --install` and launched.
+  - **User in the installed app:** twice pressed Cancel from the **menu bar** ("Cancel Processing", the older one-click control; no Keep by design). Both times the meeting was discarded mid-transcription (latency log `cancelled`, 4.6 s after stop) and nothing was saved. A first 37 s meeting finished processing in 4.8 s, faster than the dock's Cancel → Keep could be clicked, and was saved ("Meeting — Sep 30, 11:18 AM"; left in the library).
+  - The user then asked for the check to be scripted instead, and declined screen control, so the dock's Keep/Discard buttons were **not clicked in the installed app**. Their rendering and state changes were checked in the browser mock only (see above).
+  - **New `scripts/check_quit_and_cancel.py`:** runs the production pipeline (real Transcriber, `ChildDiarizationRunner`, sherpa-onnx models) on a 5-min synthetic three-voice `say` meeting, in a temp HOME (the real support dir and its 103 meetings were unchanged afterwards). Result, ALL PASS:
+    - keep (no cancel): `success`, 1 meeting saved, state Ready, spool deleted, 31 s.
+    - discard (the real main-window `app.cancelProcessing` handler, called 2 s into speaker identification at 9 %): handler responds True, child gone in 0.09 s, `cancelled`, 0 saved, state Ready, spool deleted.
+    - quit (separate process: `Engine.shutdown()` then `os._exit`, as `terminate_` does): `shutdown()` returned in 0.005 s with the child **already dead**; 0 saved.
+  - **Mutation checks:** removing the engine call from `_cancel_processing` → discard FAIL (meeting saved after 20 s). Removing `terminate()` from `shutdown()` → quit FAIL (child still alive when `shutdown()` returned).
+  - **Not reproduced:** the ~58 s callback-free stretch. On a 30-min synthetic meeting the child reported progress every ~1.3 s from start to finish, so the parent-death watchdog alone ended an orphaned child within 0.1–0.34 s of a hard exit (mutated build, quits at 1, 5 and 15 s). The quit check therefore asserts the child is dead when `shutdown()` returns, not how long an orphan survives. The long stall may depend on real meeting audio; untested here.
+  - **Plan correction:** in the installed (frozen) app, spawned children show as `Speakeasy --multiprocessing-fork …`, not `multiprocessing.spawn`, so the `ps | grep multiprocessing.spawn` step above would report nothing even with an orphan. The long-lived one at launch is the microphone helper.
+  - Full suite 782 passed. Merged to master with a merge commit.

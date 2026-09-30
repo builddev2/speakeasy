@@ -256,3 +256,5 @@ first callback. A child orphaned in that window lingers until then (about 58 s
 here, and it scales with meeting length), then exits. No child survived in any
 trial. SIGKILL is a harsher stand-in for the app's hard-exit quit; the installed
 app's quit was not tested separately.
+
+Since 30 Sep 2026 a normal quit terminates the child from `Engine.shutdown()` (`terminate_active`); the SIGKILL table now describes crashes and force-quits only.

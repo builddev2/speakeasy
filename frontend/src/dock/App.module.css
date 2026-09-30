@@ -126,6 +126,60 @@
   color: rgba(255,255,255,0.62);
 }
 
+.cancelRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.confirmRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.confirmButtons {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.cancelPrompt {
+  white-space: nowrap;
+  font: 500 11.5px/1 var(--sans);
+  color: rgba(255,255,255,0.62);
+}
+
+.cancelBtn {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: 600 11px/1 var(--sans);
+  color: rgba(255,255,255,0.92);
+  background: rgba(255,255,255,0.08);
+  border: 0.5px solid rgba(255,255,255,0.14);
+}
+
+.cancelBtn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cancelBtn:focus-visible {
+  outline: 2px solid var(--coral-1);
+}
+
+.cancelDanger {
+  color: #FF8A80;
+  background: rgba(255,90,78,0.14);
+  border-color: rgba(255,90,78,0.30);
+}
+
 .eventMenuWrap {
   position: relative;
   margin-left: auto;

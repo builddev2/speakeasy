@@ -151,7 +151,9 @@ def _watch_parent() -> None:
 def serve(conn, work) -> None:
     """Child side of the protocol. Only exception type names cross the pipe.
 
-    Exits within ~0.5 s if the parent dies (see _PARENT_POLL_SECONDS).
+    Exits after the parent dies (see _PARENT_POLL_SECONDS): within ~0.5 s once
+    Python code runs, but not during sherpa-onnx's segmentation, which holds the
+    GIL with no progress callbacks (~58 s on a 29.3-min meeting).
     """
     _watch_parent()
     last = [-1.0]

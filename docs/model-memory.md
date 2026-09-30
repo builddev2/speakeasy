@@ -200,4 +200,59 @@ Not measured: the unexplained part of the installed app's "Malloc Small" rise
 (124 MB; the synthetic runs account for about 45 MB) may come from the 20
 dictations.
 
-Installed-app check after this change: pending (step 4 of the plan).
+### Installed-app check (30 September 2026, build 2b9504c)
+
+`scripts/build_app.sh --install`, then `footprint -p <pid>` on the installed app.
+Single measurements, not repeated.
+
+| When | Total footprint | IOAccelerator (graphics) | Malloc Small | Malloc Large |
+|---|---|---|---|---|
+| 1 min after launch, idle | 1,601 MB | 1,214 MB | 226 MB | 5 MB |
+| ~7 min after launch: 15 dictations (5 each in TextEdit, Codex, Teams) + one 3.1-min mic-only meeting (diarization 18.2 s) | **1,977 MB** | 1,450 MB | 332 MB | 38 MB |
+| Previous build 7d72ebf, same check (54 min, 20 dictations incl. Claude) | 2,314 MB | 1,470 MB | 384 MB | 301 MB |
+
+- **Target ≤ 2,000 MB after a meeting: met, by 23 MB.** A second reading 45 s
+  later was identical. The margin is thin and the conditions were lighter than the
+  previous check (about 7 rather than 54 minutes of uptime; 15 rather than 20
+  dictations, none in Claude), so this is not a like-for-like comparison.
+- "Malloc Large" after the meeting fell from 301 MB to 38 MB: the sherpa-onnx
+  arenas left with the child. The diarization child (seen with a 0.1 s process
+  poll) lived 18.15 s and exited, matching the logged `diarization_ms` of 18,150.8.
+- Malloc Small still rose 106 MB (226 to 332 MB) with no diarizer in the parent,
+  so that part comes from dictation and meeting transcription, not diarization.
+  Not broken down further.
+- Dictation: all 15 logged takes `target_status=accepted`, `status=success`; the
+  user confirmed text inserted in TextEdit, Codex and Teams.
+- Two further meetings with system audio diarized in the child (3.7 s and 32.6 s)
+  and saved normally. A UI cancel attempt landed during "Transcribing system
+  audio", before the child started, so it did not test the child's cancel path.
+
+### Cancel and parent death, real models (dev, not the installed app)
+
+The UI cancel during "Identifying speakers" was not repeated. Instead a scratch
+probe ran `ChildDiarizationRunner` with the real bundled models on the benchmark's
+synthetic 29.3-min meeting (temp HOME), cancelling or SIGKILLing the parent at set
+times:
+
+| Cancel after | Runner returned | Child gone after cancel |
+|---|---|---|
+| 0.3 s (before ready) | MeetingCancelled | 0.01 s |
+| 5 s | MeetingCancelled | 0.05 s |
+| 30 s (segmentation, no progress yet) | MeetingCancelled | 0.08 s |
+| 120 s (46 % progress) | MeetingCancelled | 0.06 s |
+
+| Parent SIGKILLed after | Child exited after |
+|---|---|
+| 10 s | 48.1 s |
+| 30 s | 28.8 s |
+| 60 s | 0.36 s |
+| 120 s | 0.35 s |
+
+Cancel is prompt at every point: the parent terminates the child, which does not
+depend on the child running Python. Parent death is not always prompt. On the
+29.3-min meeting, sherpa-onnx's segmentation ran about 58 s with no progress
+callbacks while holding the GIL, so the watchdog thread could not run until the
+first callback. A child orphaned in that window lingers until then (about 58 s
+here, and it scales with meeting length), then exits. No child survived in any
+trial. SIGKILL is a harsher stand-in for the app's hard-exit quit; the installed
+app's quit was not tested separately.

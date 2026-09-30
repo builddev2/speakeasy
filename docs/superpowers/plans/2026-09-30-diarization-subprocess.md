@@ -1263,9 +1263,9 @@ git commit -m "Add diarization memory benchmark and record results"
 
 ## Status
 
-- [x] Task 1 (f9529c7) — [x] Task 2 (88fbaa4, 8a4be2a) — [x] Task 3 (fb9977d, 1c3727c) — [x] Task 4 (bb58a75) — [x] Final review + fix wave (eff7c71) — [ ] Installed-app check (step 4, with user) — [ ] Merge to master
+- [x] Task 1 (f9529c7) — [x] Task 2 (88fbaa4, 8a4be2a) — [x] Task 3 (fb9977d, 1c3727c) — [x] Task 4 (bb58a75) — [x] Final review + fix wave (eff7c71) — [x] Installed-app check (step 4, 2b9504c; results in docs/model-memory.md) — [x] Merge to master
 
-Branch `diarization-subprocess` in worktree `.claude/worktrees/diarization-subprocess` (not pushed, not merged).
+Merged to master on 30 September 2026; branch and worktree removed.
 Full suite at eff7c71: 772 passed. Benchmark at bb58a75: 4/4 PASS (parent 31 MB baseline, 31 MB after meeting 1, 26 MB after meetings 2–5 incl. 29.3 min; child turns identical to in-process).
 
 ### Changes agreed during execution (beyond the plan text)
@@ -1276,13 +1276,9 @@ Full suite at eff7c71: 772 passed. Benchmark at bb58a75: 4/4 PASS (parent 31 MB 
 
 ### Open items (TODO)
 
-1. **Installed-app check (step 4).** Needs the user. Rebuild and install with `scripts/build_app.sh --install`, then do 20 dictations plus one mic-only meeting, and read `footprint -p <pid>` (Malloc Large and Small, and the total). Pass/fail:
-   - total ≤ 2,000 MB after the meeting (was 2,314 MB);
-   - a cancel during "Identifying speakers" stops within about 1 s;
-   - dictation inserts in TextEdit, Codex and Teams.
-   Also quit the app mid-diarization and check with `pgrep -fl speakeasy-diarization` that no child survives. Then fill in the "pending" line at the end of docs/model-memory.md.
-2. **Watchdog latency wording.** AGENTS.md's worker bullet and the `serve` docstring say the child exits within ~0.5 s. If sherpa-onnx's `process()` holds the GIL, the watchdog can only run between progress callbacks, which could be tens of seconds on a long meeting. The reviewer's probe was inconclusive. Measure it (quit the installed app during a long diarization and time how long the child lingers), then correct the wording.
-3. **Unexplained Malloc Small growth** (about 124 MB in the installed app; synthetic runs explain about 45 MB). It may come from dictation. The step-4 measurement will show what remains.
+1. **Done: installed-app check (step 4).** 1,977 MB after 15 dictations + a 3.1-min mic-only meeting (target ≤ 2,000 MB; was 2,314 MB). Malloc Large 38 MB (was 301). Dictation inserted in TextEdit, Codex and Teams. The user stopped before the UI cancel test (the only Cancel is the menu-bar "Cancel Processing"). It was replaced by a real-model dev probe: cancel ≤ 0.08 s at every point. Details in docs/model-memory.md.
+2. **Done (wording) / open (behaviour): watchdog latency.** The dev probe shows sherpa-onnx segmentation holds the GIL with no progress callbacks (~58 s on a 29.3-min meeting). A child orphaned then lingers until the first callback, then exits in ~0.4 s. AGENTS.md and the `serve` docstring are corrected. Possible follow-up: terminate the child from the app's quit path (`engine.shutdown`), so a normal quit does not leave it running for up to a minute or more. Not done.
+3. **Malloc Small growth.** In the step-4 check it rose 106 MB (226 to 332 MB) with no diarizer in the parent, so it comes from dictation/meeting transcription. Not broken down; open.
 4. **Deferred minors from the task reviews:**
    - the in-process runner's cancel wiring is untested;
    - `FakeProfiles` ignores its turns argument;
@@ -1292,3 +1288,4 @@ Full suite at eff7c71: 772 passed. Benchmark at bb58a75: 4/4 PASS (parent 31 MB 
    - `_diarize_or_fallback` has no type hints;
    - the benchmark's median-of-two includes the cold sherpa import.
    The final review triaged all of these as leave.
+5. **No Cancel in the main window.** Cancelling meeting processing exists only as "Cancel Processing" in the menu-bar icon's menu, shown only while processing. The user looked for it in the main window and could not find it. UI follow-up; not part of this branch.

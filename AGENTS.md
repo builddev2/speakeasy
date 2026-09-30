@@ -99,8 +99,11 @@ contexts are intentionally bounded and single-purpose:
   held 300–800 MB after meetings (docs/model-memory.md). A failed child
   (`DiarizationFailed`) saves the transcript with one speaker label and records
   `diarization_status`/`diarization_failure` in capture health; cancel
-  terminates the child, and the child exits within ~0.5 s if the app quits or
-  dies (parent-death watchdog), because app quit is a hard exit that skips cleanup.
+  terminates the child (measured ≤0.08 s). If the app quits or dies, a
+  parent-death watchdog makes the child exit, because app quit is a hard exit
+  that skips cleanup. The watchdog is a Python thread, so it cannot run while
+  sherpa-onnx's segmentation holds the GIL: the child can linger until the first
+  progress callback (~58 s into a 29.3-min meeting), then exits within ~0.4 s.
   `Transcriber.__init__` also caps MLX's process-wide buffer cache
   (`config.MLX_CACHE_LIMIT_BYTES`, 256 MiB) before loading; without it the
   idle footprint grows by GBs after meetings. Don't remove it

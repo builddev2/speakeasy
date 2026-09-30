@@ -97,4 +97,9 @@
 
 ## Status
 
-- 30 Sep 2026: plan approved; two-step confirm chosen for item 5. Not started.
+- 30 Sep 2026: plan approved; two-step confirm chosen for item 5.
+- 30 Sep 2026: Tasks 1-2 and Task 3's docs done on branch `quit-kills-diarization-child` (worktree `../speakeasy-quit-kills-child`). Commits 4ebdbbd, 1f2b7f0 (Task 1), 4f4c41a (Task 2), 91792ce (docs), c179110 (final-review fixes), 88c1099 and 2a72f0d (dock layout). Full suite 782 passed. Task reviews and the final review used mutation checks; nothing Critical or Important is open.
+  - Final-review fixes added a cancel check before `process.start()`, so no child is spawned once shutdown or Cancel has set the flag.
+  - The dock's confirm row sits on its own line below the header. Inline, it squashed the progress text to three lines at the dock width. Checked in the browser mock at 360 px: Cancel, Keep, Discard, the disabled "Cancelling…" and the reset when mode changes all work.
+  - Left as they are (minor): no comment on the harmless concurrent `waitpid` between `terminate_active` and `_reap`; the runner-test helper uses a fixed 1 s sleep to wait for ready.
+- **Still to do:** both installed-app checks above (quit during speaker identification; Cancel → Keep, then Cancel → Discard). They need `scripts/build_app.sh --install` and a real meeting. Then merge with a merge commit, so the commit hashes cited in the old plan stay valid, and clean up.

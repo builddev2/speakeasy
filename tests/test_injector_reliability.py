@@ -206,6 +206,15 @@ def test_enable_accessibility_failed_write_that_reads_back_false_is_not_enabled(
     assert injector._enable_accessibility(object()) is False
 
 
+def test_enable_accessibility_ignores_value_when_read_back_errors(monkeypatch):
+    import ApplicationServices as ax
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
+                        lambda e, name, _: (0, name == "AXEnhancedUserInterface"))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: -25208)
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: (-25204, True))
+    assert injector._enable_accessibility(object()) is False
+
+
 def test_security_inspection_errors_block_before_clipboard(monkeypatch):
     import ApplicationServices as ax
     # Exercise the real status-preserving query, not the shared metadata fake.

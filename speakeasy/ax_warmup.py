@@ -66,8 +66,12 @@ class AccessibilityWarmer:
 
     def _run(self, pid):
         try:
-            return self.warm(pid)
-        except Exception:
+            outcome = self.warm(pid)
+            if outcome not in ("focus_answers", "shutdown"):
+                print(f"  → ax warm-up pid {pid}: {outcome}")
+            return outcome
+        except Exception as err:
+            print(f"  → ax warm-up pid {pid}: failed ({type(err).__name__})")
             return "failed"
         finally:
             with self._lock:

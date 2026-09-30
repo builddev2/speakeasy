@@ -173,3 +173,45 @@ def test_activated_pid_reads_notification_and_tolerates_gaps():
     assert ax_warmup.activated_pid(note) == 77
     assert ax_warmup.activated_pid(SimpleNamespace(userInfo=lambda: None)) is None
     assert ax_warmup.activated_pid(SimpleNamespace(userInfo=lambda: {})) is None
+
+
+def test_run_swallows_ax_exception_and_clears_in_flight():
+    class Exploding(FakeAX):
+        def AXUIElementCopyAttributeValue(self, element, name, _):
+            raise RuntimeError("boom")
+
+    ex = RecordingExecutor()
+    w = warmer(Exploding([]), executor=ex)
+    assert w._run(42) == "failed"
+    w.app_activated(42)
+    assert len(ex.jobs) == 1
+
+
+def test_read_back_error_is_failed_even_if_value_true():
+    class ErrorAfterWrite(FakeAX):
+        def AXUIElementCopyAttributeValue(self, element, name, _):
+            if name == EUI and self.eui:
+                return (-25204, True)
+            return super().AXUIElementCopyAttributeValue(element, name, _)
+
+    fake = ErrorAfterWrite([(-25212, None)])
+    assert warmer(fake).warm(42) == "failed"
+    assert writes(fake) == [("set", EUI, True)]
+
+
+def test_run_logs_outcome_without_ax_content(capsys):
+    w = warmer(FakeAX([(-25212, None)]))
+    assert w._run(42) == "enabled"
+    assert capsys.readouterr().out == "  → ax warm-up pid 42: enabled\n"
+    w = warmer(FakeAX([(0, object())]))
+    assert w._run(42) == "focus_answers"
+    assert capsys.readouterr().out == ""
+
+
+def test_run_logs_exception_type_only(capsys):
+    class Exploding(FakeAX):
+        def AXUIElementCopyAttributeValue(self, element, name, _):
+            raise RuntimeError("secret title")
+
+    assert warmer(Exploding([]))._run(7) == "failed"
+    assert capsys.readouterr().out == "  → ax warm-up pid 7: failed (RuntimeError)\n"

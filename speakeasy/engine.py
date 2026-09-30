@@ -210,6 +210,9 @@ class DictationEngine:
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
         self._meeting_cancel.set()
+        terminate = getattr(self.diarization_runner, "terminate_active", None)
+        if terminate is not None:
+            terminate()
         if self._meeting_asr_session is not None:
             self._meeting_asr_session.cancel()
         if self._meeting_active:

@@ -217,6 +217,27 @@ class ChildDiarizationRunner:
         self._launch_timeout = launch_timeout
         self._poll_seconds = poll_seconds
         self._terminate_grace = terminate_grace
+        self._active = None
+        self._active_lock = threading.Lock()
+
+    def terminate_active(self, grace: float = 0.5) -> None:
+        """Kill the live child now (quit path). Never raises; ~1 s worst case.
+
+        The child installs no SIGTERM handler, so the default action kills it
+        even while sherpa holds the GIL.
+        """
+        try:
+            with self._active_lock:
+                process = self._active
+            if process is None or not process.is_alive():
+                return
+            process.terminate()
+            process.join(grace)
+            if process.is_alive():
+                process.kill()
+                process.join(grace)
+        except (OSError, ValueError):
+            pass
 
     def __call__(
         self,
@@ -244,6 +265,8 @@ class ChildDiarizationRunner:
                 process.start()
             except Exception:
                 raise DiarizationFailed("launch_failed") from None
+            with self._active_lock:
+                self._active = process
             sender.close()
             ready = False
             deadline = time.monotonic() + self._launch_timeout
@@ -256,7 +279,7 @@ class ChildDiarizationRunner:
                     try:
                         message = receiver.recv()
                     except (EOFError, OSError):
-                        raise DiarizationFailed("child_exited") from None
+                        raise self._exit_error(cancel) from None
                     kind = message[0]
                     if kind == "ready":
                         ready = True
@@ -273,12 +296,23 @@ class ChildDiarizationRunner:
                 if not ready and time.monotonic() > deadline:
                     raise DiarizationFailed("launch_timeout")
                 if not process.is_alive() and not receiver.poll(0):
-                    raise DiarizationFailed("child_exited")
+                    raise self._exit_error(cancel)
         finally:
+            with self._active_lock:
+                self._active = None
             self._reap(process, graceful=finished)
             receiver.close()
             if not sender.closed:
                 sender.close()
+
+    @staticmethod
+    def _exit_error(cancel: threading.Event) -> Exception:
+        """A child that died during a cancel/quit is a cancel, not a failure."""
+        if cancel.is_set():
+            from .transcriber import MeetingCancelled
+
+            return MeetingCancelled()
+        return DiarizationFailed("child_exited")
 
     def _reap(self, process, *, graceful: bool) -> None:
         if process.pid is None:

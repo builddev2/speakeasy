@@ -164,3 +164,93 @@ def test_child_exits_when_parent_dies_abruptly(tmp_path):
                 os.kill(child_pid, 9)
             except ProcessLookupError:
                 pass
+
+
+def _start_blocking_run(runner, cancel):
+    """Run the runner on a thread against the block-forever stub; wait until ready."""
+    phases = []
+    outcome = []
+
+    def run():
+        try:
+            _call(runner, cancel=cancel)
+            outcome.append(None)
+        except BaseException as error:  # noqa: BLE001 - recorded for assertions
+            outcome.append(error)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        process = runner._active
+        if process is not None and process.is_alive():
+            break
+        time.sleep(0.02)
+    else:
+        raise AssertionError("child never became active")
+    time.sleep(1.0)  # let the child import and send ready
+    return thread, process, outcome, phases
+
+
+def test_terminate_active_kills_child_and_cancelled_run_raises_cancelled():
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
+    cancel = threading.Event()
+    thread, process, outcome, _ = _start_blocking_run(runner, cancel)
+    cancel.set()
+    started = time.monotonic()
+    runner.terminate_active()
+    assert not process.is_alive()
+    assert time.monotonic() - started < 1.0
+    thread.join(3.0)
+    assert not thread.is_alive()
+    assert isinstance(outcome[0], MeetingCancelled)
+
+
+def test_terminate_active_without_a_run_is_a_noop():
+    ChildDiarizationRunner(stubs.stub_turns).terminate_active()
+
+
+def test_terminate_active_twice_does_not_raise():
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
+    cancel = threading.Event()
+    thread, process, outcome, _ = _start_blocking_run(runner, cancel)
+    cancel.set()
+    runner.terminate_active()
+    runner.terminate_active()
+    thread.join(3.0)
+    assert not thread.is_alive()
+    assert isinstance(outcome[0], MeetingCancelled)
+
+
+def test_terminate_active_races_with_reap():
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
+    cancel = threading.Event()
+    thread, process, outcome, _ = _start_blocking_run(runner, cancel)
+    errors = []
+
+    def hammer():
+        try:
+            while thread.is_alive():
+                runner.terminate_active(grace=0.2)
+                time.sleep(0.005)
+        except BaseException as error:  # noqa: BLE001
+            errors.append(error)
+
+    killer = threading.Thread(target=hammer, daemon=True)
+    killer.start()
+    cancel.set()  # the runner thread reaps while terminate_active is running
+    thread.join(5.0)
+    killer.join(5.0)
+    assert not thread.is_alive() and not killer.is_alive()
+    assert not errors
+    assert isinstance(outcome[0], MeetingCancelled)
+
+
+def test_killed_child_without_cancel_is_still_child_exited():
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
+    thread, process, outcome, _ = _start_blocking_run(runner, threading.Event())
+    runner.terminate_active()
+    thread.join(5.0)
+    assert not thread.is_alive()
+    assert isinstance(outcome[0], DiarizationFailed)
+    assert outcome[0].reason == "child_exited"

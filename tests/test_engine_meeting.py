@@ -1448,3 +1448,19 @@ def test_unexpected_runner_error_is_still_a_processing_failure(meetings_dir, spo
     assert engine.meeting_processing_error == "processing_failed"
     assert not list(spool_dir.iterdir())
     engine.shutdown()
+
+
+def test_shutdown_terminates_active_diarization_child_and_is_repeatable(spool_dir):
+    class RecordingRunner:
+        def __init__(self):
+            self.terminated = 0
+
+        def terminate_active(self):
+            self.terminated += 1
+
+    engine = _engine(spool_dir)
+    engine.diarization_runner = RecordingRunner()
+    engine.shutdown()
+    assert engine.diarization_runner.terminated >= 1
+    engine.shutdown()  # a menu quit calls shutdown() twice
+    assert engine.diarization_runner.terminated >= 2

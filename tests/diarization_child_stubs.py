@@ -81,3 +81,11 @@ def stub_record_pid_then_slow(conn, wav_path, expected_count, max_speakers, name
         time.sleep(30)
         return []
     serve(conn, work)
+
+
+def stub_ready_then_block(conn, wav_path, expected_count, max_speakers, names):
+    def work(ready, progress, on_phase):
+        ready()
+        while True:
+            time.sleep(0.05)
+    serve(conn, work)

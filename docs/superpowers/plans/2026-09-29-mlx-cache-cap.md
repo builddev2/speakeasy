@@ -86,7 +86,7 @@ over bf16.
 **Interfaces:**
 - Produces: `config.MLX_CACHE_LIMIT_BYTES: int` (268435456).
 
-- [ ] **Step 1: Write the failing test** (append to `tests/test_transcriber_warmup.py`)
+- [x] **Step 1: Write the failing test** (append to `tests/test_transcriber_warmup.py`)
 
 ```python
 def test_constructor_caps_mlx_cache_before_loading_model(monkeypatch):
@@ -112,12 +112,12 @@ def test_constructor_caps_mlx_cache_before_loading_model(monkeypatch):
     assert events[:2] == [("cap", config.MLX_CACHE_LIMIT_BYTES), ("load",)]
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `.venv/bin/python -B -m pytest tests/test_transcriber_warmup.py -v`
 Expected: FAIL — `AttributeError: module 'speakeasy.config' has no attribute 'MLX_CACHE_LIMIT_BYTES'`.
 
-- [ ] **Step 3: Add the config constant** (`speakeasy/config.py`, after `MEETING_OVERLAP_SECONDS`)
+- [x] **Step 3: Add the config constant** (`speakeasy/config.py`, after `MEETING_OVERLAP_SECONDS`)
 
 ```python
 # --- Model memory --------------------------------------------------------------
@@ -128,7 +128,7 @@ Expected: FAIL — `AttributeError: module 'speakeasy.config' has no attribute '
 MLX_CACHE_LIMIT_BYTES = 256 * 1024 * 1024
 ```
 
-- [ ] **Step 4: Set the cap in `Transcriber.__init__`** (`speakeasy/transcriber.py`)
+- [x] **Step 4: Set the cap in `Transcriber.__init__`** (`speakeasy/transcriber.py`)
 
 Replace:
 
@@ -149,18 +149,18 @@ with:
         started = time.perf_counter_ns()
 ```
 
-- [ ] **Step 5: Run the file's tests; confirm both pass**
+- [x] **Step 5: Run the file's tests; confirm both pass**
 
 Run: `.venv/bin/python -B -m pytest tests/test_transcriber_warmup.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 6: Mutation check** (clear `__pycache__` first; `-B` on every run)
+- [x] **Step 6: Mutation check** (clear `__pycache__` first; `-B` on every run)
   1. Move the `mx.set_cache_limit` line below `self._model = from_pretrained(source)` → test must FAIL.
   2. Change the constant to `512 * 1024 * 1024` → test must FAIL.
   3. Delete the `set_cache_limit` line → test must FAIL.
   Restore after each; record the three results in the commit message.
 
-- [ ] **Step 7: Document in AGENTS.md** — append to the `worker` bullet in "Threading model":
+- [x] **Step 7: Document in AGENTS.md** — append to the `worker` bullet in "Threading model":
 
 ```markdown
   `Transcriber.__init__` also caps MLX's process-wide buffer cache
@@ -169,12 +169,12 @@ Expected: 2 passed.
   (docs/model-memory.md).
 ```
 
-- [ ] **Step 8: Full suite**
+- [x] **Step 8: Full suite**
 
 Run: `.venv/bin/python -m pytest` (Bash timeout 600000)
 Expected: all pass (389 or more).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add speakeasy/config.py speakeasy/transcriber.py tests/test_transcriber_warmup.py AGENTS.md
@@ -196,7 +196,7 @@ git commit -m "Cap MLX's buffer cache at 256 MiB so idle memory stays ~1.6 GB"
 The script uses only synthetic `say` audio in a temp directory and the bundled model;
 it never reads `~/Library/Application Support/Speakeasy`.
 
-- [ ] **Step 1: Write `scripts/measure_model_memory.py`**
+- [x] **Step 1: Write `scripts/measure_model_memory.py`**
 
 ```python
 """Measure the speech model's memory with and without the MLX cache cap.
@@ -278,20 +278,20 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Run both modes and keep the output**
+- [x] **Step 2: Run both modes and keep the output**
 
 Run: `.venv/bin/python -B scripts/measure_model_memory.py --no-cap` then without `--no-cap` (Bash timeout 300000 each).
 Expected: uncapped footprint after long ≥ 4 GB; capped ≤ 2 GB. If capped is above
 2 GB, stop and report — do not tune the number without the user.
 
-- [ ] **Step 3: Write `docs/model-memory.md`** containing: the two Background tables
+- [x] **Step 3: Write `docs/model-memory.md`** containing: the two Background tables
   from this plan (copied verbatim), the Step 2 output of both runs with the date, the
   sentence "The model is already bfloat16 in memory; `from_pretrained` casts the 32-bit
   file at load", the caveat that the cap does not limit the transient working set
   during a 120 s meeting chunk (active peak ~3.1 GB), and a "How to recheck" line with
   the Step 2 commands.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/measure_model_memory.py docs/model-memory.md
@@ -305,23 +305,23 @@ git commit -m "Add model memory benchmark and record cache-cap results"
 Runs the real installed app, so the controller does it with the user; subagents must
 not run app code on real App Support data.
 
-- [ ] **Step 1: Build and install**
+- [x] **Step 1: Build and install**
 
 Run: `scripts/build_app.sh --install` (Bash timeout 600000).
 
-- [ ] **Step 2: Quit and relaunch Speakeasy; after it shows Ready, measure idle**
+- [x] **Step 2: Quit and relaunch Speakeasy; after it shows Ready, measure idle**
 
 Run: `footprint -p $(pgrep -x Speakeasy | head -1) | sed -n 2,8p`
 Expected: total ≤ 1,800 MB (was 2,615 MB); IOAccelerator ≤ 1,500 MB.
 
-- [ ] **Step 3: User dictates 5 times into TextEdit, then Codex, then Teams**
+- [x] **Step 3: User dictates 5 times into TextEdit, then Codex, then Teams**
   (CLAUDE.md insertion rule: all three must still insert). Measure again.
   Expected: total ≤ 1,900 MB; every dictation inserted correctly.
 
-- [ ] **Step 4: User records or imports one meeting of ≥ 3 minutes; after processing ends, measure again.**
+- [x] **Step 4: User records or imports one meeting of ≥ 3 minutes; after processing ends, measure again.**
   Expected: total ≤ 2,000 MB (uncapped would be ~7 GB); transcript looks normal.
 
-- [ ] **Step 5: Append the three measurements (date, build commit, numbers) to
+- [x] **Step 5: Append the three measurements (date, build commit, numbers) to
   `docs/model-memory.md` under "Installed app", and commit**
 
 ```bash
@@ -336,3 +336,14 @@ git commit -m "Record installed-app memory check for the MLX cache cap"
   cap would barely change, so it's a disk and install-size win only.
 - Duplicate Claude connectors ("speakeasy" and "Speakeasy Meetings") start two MCP
   processes per Claude session, ~17 MB each; that's Claude-side config, not app code.
+
+## Status (30 September 2026)
+
+- Task 1 done (6aee378), Task 2 done (3b1e4d3, final-review fixes 7d72ebf), Task 3 done (e7f2461).
+- Installed-app result: idle 1,601 MB (target met); after a meeting 2,314 MB (target ≤ 2,000 MB **missed**).
+  MLX/GPU part held at weights + ~256 MiB; the excess is ~420 MB CPU heap after the meeting.
+- **Open follow-up:** find what holds the post-meeting CPU heap (suspect: the sherpa-onnx diarizer kept
+  in `engine.diarizer`, `speakeasy/engine.py:1067-1071`), and whether it plateaus or grows per meeting.
+- Deferred and left by ruling: existing warm-up test calls the real `mx.set_cache_limit`; the config
+  block sits between meeting constants.
+- Not done (optional): ship the model file pre-converted to bf16 (disk/install size only).

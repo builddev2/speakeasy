@@ -2999,3 +2999,8 @@ The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED 
 - The key-down path is the same as in `14541f3`, so this is not a regression. The R21 retries are not enough on their own.
 - The evidence and a hypothesis (Electron may accept an `AXManualAccessibility` write it does not report as settable) are in `docs/insertion-focus-regression.md`.
 - **Open bug**, for its own debugging session. Probe a fresh Codex/Teams launch read-only before changing the rule that unsupported attributes are not written.
+
+**Acceptance 10 (30 Sep): done.**
+- The dry run on the real library found 74 fixes, the same as on the copy. The user approved, and `--apply` renamed 74 meetings.
+- A second dry run then reported 0 fixes, and `Mesa Meeting — Jul 13, 12:05 PM` is correct.
+- Backup taken before applying: `~/Library/Application Support/Speakeasy/library-before-title-fix-2026-09-30.sqlite`.

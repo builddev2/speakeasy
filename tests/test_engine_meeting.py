@@ -349,6 +349,7 @@ def test_meeting_happy_path_records_content_free_phase_timing(
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
+    assert _wait_for(lambda: meeting_benchmark.read_records(isolate_meeting_latency_log))
     records = meeting_benchmark.read_records(isolate_meeting_latency_log)
     assert len(records) == 1
     record = records[0]
@@ -1398,7 +1399,52 @@ def test_timing_keeps_both_diarization_stages(
     assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
+    assert _wait_for(lambda: meeting_benchmark.read_records(isolate_meeting_latency_log))
     record = meeting_benchmark.read_records(isolate_meeting_latency_log)[0]
     assert record["diarization_ms"] is not None
     assert record["voice_identification_ms"] is not None
+    engine.shutdown()
+
+
+def test_mic_only_never_loads_track_into_engine(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+
+    class StreamingTranscriber:
+        def transcribe_long_wav(self, path, *, progress, cancel=None):
+            progress(1.0)
+            result = type("Result", (), {})()
+            result.sentences = [Sentence(0.0, 1.0, "clod says hello")]
+            return result
+
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            raise AssertionError("16 kHz meeting spools must use chunked WAV reads")
+
+    engine.transcriber = StreamingTranscriber()
+    loads = []
+    read_meeting_track = engine._read_meeting_track
+
+    def spy(path):
+        loads.append(path)
+        return read_meeting_track(path)
+
+    engine._read_meeting_track = spy
+    _finish(engine, _record(engine))
+    assert loads == []
+    engine.shutdown()
+
+
+def test_unexpected_runner_error_is_still_a_processing_failure(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+
+    def broken_runner(wav_path, **kwargs):
+        raise RuntimeError("boom")
+
+    engine.diarization_runner = broken_runner
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert MeetingLibrary().count_meetings() == 0
+    assert engine.meeting_processing_error == "processing_failed"
+    assert not list(spool_dir.iterdir())
     engine.shutdown()

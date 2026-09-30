@@ -211,3 +211,23 @@ Follow-ups made on 30 September (D1):
 Status: **pending**. It stays pending until a take with `target_retry_count > 0`,
 or one whose lookup finished between the first buffer and key-down + 300 ms, is
 seen inserting correctly in Codex or Teams on an installed build.
+
+### Installed check on `4ddb41d` — 30 September 2026
+
+The user checked TextEdit, then the first and second takes after relaunching Codex and Teams. TextEdit and both second takes inserted. **Both first takes after a relaunch failed** with `permission_or_focus_unavailable`.
+
+| Take | App | key_down→first_buffer (ms) | target_resolve_ms | status | first / last AX error | retries | AX enabled |
+|---|---|---|---|---|---|---|---|
+| 1st | Codex (fresh launch) | 57.6 | 316.5 | missing | -25212 / -25212 | 4 | False |
+| 2nd | Codex | 32.9 | 3.2 | accepted | 0 | 0 | |
+| 1st | Teams (fresh launch) | 202.9 | 321.9 | missing | -25212 / -25212 | 4 | False |
+| 2nd | Teams | 46.2 | 18.9 | accepted | 0 | 0 | |
+| — | TextEdit | 47.3 | 31.6 | accepted | 0 | 0 | |
+
+The key-down lookup is the same as in `14541f3`; only the recovery paste changed. So this is not a regression from the 30 Sep follow-ups. The 29 Sep pass came from a run in which no retry was needed.
+
+The R21 retries (4 × 40 ms) did not help. Every query in the fresh apps answered NoValue for about 320 ms. `target_ax_enabled` was False in both takes, so `_enable_accessibility` wrote nothing. It writes `AXManualAccessibility` and `AXEnhancedUserInterface` only when `AXUIElementIsAttributeSettable` reports them as settable.
+
+Hypothesis, not yet tested: Electron accepts a write to `AXManualAccessibility` even though it does not report the attribute as settable. If so, the fresh app never gets asked to build its tree, and the tree only appears later by some other route.
+
+Next step: a read-only probe of a freshly launched Codex or Teams. It should record what the settable check returns for each attribute, whether a direct write succeeds, and how long until `AXFocusedUIElement` answers. Do this before changing the rule that unsupported attributes are not written. **Status: the first-take failure is open.**

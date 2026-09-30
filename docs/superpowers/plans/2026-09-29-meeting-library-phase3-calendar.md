@@ -2992,3 +2992,10 @@ The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED 
   - The `error == 0` guard in `_enable_accessibility` is untested.
   - The settable-check test only counts calls.
   - The `retry_attempts` default mutation is equivalent while the config value is 4.
+
+**Installed check on `4ddb41d` (30 Sep).**
+- TextEdit and the second takes in Codex and Teams inserted.
+- **The first take after relaunching Codex and after relaunching Teams failed** (`permission_or_focus_unavailable`). Every lookup answered NoValue across the 4 retries (about 320 ms), and `target_ax_enabled` was False: nothing was written.
+- The key-down path is the same as in `14541f3`, so this is not a regression. The R21 retries are not enough on their own.
+- The evidence and a hypothesis (Electron may accept an `AXManualAccessibility` write it does not report as settable) are in `docs/insertion-focus-regression.md`.
+- **Open bug**, for its own debugging session. Probe a fresh Codex/Teams launch read-only before changing the rule that unsupported attributes are not written.

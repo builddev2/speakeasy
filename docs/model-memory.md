@@ -81,3 +81,26 @@ expected and not capped. Recheck it with the `peak=` column of the script output
 .venv/bin/python -B scripts/measure_model_memory.py --no-cap
 .venv/bin/python -B scripts/measure_model_memory.py
 ```
+
+## Installed app (29–30 September 2026, build 7d72ebf)
+
+Measured with `footprint -p <pid>` on the installed `/Applications/Speakeasy.app`.
+Single measurements, not repeated.
+
+| When | Total footprint | IOAccelerator (graphics) |
+|---|---|---|
+| Old build, 26 min after launch (before install) | 2,859 MB | 2,391 MB |
+| New build, 1 min after launch, idle | **1,601 MB** | 1,214 MB |
+| New build, 54 min after launch: 20 dictations (5 each in TextEdit, Codex, Teams, Claude) + one mic-only meeting (diarization 17.8 s) | **2,314 MB** | 1,470 MB |
+
+- Dictation: all 20 logged takes `target_status=accepted`; 19 `success`, 1
+  `empty_transcription` (Claude). The user confirmed text inserted in TextEdit, Codex
+  and Teams.
+- GPU memory after the meeting is 1,470 MB = 1,214 MB of weights + ~256 MB cache, so
+  the MLX cap holds.
+- The plan's targets were ≤ 1,800 MB idle (met) and ≤ 2,000 MB after a meeting
+  (**missed, 2,314 MB**). The extra is CPU heap, not MLX: after the meeting,
+  "Malloc Large" was 301 MB (8.6 MB before) and "Malloc Small" 384 MB (260 MB before).
+  The likely source is the sherpa-onnx diarizer, which `engine.py` keeps loaded after
+  the first meeting. This is an inference, not measured per component; it is a
+  separate follow-up.

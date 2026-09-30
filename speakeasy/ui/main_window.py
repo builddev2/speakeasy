@@ -44,6 +44,7 @@ class MainWindowController(NSObject):
         dispatcher.register("app.openWindow", self._open_window)
         dispatcher.register("app.quit", self._quit)
         dispatcher.register("app.retryMicrophone", self._retry_microphone)
+        dispatcher.register("app.cancelProcessing", self._cancel_processing)
         dispatcher.register("app.meetingEvents", self._meeting_events)
         dispatcher.register("app.linkMeetingEvent", self._link_meeting_event)
         self._web = WebWindow("Speakeasy", 360, 430, "dock", dispatcher)
@@ -236,6 +237,11 @@ class MainWindowController(NSObject):
     @objc.python_method
     def _retry_microphone(self, params, respond):
         respond(self.engine.retry_microphone())
+
+    @objc.python_method
+    def _cancel_processing(self, params, respond):
+        self.engine.cancel_meeting_processing()
+        respond(True)
 
     @objc.python_method
     def _quit(self, params, respond):

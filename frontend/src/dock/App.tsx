@@ -176,6 +176,7 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
   // True once app.meetingEvents has answered without error, i.e. Calendar is usable.
   const [calendarAvailable, setCalendarAvailable] = useState(false);
   const [eventMenuOpen, setEventMenuOpen] = useState(false);
+  const [cancelStep, setCancelStep] = useState<'idle' | 'confirm' | 'cancelling'>('idle');
   const eventMenuRef = useRef<HTMLDivElement>(null);
   const eventListRef = useRef<HTMLDivElement>(null);
   const [eventListMax, setEventListMax] = useState<number | undefined>(undefined);
@@ -265,6 +266,11 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     return bridge.on('state', (payload) => applyState(payload as AppState));
   }, []);
 
+  // The confirm state never outlives the processing run it belongs to.
+  useEffect(() => {
+    if (app.mode !== 'meeting_processing') setCancelStep('idle');
+  }, [app.mode]);
+
   // Browser preview only: R toggles a fake meeting.
   useEffect(() => {
     if (bridge.embedded) return;
@@ -337,6 +343,12 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
     else console.log('open', name);
   }
 
+  function discardProcessing() {
+    setCancelStep('cancelling');
+    if (bridge.embedded) void bridge.call('app.cancelProcessing').catch(() => {});
+    else console.log('cancel processing');
+  }
+
   function onQuit(event: React.MouseEvent) {
     event.preventDefault();
     if (bridge.embedded) void bridge.call('app.quit');
@@ -386,7 +398,41 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
                     <span className={styles.name}>{name}</span>
                   </>
                 ) : app.mode === 'meeting_processing' ? (
-                  <span className={styles.progress}>{app.progressText ?? idleInfo!.text}</span>
+                  <>
+                    <span className={styles.progress}>{app.progressText ?? idleInfo!.text}</span>
+                    <span className={styles.cancelRow}>
+                      {cancelStep === 'idle' && (
+                        <button
+                          type="button"
+                          className={styles.cancelBtn}
+                          title="Discards this meeting. Cancellation is checked between transcription chunks and speaker-identification passes."
+                          onClick={() => setCancelStep('confirm')}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      {cancelStep === 'confirm' && (
+                        <>
+                          <span className={styles.cancelPrompt}>Discard meeting?</span>
+                          <button
+                            type="button"
+                            className={`${styles.cancelBtn} ${styles.cancelDanger}`}
+                            onClick={discardProcessing}
+                          >
+                            Discard
+                          </button>
+                          <button type="button" className={styles.cancelBtn} onClick={() => setCancelStep('idle')}>
+                            Keep
+                          </button>
+                        </>
+                      )}
+                      {cancelStep === 'cancelling' && (
+                        <button type="button" className={styles.cancelBtn} disabled>
+                          Cancelling…
+                        </button>
+                      )}
+                    </span>
+                  </>
                 ) : (
                   app.mode === 'mic_failed' ? microphoneFailureText(app.micFailure) : idleInfo!.text
                 )}

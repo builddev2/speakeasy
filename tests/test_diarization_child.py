@@ -168,7 +168,6 @@ def test_child_exits_when_parent_dies_abruptly(tmp_path):
 
 def _start_blocking_run(runner, cancel):
     """Run the runner on a thread against the block-forever stub; wait until ready."""
-    phases = []
     outcome = []
 
     def run():
@@ -189,13 +188,13 @@ def _start_blocking_run(runner, cancel):
     else:
         raise AssertionError("child never became active")
     time.sleep(1.0)  # let the child import and send ready
-    return thread, process, outcome, phases
+    return thread, process, outcome
 
 
 def test_terminate_active_kills_child_and_cancelled_run_raises_cancelled():
     runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
     cancel = threading.Event()
-    thread, process, outcome, _ = _start_blocking_run(runner, cancel)
+    thread, process, outcome = _start_blocking_run(runner, cancel)
     cancel.set()
     started = time.monotonic()
     runner.terminate_active()
@@ -213,7 +212,7 @@ def test_terminate_active_without_a_run_is_a_noop():
 def test_terminate_active_twice_does_not_raise():
     runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
     cancel = threading.Event()
-    thread, process, outcome, _ = _start_blocking_run(runner, cancel)
+    thread, process, outcome = _start_blocking_run(runner, cancel)
     cancel.set()
     runner.terminate_active()
     runner.terminate_active()
@@ -225,7 +224,7 @@ def test_terminate_active_twice_does_not_raise():
 def test_terminate_active_races_with_reap():
     runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
     cancel = threading.Event()
-    thread, process, outcome, _ = _start_blocking_run(runner, cancel)
+    thread, process, outcome = _start_blocking_run(runner, cancel)
     errors = []
 
     def hammer():
@@ -236,9 +235,11 @@ def test_terminate_active_races_with_reap():
         except BaseException as error:  # noqa: BLE001
             errors.append(error)
 
+    # Cancel first: the runner leaves through the top-of-loop check and runs
+    # _reap while the hammer thread is calling terminate_active.
+    cancel.set()
     killer = threading.Thread(target=hammer, daemon=True)
     killer.start()
-    cancel.set()  # the runner thread reaps while terminate_active is running
     thread.join(5.0)
     killer.join(5.0)
     assert not thread.is_alive() and not killer.is_alive()
@@ -248,9 +249,67 @@ def test_terminate_active_races_with_reap():
 
 def test_killed_child_without_cancel_is_still_child_exited():
     runner = ChildDiarizationRunner(stubs.stub_ready_then_block)
-    thread, process, outcome, _ = _start_blocking_run(runner, threading.Event())
+    thread, process, outcome = _start_blocking_run(runner, threading.Event())
     runner.terminate_active()
     thread.join(5.0)
     assert not thread.is_alive()
     assert isinstance(outcome[0], DiarizationFailed)
     assert outcome[0].reason == "child_exited"
+
+
+def _dead_child_unreadable_pipe(monkeypatch, cancel, *, set_cancel):
+    """Make the 'child dead and nothing to read' branch reachable: the pipe
+    looks empty (a real dead child's pipe reports EOF as readable)."""
+    import multiprocessing
+
+    real = multiprocessing.get_context("spawn")
+    made = []
+
+    class Receiver:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def poll(self, timeout=0.0):
+            made[0].join(10.0)  # the child has exited by the time we answer
+            if set_cancel:
+                cancel.set()
+            return False
+
+        def recv(self):
+            return self._inner.recv()
+
+        def close(self):
+            self._inner.close()
+
+        @property
+        def closed(self):
+            return self._inner.closed
+
+    class Context:
+        def Pipe(self, duplex=True):
+            receiver, sender = real.Pipe(duplex=duplex)
+            return Receiver(receiver), sender
+
+        def Process(self, *args, **kwargs):
+            process = real.Process(*args, **kwargs)
+            made.append(process)
+            return process
+
+    monkeypatch.setattr(multiprocessing, "get_context", lambda method=None: Context())
+
+
+def test_dead_child_with_empty_pipe_and_cancel_raises_cancelled(monkeypatch):
+    cancel = threading.Event()
+    _dead_child_unreadable_pipe(monkeypatch, cancel, set_cancel=True)
+    runner = ChildDiarizationRunner(stubs.stub_exit_after_progress, launch_timeout=60.0)
+    with pytest.raises(MeetingCancelled):
+        _call(runner, cancel=cancel)
+
+
+def test_dead_child_with_empty_pipe_without_cancel_is_child_exited(monkeypatch):
+    cancel = threading.Event()
+    _dead_child_unreadable_pipe(monkeypatch, cancel, set_cancel=False)
+    runner = ChildDiarizationRunner(stubs.stub_exit_after_progress, launch_timeout=60.0)
+    with pytest.raises(DiarizationFailed) as failure:
+        _call(runner, cancel=cancel)
+    assert failure.value.reason == "child_exited"

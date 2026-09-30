@@ -11,10 +11,13 @@ This module must stay import-light (no mlx, parakeet_mlx or sherpa_onnx at
 module level): the spawned child imports it first.
 """
 
+import multiprocessing
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
+from . import config
 from .meetings import DiarizationTurn
 from .wav_io import read_wav_mono_f32
 
@@ -125,3 +128,142 @@ class InProcessDiarizationRunner:
             voice_profile_names=voice_profile_names, progress=progress,
             cancelled=cancel.is_set, on_phase=on_phase,
         )
+
+
+def serve(conn, work) -> None:
+    """Child side of the protocol. Only exception type names cross the pipe."""
+    last = [-1.0]
+
+    def progress(fraction: float) -> None:
+        # sherpa reports per chunk; forward at most every 1 % (and the end).
+        if fraction >= 1.0 or fraction - last[0] >= 0.01:
+            last[0] = fraction
+            conn.send(("progress", float(fraction)))
+
+    try:
+        turns = work(
+            lambda: conn.send(("ready",)),
+            progress,
+            lambda phase: conn.send(("phase", phase)),
+        )
+        conn.send(("turns", [turn_to_wire(turn) for turn in turns]))
+    except Exception as error:
+        try:
+            conn.send(("error", type(error).__name__))
+        except (OSError, ValueError):
+            pass
+    finally:
+        conn.close()
+
+
+def run_child(conn, wav_path, expected_count, max_speakers, voice_profile_names) -> None:
+    """Spawn target: the whole diarization stage for one track."""
+
+    def work(ready, progress, on_phase):
+        import sherpa_onnx  # noqa: F401  (import cost counts toward the launch budget)
+
+        from .diarizer import Diarizer
+        from .voice_profiles import VoiceProfileStore
+
+        ready()
+        audio = read_wav_mono_f32(Path(wav_path))
+        return diarize_meeting_audio(
+            audio, Diarizer(expected_count), VoiceProfileStore().embed,
+            expected_count=expected_count, max_speakers=max_speakers,
+            voice_profile_names=voice_profile_names, progress=progress,
+            cancelled=lambda: False,  # the parent cancels by terminating us
+            on_phase=on_phase,
+        )
+
+    serve(conn, work)
+
+
+class ChildDiarizationRunner:
+    """Parent side: one spawned child per call, always reaped."""
+
+    def __init__(
+        self,
+        target=None,
+        *,
+        launch_timeout: float = config.DIARIZATION_CHILD_LAUNCH_TIMEOUT_SECONDS,
+        poll_seconds: float = 0.1,
+        terminate_grace: float = 2.0,
+    ) -> None:
+        self._target = target or run_child
+        self._launch_timeout = launch_timeout
+        self._poll_seconds = poll_seconds
+        self._terminate_grace = terminate_grace
+
+    def __call__(
+        self,
+        wav_path,
+        *,
+        expected_count: int | None,
+        max_speakers: int | None,
+        voice_profile_names,
+        progress: Callable[[float], None],
+        cancel: threading.Event,
+        on_phase: Callable[[str], None] = lambda phase: None,
+    ) -> list:
+        context = multiprocessing.get_context("spawn")
+        receiver, sender = context.Pipe(duplex=False)
+        process = context.Process(
+            target=self._target,
+            args=(sender, str(wav_path), expected_count, max_speakers,
+                  tuple(voice_profile_names or ())),
+            name="speakeasy-diarization",
+            daemon=True,
+        )
+        finished = False
+        try:
+            try:
+                process.start()
+            except Exception:
+                raise DiarizationFailed("launch_failed") from None
+            sender.close()
+            ready = False
+            deadline = time.monotonic() + self._launch_timeout
+            while True:
+                if cancel.is_set():
+                    from .transcriber import MeetingCancelled
+
+                    raise MeetingCancelled
+                if receiver.poll(self._poll_seconds):
+                    try:
+                        message = receiver.recv()
+                    except (EOFError, OSError):
+                        raise DiarizationFailed("child_exited") from None
+                    kind = message[0]
+                    if kind == "ready":
+                        ready = True
+                    elif kind == "progress":
+                        progress(float(message[1]))
+                    elif kind == "phase":
+                        on_phase(str(message[1]))
+                    elif kind == "turns":
+                        finished = True
+                        return [turn_from_wire(values) for values in message[1]]
+                    elif kind == "error":
+                        raise DiarizationFailed(f"child_error:{message[1]}")
+                    continue
+                if not ready and time.monotonic() > deadline:
+                    raise DiarizationFailed("launch_timeout")
+                if not process.is_alive() and not receiver.poll(0):
+                    raise DiarizationFailed("child_exited")
+        finally:
+            self._reap(process, graceful=finished)
+            receiver.close()
+            if not sender.closed:
+                sender.close()
+
+    def _reap(self, process, *, graceful: bool) -> None:
+        if process.pid is None:
+            return
+        if graceful:
+            process.join(self._terminate_grace)
+        if process.is_alive():
+            process.terminate()
+            process.join(self._terminate_grace)
+        if process.is_alive():
+            process.kill()
+            process.join(self._terminate_grace)

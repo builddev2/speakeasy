@@ -154,8 +154,9 @@ def serve(conn, work) -> None:
 
     A normal quit kills the child from Engine.shutdown(). This is the backstop
     for crashes and force-quits: the child exits after the parent dies (see
-    _PARENT_POLL_SECONDS), within ~0.5 s once Python code runs, but not during sherpa-onnx's segmentation, which holds the
-    GIL with no progress callbacks (~58 s on a 29.3-min meeting).
+    _PARENT_POLL_SECONDS), within ~0.5 s once Python code runs, but not during
+    sherpa-onnx's segmentation, which holds the GIL with no progress callbacks
+    (~58 s on a 29.3-min meeting).
     """
     _watch_parent()
     last = [-1.0]
@@ -263,6 +264,10 @@ class ChildDiarizationRunner:
         )
         finished = False
         try:
+            if cancel.is_set():
+                from .transcriber import MeetingCancelled
+
+                raise MeetingCancelled
             try:
                 process.start()
             except Exception:

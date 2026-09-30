@@ -1,5 +1,6 @@
 """ChildDiarizationRunner with real spawned children running stub targets."""
 
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -313,3 +314,31 @@ def test_dead_child_with_empty_pipe_without_cancel_is_child_exited(monkeypatch):
     with pytest.raises(DiarizationFailed) as failure:
         _call(runner, cancel=cancel)
     assert failure.value.reason == "child_exited"
+
+
+def test_cancel_already_set_never_starts_a_child(monkeypatch):
+    starts = []
+    real_get_context = multiprocessing.get_context
+
+    class _Ctx:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def Pipe(self, *args, **kwargs):
+            return self._inner.Pipe(*args, **kwargs)
+
+        def Process(self, *args, **kwargs):
+            process = self._inner.Process(*args, **kwargs)
+            process.start = lambda: starts.append(True)
+            return process
+
+    monkeypatch.setattr(
+        multiprocessing, "get_context", lambda method=None: _Ctx(real_get_context(method))
+    )
+    runner = ChildDiarizationRunner(stubs.stub_turns)
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(MeetingCancelled):
+        _call(runner, cancel=cancel)
+    assert starts == []
+    assert runner._active is None

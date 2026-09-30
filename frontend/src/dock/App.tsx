@@ -345,7 +345,10 @@ export function DockApp({ operatorName = 'Jason', readyMessage = 'Ready' }: Dock
 
   function discardProcessing() {
     setCancelStep('cancelling');
-    if (bridge.embedded) void bridge.call('app.cancelProcessing').catch(() => {});
+    if (bridge.embedded) void bridge.call('app.cancelProcessing').catch((error) => {
+      console.error('cancel processing failed', error);
+      setCancelStep('idle');
+    });
     else console.log('cancel processing');
   }
 

@@ -241,6 +241,7 @@ Next step: a read-only probe of a freshly launched Codex or Teams. It should rec
 | observe (no write) | unsupported (-25205) for settable, read and names | settable, value false | — | never (NoValue, 274 queries) |
 | write `AXManualAccessibility` | same | same | -25205, reading back also fails | never (285 queries) |
 | write `AXEnhancedUserInterface` | same | same | **-25208 (NotImplemented) after 3.9 ms; reading back gives `true`** | **2154 ms after the write**, role `AXWebArea` |
+| Teams (`com.microsoft.teams2`), write `AXEnhancedUserInterface` | unsupported (-25205) | settable, value false | -25208 after 3.6 ms; reading back gives `true` | **212 ms after the write**, role `AXWebArea` |
 
 In every run the focused window existed and had 4 children. Short -25204 blips appeared while the app was busy.
 
@@ -250,4 +251,4 @@ Cause:
 2. **The write returns an error even though it takes effect.** Chromium applies the value but returns NotImplemented. `_enable_accessibility` counts only 0 as success, so it logged `target_ax_enabled=False` although the write happened. The write did happen: that is why the second take worked.
 3. **The tree needs about 2.15 s after the write.** Key-down retries last about 320 ms. Waiting longer at key-down is not allowed: AGENTS.md forbids binding to a later focus or delaying the microphone.
 
-Planned fix: switch accessibility on when an app comes to the front, not at key-down. Plan: `docs/superpowers/plans/2026-09-29-fresh-electron-first-take.md`. Teams has not yet been probed. **Status: the cause is known; the fix is not yet implemented.**
+Planned fix: switch accessibility on when an app comes to the front, not at key-down. Plan: `docs/superpowers/plans/2026-09-29-fresh-electron-first-take.md`. Teams (probed the same day) behaves the same, but its tree appears in about 212 ms. That is about the same as the time left after the key-down write (roughly 320 ms of retries minus the time to reach the write), which fits the first Teams take failing narrowly. **Status: the cause is known; the fix is not yet implemented.**

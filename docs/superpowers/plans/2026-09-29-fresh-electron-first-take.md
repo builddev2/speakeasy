@@ -44,16 +44,16 @@ Probe of a fresh Codex (`scripts/ax_fresh_probe.py`):
 
 This is a gate. The Teams evidence so far comes only from the log, so check that Teams behaves like Codex before building on it.
 
-- [ ] **Step 1:** Ask the user to quit Teams, then run this in Terminal.app (which has Accessibility permission):
+- [x] **Step 1:** Ask the user to quit Teams, then run this in Terminal.app (which has Accessibility permission):
 
 ```bash
 .venv/bin/python scripts/ax_fresh_probe.py --mode write --attr AXEnhancedUserInterface --bundle com.microsoft.teams2
 ```
 
-- [ ] **Step 2:** Record the result in `docs/insertion-focus-regression.md` under "Fresh-launch probe", as an extra table row.
+- [x] **Step 2:** Record the result in `docs/insertion-focus-regression.md` under "Fresh-launch probe", as an extra table row.
   - **Continue** if `AXEnhancedUserInterface` is settable and focus answers within the 8 s window.
   - **Stop and re-plan with the user** if it is not settable, or focus never answers.
-- [ ] **Step 3:** Commit: `git commit -am "Record fresh Teams probe"`
+- [x] **Step 3:** Commit: `git commit -am "Record fresh Teams probe"`
 
 ### Task 2: Count a write that reads back true as enabled in `_enable_accessibility`
 
@@ -588,4 +588,5 @@ git commit -m "Warm accessibility on app activation; document the ax-warmup thre
 
 ## Status
 
-- 29 Sep 2026: cause found (probe). Plan written on branch `fix-fresh-electron-first-take`. Task 1 (Teams probe) not yet run. No code changed.
+- 29 Sep 2026: cause found (probe). Plan written on branch `fix-fresh-electron-first-take`. No code changed.
+- 29 Sep 2026: Task 1 done. Teams: AXManualAccessibility unsupported; the AXEnhancedUserInterface write returns -25208 but reads back true; focus answers 212 ms after the write. Gate passed. Next: Task 2.

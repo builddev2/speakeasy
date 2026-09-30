@@ -449,14 +449,14 @@ def _threaded_slow_lookup(engine, monkeypatch, resolved_clock_ns):
 
 def test_slow_focus_lookup_within_grace_binds_key_down_target(engine, monkeypatch):
     received, timing, returned = _threaded_slow_lookup(engine, monkeypatch, 250_000_000)
-    assert received["deadline_ns"] == 300_000_000
+    assert received["deadline_ns"]() == 300_000_000
     assert engine._dictation_target is returned
     assert timing.record("success")["target_status"] == "accepted"
 
 
 def test_slow_focus_lookup_past_grace_is_late_and_not_bound(engine, monkeypatch):
     received, timing, _ = _threaded_slow_lookup(engine, monkeypatch, 350_000_000)
-    assert received["deadline_ns"] == 300_000_000
+    assert received["deadline_ns"]() == 300_000_000
     assert engine._dictation_target is None
     assert timing.record("success")["target_status"] == "late"
 
@@ -602,7 +602,8 @@ def test_resolve_target_passes_grace_deadline_and_engine_clock(engine, monkeypat
     engine._resolve_dictation_target(generation, hold_started_ns=5_000)
     engine._resolve_dictation_target(generation, None)
     engine._resolve_dictation_target(generation)
-    assert seen[0]["deadline_ns"] == 5_000 + 300_000_000
+    engine.recorder.first_buffer_ns = 1
+    assert seen[0]["deadline_ns"]() == 5_000 + 300_000_000
     assert seen[0]["clock_ns"] == engine._dictation_clock_ns
     assert seen[1]["deadline_ns"] is None
     assert seen[2]["deadline_ns"] is None
@@ -631,3 +632,27 @@ def test_paste_last_dictation_lookup_makes_no_retries(engine, monkeypatch):
     engine.state = State.READY
     engine.paste_last_dictation()
     assert seen == [{"retry_attempts": 0}]
+
+
+def test_target_deadline_follows_acceptance_bound(engine):
+    grace = 300_000_000
+    engine.recorder.first_buffer_ns = None
+    assert engine._target_deadline_ns(1_000) is None
+    engine.recorder.first_buffer_ns = 1_000 + 900_000_000  # late mic start
+    assert engine._target_deadline_ns(1_000) == 1_000 + 900_000_000
+    engine.recorder.first_buffer_ns = 1_000 + 10_000_000   # early buffer
+    assert engine._target_deadline_ns(1_000) == 1_000 + grace
+
+
+def test_late_first_buffer_keeps_retrying_target_lookup(engine, monkeypatch):
+    from speakeasy import injector
+    seen = []
+    monkeypatch.setattr(
+        injector, "focused_target",
+        lambda diagnostics=None, **kwargs: seen.append(kwargs) or object())
+    engine.recorder.first_buffer_ns = None  # mic has not delivered yet
+    engine._resolve_dictation_target(engine._dictation_generation, 0)
+    deadline = seen[0]["deadline_ns"]
+    assert deadline() is None
+    engine.recorder.first_buffer_ns = 900_000_000
+    assert deadline() == 900_000_000

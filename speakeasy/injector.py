@@ -128,7 +128,7 @@ def insert_text(text: str, *, timing: DictationTiming | None = None, target=None
 
 
 def focused_target(diagnostics: dict | None = None, *,
-                   deadline_ns: int | None = None,
+                   deadline_ns=None,
                    clock_ns=time.perf_counter_ns,
                    retry_attempts: int | None = None):
     """Only AX element identity/role metadata; never fetch value or selection.
@@ -137,8 +137,9 @@ def focused_target(diagnostics: dict | None = None, *,
     (AX error codes, whether accessibility was enabled, whether the frontmost
     app changed, its bundle identifier). It never affects the result.
 
-    ``deadline_ns`` (on ``clock_ns``) stops further retries once another
-    retry interval would pass it; ``retry_attempts`` overrides the configured
+    ``deadline_ns`` (on ``clock_ns``) is an int, None, or a zero-argument
+    callable returning either (evaluated before each retry; None means no
+    deadline yet). Retries stop once another retry interval would pass it; ``retry_attempts`` overrides the configured
     attempt count (0 = a single query, no sleeps).
     """
     import ApplicationServices as ax
@@ -184,7 +185,8 @@ def focused_target(diagnostics: dict | None = None, *,
                     if retry_attempts is None else retry_attempts)
         interval_ns = int(config.DICTATION_TARGET_RETRY_INTERVAL_SECONDS * 1_000_000_000)
         for attempt in range(1, attempts + 1):
-            if deadline_ns is not None and clock_ns() + interval_ns > deadline_ns:
+            deadline = deadline_ns() if callable(deadline_ns) else deadline_ns
+            if deadline is not None and clock_ns() + interval_ns > deadline:
                 if diagnostics is not None:
                     diagnostics["target_deadline_stop"] = True
                 break

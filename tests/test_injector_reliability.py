@@ -450,3 +450,46 @@ def test_deadline_stop_works_without_diagnostics(monkeypatch):
     assert query_focused_target(deadline_ns=100, clock_ns=lambda: 1_000) is None
     assert sleeps == []
     assert len(queries) == 1
+
+
+def _settable_setup(monkeypatch, replies, settable):
+    """Fake AX with an `owner` sentinel; records settable checks and writes."""
+    import ApplicationServices as ax
+    owner = object()
+    _fake_frontmost(monkeypatch, [_app()] * 6)
+    monkeypatch.setattr(ax, "AXUIElementCreateApplication", lambda pid: owner)
+    checks, writes = [], []
+
+    def is_settable(element, name, _):
+        checks.append((element, name))
+        return settable[name]
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable", is_settable)
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue",
+                        lambda element, name, value: writes.append((element, name, value)) or 0)
+    monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
+    iterator = iter(replies)
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: next(iterator))
+    return owner, checks, writes
+
+
+def test_failed_lookup_enables_accessibility_on_owner_app_element(monkeypatch):
+    target = object()
+    both = {"AXManualAccessibility": (0, True), "AXEnhancedUserInterface": (0, True)}
+    owner, _, writes = _settable_setup(
+        monkeypatch, [(-25212, None), (0, target)], both)
+    assert query_focused_target() is target
+    assert [(w[0] is owner, w[1], w[2]) for w in writes] == [
+        (True, "AXManualAccessibility", True), (True, "AXEnhancedUserInterface", True)]
+    assert len(writes) == 2
+
+    unsettable = {"AXManualAccessibility": (-25205, False),
+                  "AXEnhancedUserInterface": (0, False)}
+    _, checks, writes = _settable_setup(
+        monkeypatch, [(-25212, None), (0, target)], unsettable)
+    assert query_focused_target() is target
+    assert len(checks) == 2
+    assert writes == []
+
+    _, checks, writes = _settable_setup(monkeypatch, [(0, target)], both)
+    assert query_focused_target() is target
+    assert checks == [] and writes == []

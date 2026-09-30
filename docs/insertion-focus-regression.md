@@ -182,5 +182,30 @@ substitutes an application or window element. New diagnostic and latency field
 `current != target` check in deliver_final (focus_changed), clipboard
 ownership, fail-closed on app switch.
 
-Status: automated tests pass with fakes only. Live Codex, Teams and TextEdit
-confirmation on an installed build is pending.
+### Live check and follow-ups — 29–30 September 2026
+
+Installed build `14541f3` (712 tests). On 29 September the user checked
+dictation in TextEdit, Codex and Teams, including the first take after
+relaunching Codex and Teams. All inserted.
+
+Neither race occurred in that run. Every take had `target_retry_count` 0 and
+every lookup finished before the first buffer. So the run shows the fix does
+not regress. It does not yet show the fix working live.
+
+Residual risk from the fix: a non-secure field that gains focus within 300 ms of
+key-down, and is still focused at release, receives the text. The old rule held
+it for recovery. Password fields stay blocked.
+
+Follow-ups made on 30 September (D1):
+
+- Retries stop at the grace deadline (key-down + 0.3 s). This sets the new bool
+  field `target_deadline_stop`.
+- Delivery-time lookups keep 4 attempts.
+- The recovery paste lookup (AppKit main thread) makes no retries (ruling R22).
+  It keeps the click-time field. Worst case is about 0.5 s of AX timeouts.
+- Worst-case lookup: about 1.06 s for an unresponsive app without a deadline,
+  about 0.2 s for a fresh Electron app, and about 0.5 s at key-down.
+
+Status: **pending**. It stays pending until a take with `target_retry_count > 0`,
+or one whose lookup finished between the first buffer and key-down + 300 ms, is
+seen inserting correctly in Codex or Teams on an installed build.

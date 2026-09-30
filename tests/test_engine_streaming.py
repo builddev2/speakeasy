@@ -371,7 +371,8 @@ def enable_streaming_for_stream_path_tests(monkeypatch):
     monkeypatch.setattr("speakeasy.config.DICTATION_STREAMING_ENABLED", True)
 
 
-def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, monkeypatch):
+def test_slow_focus_lookup_without_hold_start_uses_first_buffer_rule(engine, monkeypatch):
+    # No _hold_started_ns is set here, so this covers only the strict first-buffer fallback.
     from concurrent.futures import ThreadPoolExecutor
     import threading
     from speakeasy import injector
@@ -399,6 +400,65 @@ def test_slow_focus_lookup_does_not_delay_capture_or_bind_later_field(engine, mo
         finally:
             release.set()
             engine.worker = original
+
+
+def _threaded_slow_lookup(engine, monkeypatch, resolved_clock_ns):
+    """Run a take whose blocked lookup finishes at engine-clock `resolved_clock_ns`.
+
+    Returns (fake's received kwargs, timing of the stopped take, returned target).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from speakeasy import injector
+    entered, release = threading.Event(), threading.Event()
+    returned, received, submitted = object(), {}, []
+
+    def delayed(diagnostics=None, **kwargs):
+        received.update(kwargs)
+        entered.set()
+        assert release.wait(2)
+        return returned
+    monkeypatch.setattr(injector, "focused_target", delayed)
+    monkeypatch.setattr(engine, "_transcribe_and_paste",
+                        lambda *args: submitted.append(args))
+    clock = [0]
+    engine._dictation_clock_ns = lambda: clock[0]
+    engine._dictation_stream_disabled = True
+    engine._hold_started_ns = 0
+    engine.recorder.first_buffer_ns = 11_500_000
+    original = engine.worker
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        engine.worker = worker
+        try:
+            engine._start_recording()
+            assert entered.wait(1)
+            assert engine.state is State.RECORDING
+            assert not engine._target_future.done()
+            clock[0] = resolved_clock_ns
+            release.set()
+            engine._target_future.result(timeout=1)
+            engine._stop_recording()
+            worker.shutdown(wait=True)
+        finally:
+            release.set()
+            engine.worker = original
+    timings = [arg for args in submitted for arg in args if isinstance(arg, DictationTiming)]
+    assert len(timings) == 1
+    return received, timings[0], returned
+
+
+def test_slow_focus_lookup_within_grace_binds_key_down_target(engine, monkeypatch):
+    received, timing, returned = _threaded_slow_lookup(engine, monkeypatch, 250_000_000)
+    assert received["deadline_ns"] == 300_000_000
+    assert engine._dictation_target is returned
+    assert timing.record("success")["target_status"] == "accepted"
+
+
+def test_slow_focus_lookup_past_grace_is_late_and_not_bound(engine, monkeypatch):
+    received, timing, _ = _threaded_slow_lookup(engine, monkeypatch, 350_000_000)
+    assert received["deadline_ns"] == 300_000_000
+    assert engine._dictation_target is None
+    assert timing.record("success")["target_status"] == "late"
 
 
 def test_target_resolved_before_first_buffer_is_retained(engine, monkeypatch):
@@ -447,7 +507,8 @@ def test_target_status_accepted_records_resolve_time_and_diagnostics(engine):
     record = timing.record("success")
     assert record["target_status"] == "accepted"
     assert record["target_resolve_ms"] == 0.0  # 1 ns after key-down
-    # first_buffer_ns is 1; resolved 1 ns after a 1_000_000 ns hold start
+    # _stopped_timing sets hold start 0; the fake recorder's first buffer is 1 ns
+    # and the target resolved at 1 ns.
     assert record["target_first_ax_error"] == -25212
     assert record["target_ax_enabled"] is True
     assert record["target_retry_ax_error"] == 0

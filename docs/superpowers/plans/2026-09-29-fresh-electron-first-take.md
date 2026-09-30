@@ -1,5 +1,7 @@
 # Fresh-Electron First Take Implementation Plan
 
+**Status: DONE (29 Sep 2026): installed check passed on `a30516e`; not yet merged.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the first dictation after relaunching Codex or Teams insert text. Do it by switching on the app's accessibility tree when the app comes to the front, not at key-down.
@@ -577,14 +579,14 @@ git commit -m "Warm accessibility on app activation; document the ax-warmup thre
 
 ### Task 6 (user + me): Installed check — the acceptance gate
 
-- [ ] `scripts/build_app.sh --install` (install in place; this preserves the TCC grants). Relaunch Speakeasy.
-- [ ] The user checks, on the installed build, without sending any messages:
+- [x] `scripts/build_app.sh --install` (install in place; this preserves the TCC grants). Relaunch Speakeasy.
+- [x] The user checks, on the installed build, without sending any messages:
   1. TextEdit take.
   2. Quit and relaunch Codex. Click into the composer and dictate the **first take**, then a second take.
   3. The same for Teams.
-- [ ] Read the dictation log: the first take in each fresh app should show `target_first_ax_error` 0 (or a successful retry) and `target_status` `accepted`. Record the table in `docs/insertion-focus-regression.md`.
-- [ ] Known limit to state in the doc: a take started within ~2.2 s of the app first activating can still miss, because the tree isn't built yet.
-- [ ] Only after all three apps insert, set the status to **fixed on `<commit>`**, update memory `dictation-target-timing`, and mark this plan done.
+- [x] Read the dictation log: the first take in each fresh app should show `target_first_ax_error` 0 (or a successful retry) and `target_status` `accepted`. Record the table in `docs/insertion-focus-regression.md`.
+- [x] Known limit to state in the doc: a take started within ~2.2 s of the app first activating can still miss, because the tree isn't built yet.
+- [x] Only after all three apps insert, set the status to **fixed on `<commit>`**, update memory `dictation-target-timing`, and mark this plan done.
 
 ## Status
 
@@ -595,3 +597,4 @@ git commit -m "Warm accessibility on app activation; document the ax-warmup thre
   - Added beyond the plan: `_run` prints `  → ax warm-up pid <pid>: <outcome>` for each outcome except `focus_answers`/`shutdown`, or `failed (<ExceptionType>)`. Use it in Task 6 to see whether warm-up ran and what it returned.
   - Left on purpose: the menu-bar wiring has no unit test, so Task 6 is its only check. Retry sleeps can't be interrupted, so quitting can wait up to about 1 s. `_stopped` is read without the lock (harmless). The in-flight-clearing half of `test_run_swallows_ax_exception_and_clears_in_flight` proves nothing; the same `finally` is covered by the dedupe test.
   - Watch in Task 6: warm-up writes `AXEnhancedUserInterface` to any settable app whose focus answers NoValue, including native apps with nothing focused. That flag can affect window animations and Chromium CPU use.
+- 29 Sep 2026: Task 6 passed. Installed build `a30516e`; the user saw text inserted in TextEdit and on the first take after relaunching Codex and Teams. The log shows the fresh first takes `accepted` with `target_first_ax_error` 0 and no retries. The table is in `docs/insertion-focus-regression.md`. Plan done; merging to master is still to do.

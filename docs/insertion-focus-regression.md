@@ -251,4 +251,18 @@ Cause:
 2. **The write returns an error even though it takes effect.** Chromium applies the value but returns NotImplemented. `_enable_accessibility` counts only 0 as success, so it logged `target_ax_enabled=False` although the write happened. The write did happen: that is why the second take worked.
 3. **The tree needs about 2.15 s after the write.** Key-down retries last about 320 ms. Waiting longer at key-down is not allowed: AGENTS.md forbids binding to a later focus or delaying the microphone.
 
-Planned fix: switch accessibility on when an app comes to the front, not at key-down. Plan: `docs/superpowers/plans/2026-09-29-fresh-electron-first-take.md`. Teams (probed the same day) behaves the same, but its tree appears in about 212 ms. That is about the same as the time left after the key-down write (roughly 320 ms of retries minus the time to reach the write), which fits the first Teams take failing narrowly. **Status: fix implemented on branch fix-fresh-electron-first-take (activation warm-up); pending the installed three-app check.**
+Planned fix: switch accessibility on when an app comes to the front, not at key-down. Plan: `docs/superpowers/plans/2026-09-29-fresh-electron-first-take.md`. Teams (probed the same day) behaves the same, but its tree appears in about 212 ms. That is about the same as the time left after the key-down write (roughly 320 ms of retries minus the time to reach the write), which fits the first Teams take failing narrowly. **Status: fixed on `a30516e` (activation warm-up); installed three-app check passed 29 Sep 2026.**
+
+Installed check, build `a30516e`, 29 September 2026. The user relaunched Codex and Teams before the first take and saw text inserted in all three apps. Dictation log (`Speakeasy-dictation-latency.jsonl`), in order:
+
+| App | Take | `target_status` | `target_first_ax_error` | `target_retry_count` | `target_resolve_ms` | `insertion_outcome` |
+|---|---|---|---|---|---|---|
+| TextEdit | 1 | accepted | 0 | 0 | 4.6 | ax_acknowledged |
+| Codex (fresh) | first | accepted | 0 | 0 | 51.7 | dispatched_unconfirmed |
+| Codex | second | accepted | 0 | 0 | 11.5 | dispatched_unconfirmed |
+| Teams (fresh) | first | accepted | 0 | 0 | 8.9 | dispatched_unconfirmed |
+| Teams | second | accepted | 0 | 0 | 4.9 | dispatched_unconfirmed |
+
+In both fresh apps the first focus query already answered (error 0, no retries), so the tree was built before key-down: warm-up did it on activation. One extra TextEdit row just before these has `status` `recorder_busy` (a key press while the recorder was still busy) and is not an insertion failure. The log does not record whether an app was freshly launched; that comes from the user's account. `dispatched_unconfirmed` is the normal paste outcome for these Electron apps; the user confirmed the text appeared.
+
+Known limit: a take started within about 2.2 s of a fresh Codex first coming to the front can still miss, because the tree is not built yet (Teams needs about 0.2 s). A later take in the same app works. Warm-up's own outcome line goes to stdout, which is not saved when the app is opened from Finder.

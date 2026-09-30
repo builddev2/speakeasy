@@ -231,3 +231,38 @@ The R21 retries (4 × 40 ms) did not help. Every query in the fresh apps answere
 Hypothesis, not yet tested: Electron accepts a write to `AXManualAccessibility` even though it does not report the attribute as settable. If so, the fresh app never gets asked to build its tree, and the tree only appears later by some other route.
 
 Next step: a read-only probe of a freshly launched Codex or Teams. It should record what the settable check returns for each attribute, whether a direct write succeeds, and how long until `AXFocusedUIElement` answers. Do this before changing the rule that unsupported attributes are not written. **Status: the first-take failure is open.**
+
+### Fresh-launch probe: cause found — 29 September 2026
+
+`scripts/ax_fresh_probe.py` was run from Terminal (which has Accessibility permission) against a freshly launched Codex (`com.openai.codex`). Each run waited 4 s after launch before its first AX call and then queried `AXFocusedUIElement` every 20 ms for up to 8 s. It records only error codes, true/false results, roles and timings.
+
+| Run | `AXManualAccessibility` | `AXEnhancedUserInterface` | Write result | Focus answered |
+|---|---|---|---|---|
+| observe (no write) | unsupported (-25205) for settable, read and names | settable, value false | — | never (NoValue, 274 queries) |
+| write `AXManualAccessibility` | same | same | -25205, reading back also fails | never (285 queries) |
+| write `AXEnhancedUserInterface` | same | same | **-25208 (NotImplemented) after 3.9 ms; reading back gives `true`** | **2154 ms after the write**, role `AXWebArea` |
+| Teams (`com.microsoft.teams2`), write `AXEnhancedUserInterface` | unsupported (-25205) | settable, value false | -25208 after 3.6 ms; reading back gives `true` | **212 ms after the write**, role `AXWebArea` |
+
+In every run the focused window existed and had 4 children. Short -25204 blips appeared while the app was busy.
+
+Cause:
+
+1. **Only `AXEnhancedUserInterface` makes Codex build its tree.** Codex doesn't implement `AXManualAccessibility`, so the earlier hypothesis is false. Querying alone never makes the tree appear.
+2. **The write returns an error even though it takes effect.** Chromium applies the value but returns NotImplemented. `_enable_accessibility` counts only 0 as success, so it logged `target_ax_enabled=False` although the write happened. The write did happen: that is why the second take worked.
+3. **The tree needs about 2.15 s after the write.** Key-down retries last about 320 ms. Waiting longer at key-down is not allowed: AGENTS.md forbids binding to a later focus or delaying the microphone.
+
+Planned fix: switch accessibility on when an app comes to the front, not at key-down. Plan: `docs/superpowers/plans/2026-09-29-fresh-electron-first-take.md`. Teams (probed the same day) behaves the same, but its tree appears in about 212 ms. That is about the same as the time left after the key-down write (roughly 320 ms of retries minus the time to reach the write), which fits the first Teams take failing narrowly. **Status: fixed on `a30516e` (activation warm-up); installed three-app check passed 29 Sep 2026.**
+
+Installed check, build `a30516e`, 29 September 2026. The user relaunched Codex and Teams before the first take and saw text inserted in all three apps. Dictation log (`Speakeasy-dictation-latency.jsonl`), in order:
+
+| App | Take | `target_status` | `target_first_ax_error` | `target_retry_count` | `target_resolve_ms` | `insertion_outcome` |
+|---|---|---|---|---|---|---|
+| TextEdit | 1 | accepted | 0 | 0 | 4.6 | ax_acknowledged |
+| Codex (fresh) | first | accepted | 0 | 0 | 51.7 | dispatched_unconfirmed |
+| Codex | second | accepted | 0 | 0 | 11.5 | dispatched_unconfirmed |
+| Teams (fresh) | first | accepted | 0 | 0 | 8.9 | dispatched_unconfirmed |
+| Teams | second | accepted | 0 | 0 | 4.9 | dispatched_unconfirmed |
+
+In both fresh apps the first focus query already answered (error 0, no retries), so the tree was built before key-down: warm-up did it on activation. One extra TextEdit row just before these has `status` `recorder_busy` (a key press while the recorder was still busy) and is not an insertion failure. The log does not record whether an app was freshly launched; that comes from the user's account. `dispatched_unconfirmed` is the normal paste outcome for these Electron apps; the user confirmed the text appeared.
+
+Known limit: a take started within about 2.2 s of a fresh Codex first coming to the front can still miss, because the tree is not built yet (Teams needs about 0.2 s). A later take in the same app works. Warm-up's own outcome line goes to stdout, which is not saved when the app is opened from Finder.

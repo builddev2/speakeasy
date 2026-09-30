@@ -175,7 +175,9 @@ def focused_target(diagnostics: dict | None = None, *,
         if diagnostics is not None:
             diagnostics["target_ax_enabled"] = bool(enabled)
         # Fresh Electron apps answer NoValue until their accessibility tree is
-        # built, and enabling can report False yet still work: retry regardless.
+        # built, about 2 s after AXEnhancedUserInterface is written (probe,
+        # 29 Sep 2026) -- longer than these retries. ax_warmup writes it when
+        # the app is activated so the tree is normally ready by key-down.
         # Never substitute an application/window for an unidentified field.
         attempts = (config.DICTATION_TARGET_RETRY_ATTEMPTS
                     if retry_attempts is None else retry_attempts)
@@ -205,7 +207,12 @@ def _enable_accessibility(owner):
     for name in ("AXManualAccessibility", "AXEnhancedUserInterface"):
         error, writable = ax.AXUIElementIsAttributeSettable(owner, name, None)
         if error == 0 and writable:
-            enabled = ax.AXUIElementSetAttributeValue(owner, name, True) == 0 or enabled
+            # Chromium applies AXEnhancedUserInterface but returns
+            # NotImplemented (-25208): trust the read-back, not the status.
+            result = ax.AXUIElementSetAttributeValue(owner, name, True)
+            read_error, value = ax.AXUIElementCopyAttributeValue(owner, name, None)
+            if result == 0 or (read_error == 0 and value is True):
+                enabled = True
     return enabled
 
 

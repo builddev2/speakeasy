@@ -181,6 +181,31 @@ def test_unsupported_accessibility_activation_does_not_write_or_retry(monkeypatc
     assert not injector._enable_accessibility(object())
 
 
+def test_enable_accessibility_counts_read_back_true(monkeypatch):
+    # Fresh Codex, probe 29 Sep 2026: the AXEnhancedUserInterface write returns
+    # NotImplemented (-25208) yet the attribute reads back True and the tree
+    # is built about 2 s later.
+    import ApplicationServices as ax
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
+                        lambda e, name, _: (0, name == "AXEnhancedUserInterface"))
+    writes = []
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue",
+                        lambda e, name, value: writes.append(name) or -25208)
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue",
+                        lambda e, name, _: (0, True) if name == "AXEnhancedUserInterface" else (-25205, None))
+    assert injector._enable_accessibility(object()) is True
+    assert writes == ["AXEnhancedUserInterface"]
+
+
+def test_enable_accessibility_failed_write_that_reads_back_false_is_not_enabled(monkeypatch):
+    import ApplicationServices as ax
+    monkeypatch.setattr(ax, "AXUIElementIsAttributeSettable",
+                        lambda e, name, _: (0, name == "AXEnhancedUserInterface"))
+    monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: -25208)
+    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: (0, False))
+    assert injector._enable_accessibility(object()) is False
+
+
 def test_security_inspection_errors_block_before_clipboard(monkeypatch):
     import ApplicationServices as ax
     # Exercise the real status-preserving query, not the shared metadata fake.
@@ -248,7 +273,10 @@ def test_diagnostics_record_enable_and_retry_error_codes(monkeypatch):
     monkeypatch.setattr(ax, "AXUIElementSetAttributeValue", lambda *a: 0)
     monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
     replies = iter([(-25204, None)] + [(-25212, None)] * 4)
-    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: next(replies))
+    monkeypatch.setattr(
+        ax, "AXUIElementCopyAttributeValue",
+        lambda e, name, _: (0, True) if name in ("AXManualAccessibility", "AXEnhancedUserInterface")
+        else next(replies))
     diagnostics = {}
     assert query_focused_target(diagnostics) is None
     assert diagnostics["target_first_ax_error"] == -25204
@@ -270,6 +298,8 @@ def _retry_setup(monkeypatch, replies, apps, enable=False):
     iterator = iter(replies)
 
     def copy(element, name, _):
+        if name in ("AXManualAccessibility", "AXEnhancedUserInterface"):
+            return (0, True)
         queries.append(name)
         return next(iterator)
     monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", copy)
@@ -277,8 +307,7 @@ def _retry_setup(monkeypatch, replies, apps, enable=False):
 
 
 def test_retry_runs_even_when_accessibility_enable_returns_false(monkeypatch):
-    # Codex fresh launch: first query NoValue, enable reports False; the
-    # accessibility tree appears by the second attempt.
+    # An app whose tree appears during the retries (e.g. already warming).
     target = object()
     sleeps, queries = _retry_setup(
         monkeypatch, [(-25212, None), (-25212, None), (0, target)],
@@ -424,7 +453,10 @@ def _settable_setup(monkeypatch, replies, settable):
                         lambda element, name, value: writes.append((element, name, value)) or 0)
     monkeypatch.setattr(injector.time, "sleep", lambda seconds: None)
     iterator = iter(replies)
-    monkeypatch.setattr(ax, "AXUIElementCopyAttributeValue", lambda *a: next(iterator))
+    monkeypatch.setattr(
+        ax, "AXUIElementCopyAttributeValue",
+        lambda e, name, _: (0, True) if name in ("AXManualAccessibility", "AXEnhancedUserInterface")
+        else next(iterator))
     return owner, checks, writes
 
 

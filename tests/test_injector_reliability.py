@@ -237,7 +237,6 @@ def test_diagnostics_record_direct_success_without_enabling(monkeypatch):
         "target_first_ax_error": 0, "target_ax_enabled": False,
         "target_retry_ax_error": None, "target_retry_count": 0,
         "target_app_switched": False, "target_app": "com.example.Electron",
-        "target_deadline_stop": False,
     }
 
 
@@ -355,41 +354,15 @@ def _clock(values):
     return lambda: next(iterator)
 
 
-def test_deadline_stops_retries_before_second_sleep(monkeypatch):
-    # A target would be returned on attempt 2, but the deadline cuts it off.
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None), (-25212, None), (0, object())],
-        [_app()] * 6)
-    diagnostics = {}
-    result = query_focused_target(
-        diagnostics, deadline_ns=1_000_000_000,
-        clock_ns=_clock([0, 999_000_000]))
-    assert result is None
-    assert diagnostics["target_deadline_stop"] is True
-    assert diagnostics["target_retry_count"] == 1
-    assert sleeps == [.04]
-    assert len(queries) == 2
 
 
-def test_deadline_already_past_makes_no_retry(monkeypatch):
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None), (0, object())], [_app()] * 4)
-    diagnostics = {}
-    result = query_focused_target(
-        diagnostics, deadline_ns=100, clock_ns=lambda: 1_000)
-    assert result is None
-    assert diagnostics["target_deadline_stop"] is True
-    assert diagnostics["target_retry_count"] == 0
-    assert sleeps == []
-    assert len(queries) == 1
 
 
-def test_no_deadline_keeps_four_attempts_and_no_stop_flag(monkeypatch):
+def test_default_keeps_four_attempts(monkeypatch):
     sleeps, queries = _retry_setup(
         monkeypatch, [(-25212, None)] * 5, [_app()] * 8)
     diagnostics = {}
     assert query_focused_target(diagnostics) is None
-    assert diagnostics["target_deadline_stop"] is False
     assert diagnostics["target_retry_count"] == 4
     assert sleeps == [.04] * 4
 
@@ -409,7 +382,7 @@ def test_retry_attempts_zero_queries_once_but_still_enables(monkeypatch):
     assert diagnostics["target_retry_count"] == 0
 
 
-def test_delivery_time_lookups_keep_default_retries_and_no_deadline(monkeypatch):
+def test_delivery_time_lookups_keep_default_retries(monkeypatch):
     calls = []
     target = object()
     monkeypatch.setattr(injector, "focused_target",
@@ -431,25 +404,8 @@ def test_delivery_time_lookups_keep_default_retries_and_no_deadline(monkeypatch)
     assert calls == [(None, {})]
 
 
-def test_deadline_boundary_equal_still_retries(monkeypatch):
-    # clock + interval == deadline is not past it: strict comparison.
-    target = object()
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None), (0, target)], [_app()] * 4)
-    diagnostics = {}
-    result = query_focused_target(
-        diagnostics, deadline_ns=1_040_000_000, clock_ns=lambda: 1_000_000_000)
-    assert result is target
-    assert diagnostics["target_deadline_stop"] is False
-    assert sleeps == [.04]
 
 
-def test_deadline_stop_works_without_diagnostics(monkeypatch):
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None), (0, object())], [_app()] * 4)
-    assert query_focused_target(deadline_ns=100, clock_ns=lambda: 1_000) is None
-    assert sleeps == []
-    assert len(queries) == 1
 
 
 def _settable_setup(monkeypatch, replies, settable):
@@ -495,36 +451,6 @@ def test_failed_lookup_enables_accessibility_on_owner_app_element(monkeypatch):
     assert checks == [] and writes == []
 
 
-def test_callable_deadline_none_means_keep_retrying(monkeypatch):
-    target = object()
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None), (-25212, None), (0, target)], [_app()] * 6)
-    diagnostics = {}
-    result = query_focused_target(
-        diagnostics, deadline_ns=lambda: None, clock_ns=lambda: 10**15)
-    assert result is target
-    assert diagnostics["target_deadline_stop"] is False
-    assert sleeps == [.04, .04]
 
 
-def test_callable_deadline_none_still_bounded_by_attempt_cap(monkeypatch):
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None)] * 5, [_app()] * 8)
-    assert query_focused_target(deadline_ns=lambda: None) is None
-    assert sleeps == [.04] * 4
 
-
-def test_callable_deadline_int_uses_strict_rule_and_is_reevaluated(monkeypatch):
-    target = object()
-    values = iter([None, 1_040_000_000, 1_039_999_999])
-    sleeps, queries = _retry_setup(
-        monkeypatch, [(-25212, None), (-25212, None), (-25212, None), (0, target)],
-        [_app()] * 8)
-    diagnostics = {}
-    result = query_focused_target(
-        diagnostics, deadline_ns=lambda: next(values),
-        clock_ns=lambda: 1_000_000_000)
-    assert result is None
-    assert diagnostics["target_deadline_stop"] is True
-    assert diagnostics["target_retry_count"] == 2
-    assert sleeps == [.04, .04]

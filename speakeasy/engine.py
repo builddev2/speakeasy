@@ -281,9 +281,7 @@ class DictationEngine:
             previous_target = getattr(self, "_target_future", None)
             if previous_target is not None:
                 previous_target.cancel()
-            self._target_future = self.worker.submit(
-                self._resolve_dictation_target, generation,
-                getattr(self, "_hold_started_ns", None))
+            self._target_future = self.worker.submit(self._resolve_dictation_target, generation)
         session = (
             StreamingSession(
                 clock_ns=self._dictation_clock_ns,
@@ -331,30 +329,11 @@ class DictationEngine:
         self._set_state(State.RECORDING)
         print("● recording...")
 
-    @staticmethod
-    def _target_bound_ns(hold_started_ns, first_buffer_ns):
-        """Latest resolve time that is accepted: the later of key-down + grace
-        and the first buffer."""
-        bound = hold_started_ns + int(
-            config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000)
-        return bound if first_buffer_ns is None else max(first_buffer_ns, bound)
-
-    def _target_deadline_ns(self, hold_started_ns):
-        """Retry deadline matching acceptance; None until the first buffer is
-        known, so a late mic start does not cut off a slow lookup."""
-        first_buffer = getattr(self.recorder, "first_buffer_ns", None)
-        if first_buffer is None:
-            return None
-        return self._target_bound_ns(hold_started_ns, first_buffer)
-
-    def _resolve_dictation_target(self, generation, hold_started_ns=None):
+    def _resolve_dictation_target(self, generation):
         if self._shutting_down or generation != self._dictation_generation:
             return None, self._dictation_clock_ns(), {}
         diagnostics: dict = {}
-        deadline = (None if hold_started_ns is None else
-                    lambda: self._target_deadline_ns(hold_started_ns))
-        target = injector.focused_target(
-            diagnostics, deadline_ns=deadline, clock_ns=self._dictation_clock_ns)
+        target = injector.focused_target(diagnostics)
         return target, self._dictation_clock_ns(), diagnostics
 
     def _transcribe_stream_with_fallback(
@@ -457,8 +436,11 @@ class DictationEngine:
                 # key-down time, keep the strict first-buffer rule. Late
                 # targets keep the final for recovery.
                 if hold_started is not None:
-                    accepted = resolved <= self._target_bound_ns(
-                        hold_started, first_buffer)
+                    bound = hold_started + int(
+                        config.DICTATION_TARGET_GRACE_SECONDS * 1_000_000_000)
+                    if first_buffer is not None:
+                        bound = max(first_buffer, bound)
+                    accepted = resolved <= bound
                 else:
                     accepted = first_buffer is not None and resolved <= first_buffer
                 if accepted:

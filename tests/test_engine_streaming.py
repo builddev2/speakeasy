@@ -449,14 +449,12 @@ def _threaded_slow_lookup(engine, monkeypatch, resolved_clock_ns):
 
 def test_slow_focus_lookup_within_grace_binds_key_down_target(engine, monkeypatch):
     received, timing, returned = _threaded_slow_lookup(engine, monkeypatch, 250_000_000)
-    assert received["deadline_ns"]() == 300_000_000
     assert engine._dictation_target is returned
     assert timing.record("success")["target_status"] == "accepted"
 
 
 def test_slow_focus_lookup_past_grace_is_late_and_not_bound(engine, monkeypatch):
     received, timing, _ = _threaded_slow_lookup(engine, monkeypatch, 350_000_000)
-    assert received["deadline_ns"]() == 300_000_000
     assert engine._dictation_target is None
     assert timing.record("success")["target_status"] == "late"
 
@@ -476,7 +474,6 @@ _DIAG = {
     "target_retry_count": 1,
     "target_app_switched": False,
     "target_app": "com.example.App",
-    "target_deadline_stop": True,
 }
 
 
@@ -514,7 +511,6 @@ def test_target_status_accepted_records_resolve_time_and_diagnostics(engine):
     assert record["target_retry_ax_error"] == 0
     assert record["target_retry_count"] == 1
     assert record["target_app_switched"] is False
-    assert record["target_deadline_stop"] is True
     assert record["target_app"] == "com.example.App"
 
 
@@ -592,34 +588,8 @@ def test_target_status_pending_cancelled_and_error(engine):
     assert record["target_first_ax_error"] is None
 
 
-def test_resolve_target_passes_grace_deadline_and_engine_clock(engine, monkeypatch):
-    from speakeasy import injector
-    seen = []
-    monkeypatch.setattr(
-        injector, "focused_target",
-        lambda diagnostics=None, **kwargs: seen.append(kwargs) or object())
-    generation = engine._dictation_generation
-    engine._resolve_dictation_target(generation, hold_started_ns=5_000)
-    engine._resolve_dictation_target(generation, None)
-    engine._resolve_dictation_target(generation)
-    engine.recorder.first_buffer_ns = 1
-    assert seen[0]["deadline_ns"]() == 5_000 + 300_000_000
-    assert seen[0]["clock_ns"] == engine._dictation_clock_ns
-    assert seen[1]["deadline_ns"] is None
-    assert seen[2]["deadline_ns"] is None
 
 
-def test_start_recording_submits_hold_started_ns(engine):
-    submitted = []
-    original = engine.worker.submit
-    def submit(function, *args):
-        if function.__name__ == "_resolve_dictation_target":
-            submitted.append(args)
-        return original(function, *args)
-    engine.worker.submit = submit
-    engine._hold_started_ns = 123_456
-    engine._start_recording()
-    assert submitted == [(engine._dictation_generation, 123_456)]
 
 
 def test_paste_last_dictation_lookup_makes_no_retries(engine, monkeypatch):
@@ -634,25 +604,19 @@ def test_paste_last_dictation_lookup_makes_no_retries(engine, monkeypatch):
     assert seen == [{"retry_attempts": 0}]
 
 
-def test_target_deadline_follows_acceptance_bound(engine):
-    grace = 300_000_000
-    engine.recorder.first_buffer_ns = None
-    assert engine._target_deadline_ns(1_000) is None
-    engine.recorder.first_buffer_ns = 1_000 + 900_000_000  # late mic start
-    assert engine._target_deadline_ns(1_000) == 1_000 + 900_000_000
-    engine.recorder.first_buffer_ns = 1_000 + 10_000_000   # early buffer
-    assert engine._target_deadline_ns(1_000) == 1_000 + grace
 
 
-def test_late_first_buffer_keeps_retrying_target_lookup(engine, monkeypatch):
-    from speakeasy import injector
-    seen = []
-    monkeypatch.setattr(
-        injector, "focused_target",
-        lambda diagnostics=None, **kwargs: seen.append(kwargs) or object())
-    engine.recorder.first_buffer_ns = None  # mic has not delivered yet
-    engine._resolve_dictation_target(engine._dictation_generation, 0)
-    deadline = seen[0]["deadline_ns"]
-    assert deadline() is None
-    engine.recorder.first_buffer_ns = 900_000_000
-    assert deadline() == 900_000_000
+
+def test_first_buffer_extends_acceptance_beyond_grace(engine):
+    # Mic starts late: first buffer at 500 ms; lookup resolved at 400 ms (> 300 ms grace).
+    engine._dictation_stream_disabled = True
+    engine._start_recording()
+    engine._hold_started_ns = 0
+    engine.recorder.first_buffer_ns = 500_000_000
+    target = object()
+    engine._target_future = _done(target, 400_000_000, dict(_DIAG))
+    engine._stop_recording()
+    assert engine._dictation_target is target
+    timing = next(arg for f, args in reversed(engine.worker.submissions)
+                  for arg in args if isinstance(arg, DictationTiming))
+    assert timing.record("success")["target_status"] == "accepted"

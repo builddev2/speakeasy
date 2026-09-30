@@ -198,15 +198,15 @@ it for recovery. Password fields stay blocked.
 
 Follow-ups made on 30 September (D1):
 
-- Retries stop once a result could no longer be accepted: the later of key-down
-  + 0.3 s and the first buffer (the same bound as acceptance; no deadline until
-  the first buffer is known). This sets the new bool field `target_deadline_stop`.
+- Retries at key-down keep the fixed 4-attempt cap. A deadline was tried and
+  removed: the acceptance bound depends on the first buffer, which is known only
+  at stop. Four of 138 logged takes had a first buffer later than 300 ms, and a
+  deadline would have cut their retries.
 - Delivery-time lookups keep 4 attempts.
 - The recovery paste lookup (AppKit main thread) makes no retries (ruling R22).
   It keeps the click-time field. Worst case is about 0.5 s of AX timeouts.
-- Worst-case lookup: about 1.06 s for an unresponsive app without a deadline,
-  about 0.2 s for a fresh Electron app, and about 0.5 s at key-down (up to about
-  1.06 s if the mic starts late).
+- Worst-case lookup: about 1.06 s for an unresponsive app (0.1 s first query
+  + up to 4 x 0.1 s enable calls + 4 x (0.04 + 0.1) s retries), and about 0.2 s for a fresh Electron app.
 
 Status: **pending**. It stays pending until a take with `target_retry_count > 0`,
 or one whose lookup finished between the first buffer and key-down + 300 ms, is

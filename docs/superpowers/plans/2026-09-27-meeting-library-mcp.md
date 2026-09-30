@@ -2736,7 +2736,7 @@ Scope: `speakeasy/mcp_server.py` (stdlib JSON-RPC 2.0 over stdio), `--mcp` early
 
 ## Phase 3: Calendar (expand at session start)
 
-**Expanded 29 Sep 2026 → [`2026-09-29-meeting-library-phase3-calendar.md`](2026-09-29-meeting-library-phase3-calendar.md).** That file is the source of truth for Phase 3; the scoped list below is kept for history. Changes from it: schema v2 adds `calendar_events.other_attendees`; the attendee count caps diarization (with a 15 s minimum-talk cluster merge); the Phase 2 eval follow-ups are Tasks 3, 8 and 9 there.
+**Expanded 29 Sep 2026 → [`2026-09-29-meeting-library-phase3-calendar.md`](2026-09-29-meeting-library-phase3-calendar.md).** **DONE (merged 30 Sep 2026).** Open after merge: the speaker check on a real 1-on-1, and the first dictation after relaunching Codex or Teams (see that plan's last Execution notes). That file is the source of truth for Phase 3; the scoped list below is kept for history. Changes from it: schema v2 adds `calendar_events.other_attendees`; the attendee count caps diarization (with a 15 s minimum-talk cluster merge); the Phase 2 eval follow-ups are Tasks 3, 8 and 9 there.
 
 Scope: `pyobjc-framework-EventKit==12.2.1` (requirements + lock file), `NSCalendarsFullAccessUsageDescription` in `packaging/Speakeasy.spec`, `speakeasy/calendar_match.py` (pure), `speakeasy/calendar_sync.py` (EventKit wrapper faked in tests), a single-thread `calendar` executor (documented in AGENTS.md's threading model).
 

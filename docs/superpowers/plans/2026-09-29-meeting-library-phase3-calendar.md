@@ -3009,3 +3009,12 @@ The six follow-ups above, as three reviewed tasks. Each one is TDD with the RED 
 - After the user revoked Calendar access, Today showed the denied card.
 - `get_calendar` for 1 Sep to 31 Oct returned `[]`. The cached `calendar_events` and `calendar_event_people` tables hold 0 rows, down from 1,186 events on 29 Sep.
 - Reconnecting afterwards is the user's step.
+
+### Status at merge (30 Sep 2026)
+
+**Phase 3 is done and merged to master.** Full suite: 721 passed. Installed and checked build: `4ddb41d`. Acceptance steps 1–5 and 7–10 passed, except the first dictation after relaunching Codex and Teams.
+
+Still open:
+- **Bug: the first dictation after relaunching Codex or Teams fails.** It is not a regression. See `docs/insertion-focus-regression.md`, "Installed check on `4ddb41d`". Next step: a read-only probe of a fresh launch, checking settable, a direct write of `AXManualAccessibility`, and the time until focus answers.
+- Acceptance 6: a speaker check on a real 1-on-1, against the Step 3 baseline.
+- The deferred minors listed above.

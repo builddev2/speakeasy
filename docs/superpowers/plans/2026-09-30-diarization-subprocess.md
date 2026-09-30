@@ -1263,4 +1263,32 @@ git commit -m "Add diarization memory benchmark and record results"
 
 ## Status
 
-- [ ] Task 1 — [ ] Task 2 — [ ] Task 3 — [ ] Task 4 — [ ] Final review — [ ] Installed-app check (step 4, with user)
+- [x] Task 1 (f9529c7) — [x] Task 2 (88fbaa4, 8a4be2a) — [x] Task 3 (fb9977d, 1c3727c) — [x] Task 4 (bb58a75) — [x] Final review + fix wave (eff7c71) — [ ] Installed-app check (step 4, with user) — [ ] Merge to master
+
+Branch `diarization-subprocess` in worktree `.claude/worktrees/diarization-subprocess` (not pushed, not merged).
+Full suite at eff7c71: 772 passed. Benchmark at bb58a75: 4/4 PASS (parent 31 MB baseline, 31 MB after meeting 1, 26 MB after meetings 2–5 incl. 29.3 min; child turns identical to in-process).
+
+### Changes agreed during execution (beyond the plan text)
+
+- Worked in a git worktree instead of `git checkout -b` (user's global rule).
+- Final review found the child is orphaned when the app quits mid-diarization: quit is `NSApp.terminate_`, a hard C exit, so neither `_reap` nor multiprocessing's atexit cleanup runs (reproduced). Fix: a parent-death watchdog thread in `serve` (`_PARENT_POLL_SECONDS = 0.5`, `os._exit(0)` when `getppid()` changes), with test `test_child_exits_when_parent_dies_abruptly`. The alternative of terminating from `engine.shutdown()` was not added, because the watchdog also covers crashes and SIGKILL.
+- The pre-existing flaky `test_meeting_happy_path_records_content_free_phase_timing` was fixed in passing: the engine reaches READY before `timing.emit()`, so the test now waits for the record.
+
+### Open items (TODO)
+
+1. **Installed-app check (step 4).** Needs the user. Rebuild and install with `scripts/build_app.sh --install`, then do 20 dictations plus one mic-only meeting, and read `footprint -p <pid>` (Malloc Large and Small, and the total). Pass/fail:
+   - total ≤ 2,000 MB after the meeting (was 2,314 MB);
+   - a cancel during "Identifying speakers" stops within about 1 s;
+   - dictation inserts in TextEdit, Codex and Teams.
+   Also quit the app mid-diarization and check with `pgrep -fl speakeasy-diarization` that no child survives. Then fill in the "pending" line at the end of docs/model-memory.md.
+2. **Watchdog latency wording.** AGENTS.md's worker bullet and the `serve` docstring say the child exits within ~0.5 s. If sherpa-onnx's `process()` holds the GIL, the watchdog can only run between progress callbacks, which could be tens of seconds on a long meeting. The reviewer's probe was inconclusive. Measure it (quit the installed app during a long diarization and time how long the child lingers), then correct the wording.
+3. **Unexplained Malloc Small growth** (about 124 MB in the installed app; synthetic runs explain about 45 MB). It may come from dictation. The step-4 measurement will show what remains.
+4. **Deferred minors from the task reviews:**
+   - the in-process runner's cancel wiring is untested;
+   - `FakeProfiles` ignores its turns argument;
+   - the drain-guard branch cannot be tested with real spawns;
+   - the <3 s and <5 s time bounds in the child tests;
+   - `serve` catches only `Exception`;
+   - `_diarize_or_fallback` has no type hints;
+   - the benchmark's median-of-two includes the cold sherpa import.
+   The final review triaged all of these as leave.

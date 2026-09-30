@@ -119,6 +119,12 @@ DIARIZATION_THRESHOLD = 0.7
 DIARIZATION_MIN_ON = 0.3
 DIARIZATION_MIN_OFF = 0.5
 
+# Diarization runs in a spawned child per meeting (memory; see
+# docs/model-memory.md). Budget for the child to import sherpa-onnx and say
+# "ready" (measured ~0.2 s in dev). No overall limit: a 2-hour meeting
+# legitimately takes ~12 minutes.
+DIARIZATION_CHILD_LAUNCH_TIMEOUT_SECONDS = 20.0
+
 # A run of tokens attributed to a different speaker must last this long before
 # it splits an ASR sentence. Shorter runs are treated as boundary jitter.
 DIARIZATION_SPLIT_MIN_SECONDS = 0.6

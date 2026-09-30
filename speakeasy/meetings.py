@@ -46,6 +46,8 @@ _CAPTURE_HEALTH_KEYS = {
     "fallback_reason",
     "capture_mode",
     "capture_scope",
+    "diarization_status",
+    "diarization_failure",
 }
 
 # A diarization turn further than this from a token is considered unrelated;

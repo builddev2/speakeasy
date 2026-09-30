@@ -39,6 +39,7 @@ import numpy as np
 
 from . import calendar_match, config, injector, meeting_import, meeting_recorder, meetings, settings
 from .dictation_benchmark import DictationTiming
+from .diarization_process import ChildDiarizationRunner, DiarizationFailed
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession
 from .hotkey import HotkeyListener
 from .meeting_benchmark import MeetingTiming
@@ -94,10 +95,9 @@ class DictationEngine:
         self.worker = ThreadPoolExecutor(max_workers=1)
         self.control = ThreadPoolExecutor(max_workers=1)
         self.transcriber: Transcriber | None = None
-        self.diarizer = None  # built lazily on the first meeting (loads ONNX)
-        # Speaker embedding for cluster merging; built lazily (loads ONNX).
-        # Tests inject a fake.
-        self.speaker_embedder = None
+        # Diarization runs in a spawned child per meeting so onnxruntime's
+        # arenas and freed buffers leave with it (docs/model-memory.md).
+        self.diarization_runner = ChildDiarizationRunner()
         self.profile: Profile | None = None
         self.overlay = None
         self.state = State.LOADING
@@ -124,7 +124,6 @@ class DictationEngine:
         self.meeting_event = None
         self._meeting_asr_session: MeetingASRSession | None = None
         self._meeting_asr_future: Future | None = None
-        self._diarizer_speaker_count: int | None = None
         self.last_dictation_heard: str | None = None
         self.last_dictation_text: str | None = None
         self._last_dictation_timer = None
@@ -1057,55 +1056,51 @@ class DictationEngine:
 
     def _diarize_track(
         self,
-        audio,
+        path: Path,
         progress,
         timing: MeetingTiming | None = None,
         *,
         max_speakers: int | None = None,
     ):
-        expected_count = self._meeting_options.expected_speaker_count
-        if self.diarizer is None or self._diarizer_speaker_count != expected_count:
-            from .diarizer import Diarizer
-
-            self.diarizer = Diarizer(expected_count)
-            self._diarizer_speaker_count = expected_count
+        """Speaker turns for one spooled track, computed by the runner (a
+        child process in the app). Raises DiarizationFailed or
+        MeetingCancelled."""
+        open_phase = ["diarization"]
         if timing is not None:
             timing.start("diarization")
+
+        def on_phase(name: str) -> None:
+            if name == "voice_identification" and open_phase[0] == "diarization":
+                if timing is not None:
+                    timing.finish("diarization")
+                    timing.start("voice_identification")
+                open_phase[0] = name
+
         try:
-            turns = self.diarizer.diarize(audio, progress=progress)
+            return self.diarization_runner(
+                path,
+                expected_count=self._meeting_options.expected_speaker_count,
+                max_speakers=max_speakers,
+                voice_profile_names=tuple(
+                    self._meeting_options.expected_voice_profile_names or ()),
+                progress=progress,
+                cancel=self._meeting_cancel,
+                on_phase=on_phase,
+            )
         finally:
             if timing is not None:
-                timing.finish("diarization")
-        if expected_count is None:
-            # The user's own count is exact and wins. Otherwise fold the
-            # over-split clusters (and apply the calendar cap) before naming
-            # voices, so profile matching sees whole voices.
-            from . import speaker_merge
+                timing.finish(open_phase[0])
 
-            turns = speaker_merge.tidy_speakers(
-                audio, turns, self._speaker_embedding, max_speakers=max_speakers,
-                cancelled=self._meeting_cancel.is_set)
-        if timing is not None:
-            timing.start("voice_identification")
-        if self._meeting_options.expected_voice_profile_names:
-            from .voice_profiles import VoiceProfileStore
-
-            turns = VoiceProfileStore().identify(
-                audio,
-                turns,
-                list(self._meeting_options.expected_voice_profile_names),
-                cancelled=self._meeting_cancel.is_set,
-            )
-        if timing is not None:
-            timing.finish("voice_identification")
-        return turns
-
-    def _speaker_embedding(self, samples):
-        if self.speaker_embedder is None:
-            from .voice_profiles import VoiceProfileStore
-
-            self.speaker_embedder = VoiceProfileStore().embed
-        return self.speaker_embedder(samples)
+    def _diarize_or_fallback(self, path: Path, progress, timing, *, max_speakers):
+        """Turns plus capture-health fields. A failed diarization keeps the
+        words: every sentence then aligns to one speaker label."""
+        try:
+            turns = self._diarize_track(path, progress, timing, max_speakers=max_speakers)
+        except DiarizationFailed as failure:
+            print(f"  → diarization failed ({failure.reason}); saving with one speaker label")
+            return [], {"diarization_status": "failed",
+                        "diarization_failure": failure.reason}
+        return turns, {"diarization_status": "ok"}
 
     def _process_meeting(
         self,
@@ -1187,20 +1182,14 @@ class DictationEngine:
                         timing.finish("system_asr")
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                system_audio = self._read_meeting_track(recording.system_path)
-                if not len(system_audio):
-                    raise ValueError(
-                        "System audio became unavailable during processing"
-                    )
-                turns = self._diarize_track(
-                    system_audio,
+                turns, diarization_health = self._diarize_or_fallback(
+                    recording.system_path,
                     lambda f: report_progress(
                         f"Identifying remote speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
                     max_speakers=speaker_cap,
                 )
-                del system_audio
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 if timing is not None:
@@ -1247,20 +1236,14 @@ class DictationEngine:
                         timing.finish("mic_asr")
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
-                audio = self._read_meeting_track(audio_path)
-                if not len(audio):
-                    raise ValueError(
-                        "Meeting audio became unavailable during processing"
-                    )
-                turns = self._diarize_track(
-                    audio,
+                turns, diarization_health = self._diarize_or_fallback(
+                    audio_path,
                     lambda f: report_progress(
                         f"Identifying speakers… {int(f * 100)}% of stage"
                     ),
                     timing,
                     max_speakers=speaker_cap,
                 )
-                del audio
                 if self._meeting_cancel.is_set():
                     raise MeetingCancelled
                 if timing is not None:
@@ -1296,9 +1279,10 @@ class DictationEngine:
                 capture_mode=capture_mode,
                 system_audio_status=system_status,
                 track_offsets_seconds=offsets,
-                capture_health=(
-                    recording.health.to_dict() if recording.health else {}
-                ),
+                capture_health={
+                    **(recording.health.to_dict() if recording.health else {}),
+                    **diarization_health,
+                },
                 capture_scope=recording.capture_scope,
                 title=event.title if event is not None else None,
                 calendar_event_id=event.event_key if event is not None else None,

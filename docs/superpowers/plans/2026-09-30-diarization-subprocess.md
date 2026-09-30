@@ -1263,4 +1263,29 @@ git commit -m "Add diarization memory benchmark and record results"
 
 ## Status
 
-- [ ] Task 1 — [ ] Task 2 — [ ] Task 3 — [ ] Task 4 — [ ] Final review — [ ] Installed-app check (step 4, with user)
+- [x] Task 1 (f9529c7) — [x] Task 2 (88fbaa4, 8a4be2a) — [x] Task 3 (fb9977d, 1c3727c) — [x] Task 4 (bb58a75) — [x] Final review + fix wave (eff7c71) — [x] Installed-app check (step 4, 2b9504c; results in docs/model-memory.md) — [x] Merge to master
+
+Merged to master on 30 September 2026; branch and worktree removed.
+Full suite at eff7c71: 772 passed. Benchmark at bb58a75: 4/4 PASS (parent 31 MB baseline, 31 MB after meeting 1, 26 MB after meetings 2–5 incl. 29.3 min; child turns identical to in-process).
+
+### Changes agreed during execution (beyond the plan text)
+
+- Worked in a git worktree instead of `git checkout -b` (user's global rule).
+- Final review found the child is orphaned when the app quits mid-diarization: quit is `NSApp.terminate_`, a hard C exit, so neither `_reap` nor multiprocessing's atexit cleanup runs (reproduced). Fix: a parent-death watchdog thread in `serve` (`_PARENT_POLL_SECONDS = 0.5`, `os._exit(0)` when `getppid()` changes), with test `test_child_exits_when_parent_dies_abruptly`. The alternative of terminating from `engine.shutdown()` was not added, because the watchdog also covers crashes and SIGKILL.
+- The pre-existing flaky `test_meeting_happy_path_records_content_free_phase_timing` was fixed in passing: the engine reaches READY before `timing.emit()`, so the test now waits for the record.
+
+### Open items (TODO)
+
+1. **Done: installed-app check (step 4).** 1,977 MB after 15 dictations + a 3.1-min mic-only meeting (target ≤ 2,000 MB; was 2,314 MB). Malloc Large 38 MB (was 301). Dictation inserted in TextEdit, Codex and Teams. The user stopped before the UI cancel test (the only Cancel is the menu-bar "Cancel Processing"). It was replaced by a real-model dev probe: cancel ≤ 0.08 s at every point. Details in docs/model-memory.md.
+2. **Done (wording) / open (behaviour): watchdog latency.** The dev probe shows sherpa-onnx segmentation holds the GIL with no progress callbacks (~58 s on a 29.3-min meeting). A child orphaned then lingers until the first callback, then exits in ~0.4 s. AGENTS.md and the `serve` docstring are corrected. Possible follow-up: terminate the child from the app's quit path (`engine.shutdown`), so a normal quit does not leave it running for up to a minute or more. Not done.
+3. **Malloc Small growth.** In the step-4 check it rose 106 MB (226 to 332 MB) with no diarizer in the parent, so it comes from dictation/meeting transcription. Not broken down; open.
+4. **Deferred minors from the task reviews:**
+   - the in-process runner's cancel wiring is untested;
+   - `FakeProfiles` ignores its turns argument;
+   - the drain-guard branch cannot be tested with real spawns;
+   - the <3 s and <5 s time bounds in the child tests;
+   - `serve` catches only `Exception`;
+   - `_diarize_or_fallback` has no type hints;
+   - the benchmark's median-of-two includes the cold sherpa import.
+   The final review triaged all of these as leave.
+5. **No Cancel in the main window.** Cancelling meeting processing exists only as "Cancel Processing" in the menu-bar icon's menu, shown only while processing. The user looked for it in the main window and could not find it. UI follow-up; not part of this branch.

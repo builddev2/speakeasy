@@ -1,0 +1,166 @@
+"""ChildDiarizationRunner with real spawned children running stub targets."""
+
+import os
+import subprocess
+import sys
+import textwrap
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+import diarization_child_stubs as stubs
+from speakeasy import meetings
+from speakeasy.diarization_process import ChildDiarizationRunner, DiarizationFailed
+from speakeasy.transcriber import MeetingCancelled
+
+
+def _call(runner, *, cancel=None, expected_count=None, progress=None, on_phase=None):
+    return runner(
+        "/nonexistent/track.wav",
+        expected_count=expected_count, max_speakers=None, voice_profile_names=(),
+        progress=progress or (lambda f: None),
+        cancel=cancel or threading.Event(),
+        on_phase=on_phase or (lambda phase: None),
+    )
+
+
+def test_turns_progress_and_phase_arrive():
+    progress, phases = [], []
+    turns = _call(ChildDiarizationRunner(stubs.stub_turns), progress=progress.append,
+                  on_phase=phases.append)
+    assert turns == [meetings.DiarizationTurn(0.0, 1.0, 3, 0.9, True, "Alice"),
+                     meetings.DiarizationTurn(1.0, 2.0, 7)]
+    assert progress == [0.5]
+    assert phases == ["voice_identification"]
+
+
+def test_each_call_gets_a_fresh_child():
+    runner = ChildDiarizationRunner(stubs.stub_turns)
+    assert _call(runner, expected_count=2)[1].speaker == 2
+    assert _call(runner, expected_count=None)[1].speaker == 7
+
+
+def test_launch_timeout():
+    runner = ChildDiarizationRunner(stubs.stub_never_ready, launch_timeout=1.0)
+    started = time.monotonic()
+    with pytest.raises(DiarizationFailed) as failure:
+        _call(runner)
+    assert failure.value.reason == "launch_timeout"
+    assert time.monotonic() - started < 5.0
+
+
+def test_child_exit_after_progress_is_child_exited():
+    progress = []
+    with pytest.raises(DiarizationFailed) as failure:
+        _call(ChildDiarizationRunner(stubs.stub_exit_after_progress),
+              progress=progress.append)
+    assert failure.value.reason == "child_exited"
+    assert progress == [0.25]
+
+
+def test_child_error_sends_only_type_name(capsys):
+    with pytest.raises(DiarizationFailed) as failure:
+        _call(ChildDiarizationRunner(stubs.stub_error_with_secret))
+    assert failure.value.reason == "child_error:ValueError"
+    assert "secret" not in str(failure.value)
+    captured = capsys.readouterr()
+    assert "secret" not in captured.out + captured.err
+
+
+def test_cancel_while_running_is_prompt():
+    cancel = threading.Event()
+    threading.Timer(0.5, cancel.set).start()
+    started = time.monotonic()
+    with pytest.raises(MeetingCancelled):
+        _call(ChildDiarizationRunner(stubs.stub_slow), cancel=cancel)
+    assert time.monotonic() - started < 3.0
+
+
+def test_cancel_before_ready_is_prompt():
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()
+    started = time.monotonic()
+    with pytest.raises(MeetingCancelled):
+        _call(ChildDiarizationRunner(stubs.stub_never_ready), cancel=cancel)
+    assert time.monotonic() - started < 3.0
+
+
+def test_large_turn_list_arrives_intact():
+    turns = _call(ChildDiarizationRunner(stubs.stub_many_turns))
+    assert len(turns) == 20_000
+    assert turns[-1] == meetings.DiarizationTurn(19_999 * 0.5, 19_999 * 0.5 + 0.4, 19_999 % 6)
+
+
+def test_no_child_left_running():
+    import multiprocessing
+    _call(ChildDiarizationRunner(stubs.stub_turns))
+    cancel = threading.Event(); cancel.set()
+    with pytest.raises(MeetingCancelled):
+        _call(ChildDiarizationRunner(stubs.stub_slow), cancel=cancel)
+    assert [p for p in multiprocessing.active_children()
+            if p.name == "speakeasy-diarization"] == []
+
+
+def test_launch_deadline_stops_after_ready():
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_slow, launch_timeout=1.0)
+    turns = _call(runner)
+    assert turns == [meetings.DiarizationTurn(0.0, 1.0, 1)]
+
+
+def test_progress_is_throttled():
+    progress = []
+    assert _call(ChildDiarizationRunner(stubs.stub_many_progress),
+                 progress=progress.append) == []
+    assert 2 <= len(progress) <= 101
+    assert progress[-1] == 1.0
+
+
+def test_child_exits_when_parent_dies_abruptly(tmp_path):
+    pid_file = tmp_path / "child.pid"
+    script = tmp_path / "parent.py"
+    script.write_text(textwrap.dedent(f"""
+        import os, threading, time
+        import diarization_child_stubs as stubs
+        from speakeasy.diarization_process import ChildDiarizationRunner
+
+        if __name__ == "__main__":
+            runner = ChildDiarizationRunner(stubs.stub_record_pid_then_slow)
+            threading.Thread(target=lambda: runner(
+                {str(pid_file)!r}, expected_count=None, max_speakers=None,
+                voice_profile_names=(), progress=lambda f: None,
+                cancel=threading.Event()), daemon=True).start()
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                if os.path.exists({str(pid_file)!r}) and os.path.getsize({str(pid_file)!r}):
+                    break
+                time.sleep(0.05)
+            os._exit(0)  # hard exit, like NSApp.terminate_: no cleanup runs
+    """))
+    tests_dir = Path(__file__).resolve().parent
+    root = tests_dir.parent
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root), str(tests_dir)]))
+    parent = subprocess.Popen([sys.executable, str(script)], env=env)
+    child_pid = None
+    try:
+        parent.wait(timeout=30)
+        child_pid = int(pid_file.read_text())
+        gone = False
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                gone = True
+                break
+            time.sleep(0.1)
+        assert gone, "child outlived its parent"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, 9)
+            except ProcessLookupError:
+                pass

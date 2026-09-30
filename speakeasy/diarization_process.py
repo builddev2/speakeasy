@@ -12,6 +12,7 @@ module level): the spawned child imports it first.
 """
 
 import multiprocessing
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -20,6 +21,10 @@ from pathlib import Path
 from . import config
 from .meetings import DiarizationTurn
 from .wav_io import read_wav_mono_f32
+
+
+# App quit is a hard C exit: no cleanup runs in the parent, so the child polls.
+_PARENT_POLL_SECONDS = 0.5
 
 
 class DiarizationFailed(Exception):
@@ -130,8 +135,25 @@ class InProcessDiarizationRunner:
         )
 
 
+def _watch_parent() -> None:
+    parent = os.getppid()
+
+    def watch() -> None:
+        while True:
+            time.sleep(_PARENT_POLL_SECONDS)
+            if os.getppid() != parent:
+                os._exit(0)
+
+    threading.Thread(target=watch, name="speakeasy-diarization-watchdog",
+                     daemon=True).start()
+
+
 def serve(conn, work) -> None:
-    """Child side of the protocol. Only exception type names cross the pipe."""
+    """Child side of the protocol. Only exception type names cross the pipe.
+
+    Exits within ~0.5 s if the parent dies (see _PARENT_POLL_SECONDS).
+    """
+    _watch_parent()
     last = [-1.0]
 
     def progress(fraction: float) -> None:

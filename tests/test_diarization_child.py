@@ -1,7 +1,12 @@
 """ChildDiarizationRunner with real spawned children running stub targets."""
 
+import os
+import subprocess
+import sys
+import textwrap
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -99,7 +104,7 @@ def test_no_child_left_running():
 
 
 def test_launch_deadline_stops_after_ready():
-    runner = ChildDiarizationRunner(stubs.stub_ready_then_slow, launch_timeout=0.5)
+    runner = ChildDiarizationRunner(stubs.stub_ready_then_slow, launch_timeout=1.0)
     turns = _call(runner)
     assert turns == [meetings.DiarizationTurn(0.0, 1.0, 1)]
 
@@ -110,3 +115,52 @@ def test_progress_is_throttled():
                  progress=progress.append) == []
     assert 2 <= len(progress) <= 101
     assert progress[-1] == 1.0
+
+
+def test_child_exits_when_parent_dies_abruptly(tmp_path):
+    pid_file = tmp_path / "child.pid"
+    script = tmp_path / "parent.py"
+    script.write_text(textwrap.dedent(f"""
+        import os, threading, time
+        import diarization_child_stubs as stubs
+        from speakeasy.diarization_process import ChildDiarizationRunner
+
+        if __name__ == "__main__":
+            runner = ChildDiarizationRunner(stubs.stub_record_pid_then_slow)
+            threading.Thread(target=lambda: runner(
+                {str(pid_file)!r}, expected_count=None, max_speakers=None,
+                voice_profile_names=(), progress=lambda f: None,
+                cancel=threading.Event()), daemon=True).start()
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                if os.path.exists({str(pid_file)!r}) and os.path.getsize({str(pid_file)!r}):
+                    break
+                time.sleep(0.05)
+            os._exit(0)  # hard exit, like NSApp.terminate_: no cleanup runs
+    """))
+    tests_dir = Path(__file__).resolve().parent
+    root = tests_dir.parent
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root), str(tests_dir)]))
+    parent = subprocess.Popen([sys.executable, str(script)], env=env)
+    child_pid = None
+    try:
+        parent.wait(timeout=30)
+        child_pid = int(pid_file.read_text())
+        gone = False
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                gone = True
+                break
+            time.sleep(0.1)
+        assert gone, "child outlived its parent"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, 9)
+            except ProcessLookupError:
+                pass

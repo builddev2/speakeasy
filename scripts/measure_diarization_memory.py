@@ -11,6 +11,7 @@ turns == in-process turns.
 """
 import os
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -85,6 +86,14 @@ def run(runner, path):
 
 def main() -> None:
     folder = Path(tempfile.mkdtemp(prefix="speakeasy-diar-bench-audio-"))
+    try:
+        _run_benchmark(folder)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(HOME, ignore_errors=True)
+
+
+def _run_benchmark(folder: Path) -> None:
     short, long_ = make_meeting(folder, 3.2), make_meeting(folder, 29.3)
     import numpy  # noqa: F401  (baseline includes what the app always has)
     baseline = footprint_mb()

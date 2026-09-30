@@ -177,7 +177,15 @@ PASS  child turns == in-process turns (3.2 min)
 PASS  child turns == in-process turns (29.3 min)
 ```
 
-The parent never grew after any meeting (baseline 31 MB, then 26 MB), and the
+Here "overhead" is the child runner's median wall time minus the in-process
+runner's median wall time on the 3.2-min meeting (both build the Diarizer each
+call; the child adds spawn, imports and the pipe). It is about 0 rather than the
+design-time 0.67–0.69 s because the design probe measured spawn/import/pipe
+against the work inside the child, and that child imported the MLX speech stack
+via transcriber.py; the shipped child imports only wav_io and sherpa-onnx.
+
+The parent never grew after any meeting (parent baseline 31 MB; 31 MB after
+meeting 1 and 26 MB after meetings 2–5), and the
 child's speaker turns were identical to the in-process turns for both meeting
 lengths. Recheck with:
 

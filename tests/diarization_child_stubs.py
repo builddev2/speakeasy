@@ -58,7 +58,7 @@ def stub_many_turns(conn, wav_path, expected_count, max_speakers, names):
 def stub_ready_then_slow(conn, wav_path, expected_count, max_speakers, names):
     def work(ready, progress, on_phase):
         ready()
-        time.sleep(1.5)
+        time.sleep(2.5)
         return [(0.0, 1.0, 1)]
     serve(conn, work)
 
@@ -69,5 +69,15 @@ def stub_many_progress(conn, wav_path, expected_count, max_speakers, names):
         for i in range(1, 1000):
             progress(i * 0.001)
         progress(1.0)
+        return []
+    serve(conn, work)
+
+
+def stub_record_pid_then_slow(conn, wav_path, expected_count, max_speakers, names):
+    def work(ready, progress, on_phase):
+        with open(wav_path, "w") as handle:
+            handle.write(str(os.getpid()))
+        ready()
+        time.sleep(30)
         return []
     serve(conn, work)

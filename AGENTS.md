@@ -115,6 +115,12 @@ contexts are intentionally bounded and single-purpose:
   if access is already granted), after wake, on `EKEventStoreChangedNotification`
   and every 5 minutes. Never touches audio or the model. The engine never calls
   EventKit: it reads the cached table.
+- **`ax-warmup`** (1 thread, `ax_warmup.AccessibilityWarmer`) — on every app
+  activation, one focus query; if the app answers NoValue and
+  `AXEnhancedUserInterface` is settable and off, writes it once (Chromium
+  returns NotImplemented yet applies it; trust the read-back). Fresh Electron
+  apps need ~2 s after that write to answer focus, longer than key-down
+  retries. AX metadata only, 0.1 s timeouts; never main, `worker` or `control`.
 - **hotkey tap thread** — the raw Quartz `CGEventTap`. Callbacks must return
   instantly; they only `submit()` to `control`. No Text Input Source calls from
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the
@@ -274,6 +280,10 @@ editor compatibility from native TextEdit or mocked AX acknowledgement alone.
 - Preserve app-owned focus lookup, bounded lazy accessibility activation, and
   foreground/field identity checks. Never bind to a later arbitrary focus to
   hide an unavailable-target outcome or delay microphone onset waiting for AX.
+- A fresh Codex/Teams answers focus only ~2 s after `AXEnhancedUserInterface`
+  is written, and does not implement `AXManualAccessibility`. Keep the
+  activation-time warm-up (`speakeasy/ax_warmup.py`); do not "fix" a first-take
+  miss by lengthening key-down retries or relaxing the acceptance bound.
 - DOM/web editors use the existing single clipboard/Cmd+V path even if
   AXSelectedText advertises writability. Preserve clipboard ownership and do
   not retry ambiguous delivery. Native AX acknowledgement is not visible proof.

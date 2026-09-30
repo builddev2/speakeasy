@@ -38,6 +38,7 @@ from AppKit import (
     NSTextField,
     NSVariableStatusItemLength,
     NSWorkspace,
+    NSWorkspaceDidActivateApplicationNotification,
     NSWorkspaceDidWakeNotification,
 )
 from Foundation import NSMakeRect, NSMakeSize, NSObject, NSTimer
@@ -580,9 +581,16 @@ class AppDelegate(NSObject):
         self._preselected = str(profile_name) if profile_name else None
         self.engine = None
         self.calendar_sync = None
+        self.ax_warmer = None
         self.controller = None
         self.main_window = None
         return self
+
+    def appDidActivate_(self, notification):
+        warmer = getattr(self, "ax_warmer", None)
+        if warmer is not None:
+            from ..ax_warmup import activated_pid
+            warmer.app_activated(activated_pid(notification))
 
     def systemDidWake_(self, notification):
         if self.engine is not None and not self.engine._shutting_down:
@@ -620,6 +628,17 @@ class AppDelegate(NSObject):
         NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
             self, b"systemDidWake:", NSWorkspaceDidWakeNotification, None,
         )
+        from ..ax_warmup import AccessibilityWarmer
+
+        # Fresh Electron apps build their AX tree ~2 s after being asked;
+        # ask on activation so the first dictation finds its field.
+        self.ax_warmer = AccessibilityWarmer()
+        NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
+            self, b"appDidActivate:", NSWorkspaceDidActivateApplicationNotification, None,
+        )
+        front = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if front is not None:
+            self.ax_warmer.app_activated(front.processIdentifier())
         self.controller = StatusItemController.alloc().initWithEngine_(engine)
 
         from .main_window import MainWindowController
@@ -699,6 +718,8 @@ class AppDelegate(NSObject):
     def applicationWillTerminate_(self, notification):
         if getattr(self, "calendar_sync", None) is not None:
             self.calendar_sync.shutdown()
+        if getattr(self, "ax_warmer", None) is not None:
+            self.ax_warmer.shutdown()
         if self.engine is not None:
             self.engine.shutdown()
 

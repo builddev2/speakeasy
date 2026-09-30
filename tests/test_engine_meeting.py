@@ -20,6 +20,9 @@ import pytest
 
 from speakeasy import config, meeting_benchmark, meeting_import, meetings
 from speakeasy.coreaudio import RecorderBusy
+from speakeasy.diarization_process import (
+    ChildDiarizationRunner, DiarizationFailed, InProcessDiarizationRunner,
+)
 from speakeasy.engine import DictationEngine, MeetingOptions, State
 from speakeasy.meeting_library import EventPerson, MeetingLibrary, NewMeeting, SyncedEvent
 from speakeasy.meeting_recorder import MeetingCaptureHealth, MeetingRecording
@@ -250,7 +253,7 @@ def _engine(spool_dir):
     engine._listener = SpyListener()
     engine.meeting_recorder = FakeMeetingRecorder(spool_dir)
     engine.transcriber = FakeTranscriber()
-    engine.diarizer = FakeDiarizer()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeDiarizer())
     engine.state = State.READY
     return engine
 
@@ -367,8 +370,7 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
     engine.transcriber = FakeDualTranscriber()
     diarizer = FakeRemoteDiarizer()
-    engine.diarizer = diarizer
-    engine._diarizer_speaker_count = 2
+    engine.diarization_runner = InProcessDiarizationRunner(diarizer)
     saved = []
     engine.on_meeting_saved = saved.append
 
@@ -393,7 +395,7 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     engine.shutdown()
 
 
-def test_dual_track_streams_both_transcripts_before_loading_system_for_diarization(
+def test_dual_track_streams_both_transcripts_and_never_loads_system_in_engine(
     meetings_dir, spool_dir
 ):
     engine = _engine(spool_dir)
@@ -417,7 +419,7 @@ def test_dual_track_streams_both_transcripts_before_loading_system_for_diarizati
             raise AssertionError("16 kHz meeting spools must use chunked WAV reads")
 
     engine.transcriber = StreamingTranscriber()
-    engine.diarizer = FakeRemoteDiarizer()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
     read_meeting_track = engine._read_meeting_track
 
     def track_full_load(path):
@@ -433,10 +435,11 @@ def test_dual_track_streams_both_transcripts_before_loading_system_for_diarizati
     engine.end_meeting()
     assert _wait_for(lambda: engine.state is State.READY)
 
+    # The diarization track is read by the runner (a child in the app), never
+    # loaded into the engine's process.
     assert calls == [
         ("transcribe", recorder.mic_path),
         ("transcribe", recorder.system_path),
-        ("full_load", recorder.system_path),
     ]
     stored = MeetingLibrary().get_meeting(saved[0])
     assert [(segment.speaker, segment.start) for segment in stored.segments] == [
@@ -453,7 +456,7 @@ def test_selected_application_scope_persists_without_pid_or_name(
     recorder = FakeDualMeetingRecorder(spool_dir)
     engine.meeting_recorder = recorder
     engine.transcriber = FakeDualTranscriber()
-    engine.diarizer = FakeRemoteDiarizer()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
     saved = []
     engine.on_meeting_saved = saved.append
 
@@ -512,7 +515,7 @@ def test_enrolled_profile_matching_applies_only_to_remote_track(
     engine = _engine(spool_dir)
     engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
     engine.transcriber = FakeDualTranscriber()
-    engine.diarizer = FakeRemoteDiarizer()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
     saved = []
     engine.on_meeting_saved = saved.append
 
@@ -541,7 +544,7 @@ def test_cancel_set_during_remote_diarization_discards_both_tracks(
             engine.cancel_meeting_processing()
             return super().diarize(samples, progress)
 
-    engine.diarizer = CancellingDiarizer()
+    engine.diarization_runner = InProcessDiarizationRunner(CancellingDiarizer())
     engine.begin_meeting()
     assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
     engine.end_meeting()
@@ -1101,36 +1104,6 @@ def test_upgrade_library_publishes_failed_status_with_details(
     engine.shutdown()
 
 
-class SplitRemoteDiarizer:
-    """One real remote voice split into a big and a small cluster."""
-    def diarize(self, samples, progress=lambda f: None):
-        progress(1.0)
-        return [(0.0, 0.8, 4), (1.0, 1.8, 9)]
-
-
-def test_diarize_track_caps_speakers(spool_dir):
-    engine = _engine(spool_dir)
-    engine.diarizer = SplitRemoteDiarizer()
-    engine._meeting_options = MeetingOptions()
-    audio = np.zeros(config.SAMPLE_RATE * 2, dtype=np.float32)
-    turns = engine._diarize_track(audio, lambda f: None, max_speakers=1)
-    # Equal talk (0.8 s each): the tie goes to the lower cluster id.
-    assert {t.speaker for t in turns} == {4}
-    engine.shutdown()
-
-
-def test_manual_speaker_count_skips_merging(spool_dir):
-    engine = _engine(spool_dir)
-    engine.diarizer = SplitRemoteDiarizer()
-    engine._diarizer_speaker_count = 2
-    engine._meeting_options = MeetingOptions(expected_speaker_count=2)
-    audio = np.zeros(config.SAMPLE_RATE * 2, dtype=np.float32)
-    turns = engine._diarize_track(audio, lambda f: None, max_speakers=1)
-    # Manual count: turns come back exactly as the diarizer gave them.
-    assert turns == [(0.0, 0.8, 4), (1.0, 1.8, 9)]
-    engine.shutdown()
-
-
 _REF = EventPerson("Refayet K", "refayet@example.com", "organizer")
 
 
@@ -1197,7 +1170,7 @@ def test_calendar_cap_merges_remote_speakers(meetings_dir, spool_dir):
     engine = _engine(spool_dir)
     engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
     engine.transcriber = FakeDualTranscriber()
-    engine.diarizer = FakeRemoteDiarizer()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
     stored = _finish(engine, _record(engine))
     assert [s.speaker for s in stored.segments] == ["You", "Speaker 1"]
     engine.shutdown()
@@ -1208,8 +1181,7 @@ def test_manual_count_beats_calendar(meetings_dir, spool_dir):
     engine = _engine(spool_dir)
     engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
     engine.transcriber = FakeDualTranscriber()
-    engine.diarizer = FakeRemoteDiarizer()
-    engine._diarizer_speaker_count = 2
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
     stored = _finish(engine, _record(engine, MeetingOptions(expected_speaker_count=2)))
     assert [s.speaker for s in stored.segments] == ["You", "Speaker 1", "Speaker 2"]
     engine.shutdown()
@@ -1280,11 +1252,11 @@ class ThreeSentenceTranscriber:
 
 
 def _mic_only_voices(engine, spool_dir):
-    engine.diarizer = ThreeVoiceDiarizer()
     engine.transcriber = ThreeSentenceTranscriber()
     # Fixed embeddings: voices 0 and 1 alike, voice 2 different.
     vectors = iter([np.array([1.0, 0.0]), np.array([0.9, 0.1]), np.array([0.0, 1.0])])
-    engine.speaker_embedder = lambda audio: next(vectors)
+    engine.diarization_runner = InProcessDiarizationRunner(
+        ThreeVoiceDiarizer(), embed=lambda audio: next(vectors))
     stored = _finish(engine, _record(engine))
     return {s.speaker for s in stored.segments}
 
@@ -1301,4 +1273,132 @@ def test_calendar_cap_applies_to_mic_only(meetings_dir, spool_dir):
 def test_no_calendar_cap_leaves_mic_only_voices(meetings_dir, spool_dir):
     engine = _engine(spool_dir)
     assert len(_mic_only_voices(engine, spool_dir)) == 3
+    engine.shutdown()
+
+
+class FailingRunner:
+    def __init__(self, reason="child_exited"):
+        self.reason = reason
+        self.calls = 0
+
+    def __call__(self, wav_path, **kwargs):
+        self.calls += 1
+        raise DiarizationFailed(self.reason)
+
+
+def test_default_runner_is_a_child_process(spool_dir):
+    engine = DictationEngine()
+    assert isinstance(engine.diarization_runner, ChildDiarizationRunner)
+    assert not hasattr(engine, "diarizer")
+    assert not hasattr(engine, "speaker_embedder")
+    engine.shutdown()
+
+
+def test_diarization_failure_saves_transcript_with_one_label(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = FakeDualTranscriber()
+    runner = FailingRunner("child_exited")
+    engine.diarization_runner = runner
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    assert runner.calls == 1
+    stored = MeetingLibrary().get_meeting(saved[0])
+    assert [s.speaker for s in stored.segments] == ["You", "Speaker 1"]
+    assert "remote one" in stored.segments[1].text
+    assert stored.capture_health["diarization_status"] == "failed"
+    assert stored.capture_health["diarization_failure"] == "child_exited"
+    assert engine.meeting_processing_error is None
+    assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_mic_only_diarization_failure_saves_transcript(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    engine.diarization_runner = FailingRunner("child_error:ValueError")
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = MeetingLibrary().get_meeting(saved[0])
+    assert [(s.speaker, s.text) for s in stored.segments] == [("Speaker 1", "clod says hello")]
+    assert stored.capture_health["diarization_failure"] == "child_error:ValueError"
+    engine.shutdown()
+
+
+def test_successful_diarization_records_ok(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    saved = []
+    engine.on_meeting_saved = saved.append
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    stored = MeetingLibrary().get_meeting(saved[0])
+    assert stored.capture_health["diarization_status"] == "ok"
+    assert "diarization_failure" not in stored.capture_health
+    engine.shutdown()
+
+
+def test_cancel_from_runner_saves_nothing(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+
+    def cancelling_runner(wav_path, **kwargs):
+        engine.cancel_meeting_processing()
+        raise MeetingCancelled
+
+    engine.diarization_runner = cancelling_runner
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert MeetingLibrary().count_meetings() == 0
+    assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def test_runner_receives_path_and_meeting_options(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    seen = {}
+
+    def recording_runner(wav_path, **kwargs):
+        seen["path_exists"] = wav_path.exists()
+        seen.update(kwargs)
+        kwargs["on_phase"]("voice_identification")
+        return [(0.0, 1.0, 0)]
+
+    engine.diarization_runner = recording_runner
+    engine.begin_meeting(MeetingOptions(expected_speaker_count=3,
+                                        expected_voice_profile_names=("Alice",)))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert seen["path_exists"] is True
+    assert seen["expected_count"] == 3
+    assert tuple(seen["voice_profile_names"]) == ("Alice",)
+    assert seen["cancel"] is engine._meeting_cancel
+    engine.shutdown()
+
+
+def test_timing_keeps_both_diarization_stages(
+    meetings_dir, spool_dir, isolate_meeting_latency_log
+):
+    engine = _engine(spool_dir)
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    record = meeting_benchmark.read_records(isolate_meeting_latency_log)[0]
+    assert record["diarization_ms"] is not None
+    assert record["voice_identification_ms"] is not None
     engine.shutdown()

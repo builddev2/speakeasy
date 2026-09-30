@@ -56,8 +56,8 @@ def main():
                     dest.writeframes(block.tobytes())
         engine = object.__new__(DictationEngine)
         engine.transcriber = Transcriber()
-        engine.diarizer = None
-        engine._diarizer_speaker_count = None
+        from speakeasy.diarization_process import ChildDiarizationRunner
+        engine.diarization_runner = ChildDiarizationRunner()
         engine._meeting_options = MeetingOptions()
         engine._meeting_cancel = threading.Event()
         engine.profile = None

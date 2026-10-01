@@ -94,6 +94,14 @@ SOUND_STOP = "/System/Library/Sounds/Bottle.aiff"
 MEETING_CHUNK_SECONDS = 120.0
 MEETING_OVERLAP_SECONDS = 15.0
 
+# Meeting mic callbacks carry fixed 100 ms blocks. Left to PortAudio the block
+# was 15 frames (~1,070 GIL-taking callbacks a second) and, under contention,
+# PortAudio skipped callbacks without flagging an overflow: the mic track lost
+# ~0.7% idle and more during pretranscription, so it drifted against the
+# system track. The writer queue holds this many seconds of audio.
+MEETING_CAPTURE_BLOCK_FRAMES = SAMPLE_RATE // 10
+MEETING_CAPTURE_BUFFER_SECONDS = 30.0
+
 # --- Model memory --------------------------------------------------------------
 # MLX keeps freed Metal buffers in a reuse cache with no limit by default; after
 # one 2.8-minute transcription it held ~5.7 GB on top of the 1.2 GB bf16 model.

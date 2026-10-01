@@ -34,10 +34,12 @@ from .coreaudio import RecorderBusy, teardown
 from .meeting_stream import MeetingASRSession
 from .system_audio import SystemAudioRecorder, SystemAudioUnavailable
 
-# ~30 s of audio at 16 kHz int16 in ~1 KiB blocks. The exact block size varies
-# by host buffer; this is generous enough that only a genuinely stuck writer
-# ever drops frames.
-_QUEUE_MAX_BLOCKS = 1024
+# MEETING_CAPTURE_BUFFER_SECONDS of audio in fixed-size callback blocks; only
+# a genuinely stuck writer ever drops frames.
+_QUEUE_MAX_BLOCKS = -(
+    -int(config.MEETING_CAPTURE_BUFFER_SECONDS * config.SAMPLE_RATE)
+    // config.MEETING_CAPTURE_BLOCK_FRAMES
+)
 _WRITER_LAG_BLOCKS = _QUEUE_MAX_BLOCKS * 3 // 4
 _FORCE_CLOSE_WRITER_TIMEOUT_SECONDS = 0.25
 
@@ -260,6 +262,7 @@ class MeetingRecorder:
                 samplerate=config.SAMPLE_RATE,
                 channels=1,
                 dtype="int16",
+                blocksize=config.MEETING_CAPTURE_BLOCK_FRAMES,
                 callback=self._on_audio,
             )
             self._stream.start()

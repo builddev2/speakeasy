@@ -535,7 +535,8 @@ def merge_tracks(*tracks: list[MeetingSegment]) -> list[MeetingSegment]:
 
     Deliberately do not remove similar text across tracks: repeated phrases and
     real overlap are valid meeting content, while speaker-mode echo cannot be
-    distinguished reliably from text alone.
+    distinguished reliably from text alone. Speaker-mode echo is removed
+    earlier, per sentence, by `remove_mic_echo` using arrival time.
     """
     indexed = [
         (segment.start, segment.end, track_index, segment_index, segment)

@@ -43,7 +43,9 @@ separate temporary tracks through a bundled Core Audio process-tap helper.
 Global system audio is the default; the Dock can instead select one eligible
 application process (a browser selection means the browser, not one tab). The
 mic is the known local user (`You`); only the system track is diarized, then
-both transcripts are shifted by their first-buffer offsets and merged. A
+both transcripts are shifted by their first-buffer offsets and merged. Mic
+sentences that echo system-track words within the bleed window are removed
+before segmenting (`meetings.remove_mic_echo`). A
 selected process that exits never widens silently to global capture. macOS
 14.0–14.1 or denied, silent, failed, or unavailable system capture falls back
 visibly to the original mic-only diarization mode. See README's
@@ -176,7 +178,8 @@ UI objects are main-thread only; engine callbacks hop threads via
 `performSelectorOnMainThread` (see `ui/overlay.py`, `ui/menubar.py`).
 The Dock and menu poll a fixed, privacy-safe capture-health schema: buffer and
 nonzero-signal state, dropped-frame counts, writer lag/failure, helper exit,
-outcome/fallback, mode, and scope. Never add transcript text, audio, app or
+outcome/fallback, mode, scope, output-route category, and mic echo removal
+count. Never add transcript text, audio, app or
 device names, PIDs, window titles, or other user content to it. `meetings.py`
 whitelists the persisted keys; keep that boundary fixed when adding status UI.
 

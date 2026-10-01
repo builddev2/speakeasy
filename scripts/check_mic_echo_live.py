@@ -14,7 +14,11 @@ words of a remote sentence, a talk-over during a remote sentence, and a short
 "okay yeah". Pass --no-own to play the remote voice alone.
 
 Uses the speakers and microphone; do not change volume or output device.
-Usage: .venv/bin/python scripts/check_mic_echo_live.py [--no-own]
+Usage: .venv/bin/python scripts/check_mic_echo_live.py [--no-own] [--keep DIR]
+
+--keep DIR copies the mic and system WAVs to DIR while the meeting is being
+processed (the app deletes them when processing ends). They hold whatever the
+microphone heard in the room, so delete them when done.
 """
 import argparse
 import io
@@ -167,6 +171,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-own", action="store_true", help="remote voice only")
+    parser.add_argument("--keep", type=Path, help="copy the meeting WAVs here before deletion")
     args = parser.parse_args()
     from speakeasy import settings
     support = settings.app_support_dir()
@@ -213,6 +218,11 @@ def main():
             proc.wait(30)
         engine.end_meeting()
         wait_for(lambda: engine.state is State.MEETING_PROCESSING, 60, "processing start")
+        if args.keep:
+            args.keep.mkdir(parents=True, exist_ok=True)
+            kept = [shutil.copy2(wav, args.keep) for wav in settings.spool_dir().glob("*.wav")]
+            print(f"kept {len(kept)} WAVs in {args.keep}" if kept else "WARNING: no WAVs to keep",
+                  flush=True)
         player.kill()
         wait_for(lambda: engine.state is State.READY, 900, "READY")
     finally:

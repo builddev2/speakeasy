@@ -65,6 +65,7 @@ to page through `list_meetings`. Titles must be findable in one call.
 - **Installed binary checked over stdio** (`Speakeasy --mcp`, real library, read-only):
   `list_meetings` schema has `title`; `"todd 1on1"` and `"1on1 Todd TEST"` both return
   only "1on1 Todd TEST Meeting — Sep 28, 11:10 AM"; `"zzz-nomatch"` returns `[]`.
-- **Still to do (user):** Claude Desktop check. Toggle Settings → Connectors → Speakeasy
-  Meetings off/on, start a new chat, ask it to find "1on1 Todd TEST" by title, and
-  confirm it calls `list_meetings` with `title` in one call.
+- **Claude Desktop check passed** (user, 2026-09-30): after toggling the connector, a new
+  chat found "1on1 Todd TEST Meeting" (Sep 28, 11:10 AM) with one `list_meetings` call
+  using `title`. It also noted that `search_meetings` doesn't search titles, which is the
+  intended steer. Feature complete.

@@ -1,6 +1,10 @@
 # list_meetings title filter
 
-**Status:** approved design 30 Sep 2026; not started.
+**Status:** Tasks 1–6 done 30 Sep 2026 (commit 26b969d); full suite 789 passed;
+Opus mutation review approved (9 mutations, all caught). Not merged yet.
+Implemented inline by Opus: the Sonnet implementer hit a spend limit before
+making changes. `packaging/mcpb/manifest.json` also changed: it mirrors every
+tool description and `tests/test_mcpb.py` requires an exact match.
 **Branch:** `claude/jovial-heyrovsky-b7c6e2` (worktree `jovial-heyrovsky-b7c6e2`).
 
 ## Why

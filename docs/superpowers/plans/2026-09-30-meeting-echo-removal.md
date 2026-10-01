@@ -759,3 +759,5 @@ Deferred minors (left as they are): the coverage boundary (`>=` vs `>`) has no t
 - Route changes in the middle of a meeting are only seen as a start/stop difference; a CoreAudio listener could log every change if that turns out to matter.
 
 Task 4b done (8686074), reviewed with mutation checks; suite 808 passed. Minors left: README says "wired headphones" but only `built_in_headphones` (the Mac's headphone jack) skips removal, so USB headsets still run it; no test feeds punctuation-only tokens; no engine test for (`built_in_headphones`, None).
+
+Task 5 finding (2026-09-30): when started with `open` or from Finder, the installed app's stdout and stderr are /dev/null, not None, so `launcher._redirect_streams_to_log` never runs and ~/Library/Logs/Speakeasy.log is never written. The `→ echo candidate` lines are lost unless the app is started from Terminal with its output redirected. Follow-up: make the redirect also happen when stdout is not a terminal (separate task).

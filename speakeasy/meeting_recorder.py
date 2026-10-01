@@ -18,6 +18,7 @@ spool, so a crash or force-quit mid-meeting never leaves audio behind.
 """
 
 import atexit
+import math
 import queue
 import threading
 import time as monotonic_time
@@ -48,6 +49,9 @@ _FORCE_CLOSE_WRITER_TIMEOUT_SECONDS = 0.25
 # gaps this large are filled with silence; below it is clock jitter, which a
 # fill would turn into audible clicks and drift.
 _GAP_FILL_MIN_SECONDS = 0.020
+# Silence is written in pieces this long so one huge fill never allocates a
+# huge buffer in the writer.
+_GAP_FILL_PIECE_FRAMES = config.SAMPLE_RATE
 
 _active_spools: set[Path] = set()
 _active_lock = threading.Lock()
@@ -342,7 +346,11 @@ class MeetingRecorder:
             self._input_overflows += 1
         arrived_ns = monotonic_time.monotonic_ns()
         adc_time = getattr(time, "inputBufferAdcTime", None)
-        adc_valid = isinstance(adc_time, (int, float)) and adc_time > 0
+        adc_valid = (
+            isinstance(adc_time, (int, float))
+            and math.isfinite(adc_time)
+            and adc_time > 0
+        )
         if adc_valid:
             if self._first_adc is None:
                 self._first_adc = float(adc_time)
@@ -350,17 +358,22 @@ class MeetingRecorder:
             # lost audio. _frames already includes earlier inserted silence.
             gap = (adc_time - self._first_adc) - self._frames / config.SAMPLE_RATE
             if gap >= _GAP_FILL_MIN_SECONDS:
-                fill = round(gap * config.SAMPLE_RATE)
-                try:
-                    # An int, so the callback never allocates the zeros; the
-                    # writer builds them.
-                    self._queue.put_nowait(fill)
-                except queue.Full:
-                    pass  # _frames didn't move, so the next block retries
-                else:
-                    self._frames += fill
-                    self._gap_fills += 1
-                    self._gap_fill_frames += fill
+                # Inserted frames count toward the spool cap, so clamp to it.
+                room = (
+                    config.MEETING_MAX_SECONDS * config.SAMPLE_RATE - self._frames
+                )
+                fill = min(round(gap * config.SAMPLE_RATE), int(room))
+                if fill > 0:
+                    try:
+                        # An int, so the callback never allocates the zeros;
+                        # the writer builds them.
+                        self._queue.put_nowait(fill)
+                    except queue.Full:
+                        pass  # _frames didn't move, so the next block retries
+                    else:
+                        self._frames += fill
+                        self._gap_fills += 1
+                        self._gap_fill_frames += fill
         try:
             self._queue.put_nowait(bytes(indata))
         except queue.Full:
@@ -404,8 +417,15 @@ class MeetingRecorder:
                 if block is None:
                     return
                 if isinstance(block, int):
-                    block = bytes(2 * block)  # int16 silence for a lost cycle
-                self._write_block(block)
+                    # int16 silence for a lost cycle, in bounded pieces that
+                    # reuse one zero buffer.
+                    zeros = bytes(2 * min(block, _GAP_FILL_PIECE_FRAMES))
+                    while block > 0:
+                        n = min(block, _GAP_FILL_PIECE_FRAMES)
+                        self._write_block(zeros[: 2 * n])
+                        block -= n
+                else:
+                    self._write_block(block)
         finally:
             wav, self._wav = self._wav, None
             if wav is not None:

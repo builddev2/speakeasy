@@ -444,14 +444,19 @@ def test_live_health_reports_output_route_while_recording(spool_dir):
 
 
 def test_forced_close_health_reports_output_route(spool_dir):
+    mic = FakeMic(spool_dir / "mic.wav")
+    mic.gap_fills = 2
+    mic.gap_fill_ms = 516
     recorder = MeetingCaptureRecorder(
-        mic=FakeMic(spool_dir / "mic.wav"),
+        mic=mic,
         system=FakeSystem(output_route_start="built_in_speakers",
                           output_route_stop="bluetooth"),
     )
     recorder.start()
     recorder.force_close()
     recording = recorder.take_recording()
+    assert recording.health.mic_gap_fills == 2
+    assert recording.health.mic_gap_fill_ms == 516
     assert recording.health.capture_outcome == "forced_close"
     assert recording.health.output_route_start == "built_in_speakers"
     assert recording.health.output_route_stop == "bluetooth"

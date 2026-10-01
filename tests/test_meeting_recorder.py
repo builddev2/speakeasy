@@ -436,3 +436,91 @@ def test_gap_fill_queue_full_is_retried_on_the_next_block(spool_dir, fake_stream
     assert len(samples) == 3 * 1600 + 4128
     assert (samples[3200:3200 + 4128] == 0).all()
     path.unlink()
+
+
+def test_gap_fill_is_clamped_to_the_spool_cap(spool_dir, fake_stream, monkeypatch):
+    monkeypatch.setattr(config, "MEETING_MAX_SECONDS", 1.0)
+    cap = config.SAMPLE_RATE
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(60.0), None)  # 10 s "lost"
+    rec._on_audio(_block(), 1600, _Timing(60.1), None)  # at the cap: ignored
+    path = rec.stop()
+
+    # Fill stops at the cap; only the block already in flight lands after it.
+    assert rec.gap_fill_ms == 900
+    samples = _wav_samples(path)
+    assert len(samples) == cap + 1600
+    assert (samples[1600:cap] == 0).all()
+    path.unlink()
+
+
+def test_gap_fill_when_already_at_cap_queues_nothing(
+    spool_dir, fake_stream, monkeypatch
+):
+    monkeypatch.setattr(config, "MEETING_MAX_SECONDS", 0.2)
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(50.1), None)
+    # Exactly at the cap: a later gap must not queue a zero-frame fill.
+    rec._on_audio(_block(), 1600, _Timing(55.0), None)
+    path = rec.stop()
+    assert rec.gap_fills == 0
+    assert len(_wav_samples(path)) == 3200
+    path.unlink()
+
+
+def test_long_gap_fill_is_written_in_pieces_with_exact_length(
+    spool_dir, fake_stream
+):
+    session_chunks = []
+
+    class Spy:
+        def add_pcm(self, block):
+            session_chunks.append(len(block))
+
+        def cancel(self):
+            pass
+
+        def finish(self):
+            pass
+
+    rec = MeetingRecorder()
+    rec.configure_pretranscription(Spy())
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(52.6), None)  # 2.5 s lost
+    path = rec.stop()
+
+    fill = 40000
+    samples = _wav_samples(path)
+    assert len(samples) == 3200 + fill
+    assert (samples[1600:1600 + fill] == 0).all()
+    zero_pieces = [n for n in session_chunks if n != 3200]
+    assert len(zero_pieces) == 3 and max(zero_pieces) <= 2 * config.SAMPLE_RATE
+    assert sum(zero_pieces) == 2 * fill
+    path.unlink()
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("nan")])
+def test_non_finite_adc_time_is_ignored(spool_dir, fake_stream, bad):
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(bad), None)
+    path = rec.stop()
+    assert rec.gap_fills == 0
+    assert len(_wav_samples(path)) == 3200
+    path.unlink()
+
+
+def test_gap_just_over_the_threshold_is_filled(spool_dir, fake_stream):
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(50.1 + 0.0204), None)
+    path = rec.stop()
+    assert rec.gap_fills == 1
+    path.unlink()

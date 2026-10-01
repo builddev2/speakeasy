@@ -318,7 +318,7 @@ Reviewer (opus): verify by mutation, then record the results below. Each mutatio
 
 - [x] **Step 2: Install.** Run `./build_app.sh --install` from the merged/branch commit. Afterwards, toggle the Claude Desktop Speakeasy Meetings connector off and on (memory: install kills MCP connector).
 
-- [ ] **Step 3: Live check (user, from Terminal.app).** Run `scripts/check_mic_echo_live.py` in this worktree, the same way as the 2026-09-30 run. Expected:
+- [x] **Step 3: Live check (user, from Terminal.app).** Run `scripts/check_mic_echo_live.py` in this worktree, the same way as the 2026-09-30 run. Expected:
   - Remote sentences 1-8 come out as separate Speaker 1 segments, about 5 s apart, interleaved with own1, own2, the short reply, the repeat and the talk-over in start order.
   - The talk-over reply may still follow the remote sentence it interrupts (the known limit).
   - Echo results unchanged: 0 of 8 remote sentences duplicated as "You", 5 of 5 own utterances kept, lags about +0.05 s.
@@ -404,9 +404,14 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
   ```
 
 ### TODO / deferred
-- Re-run `scripts/check_mic_echo_live.py` once to see whether the talk-over loss
-  (2026-10-01) repeats. If it does, investigate mic ASR / echo removal for
-  overlapping speech (not this plan's code); keep the run's mic WAV next time.
+- ~~Re-run the live check to see whether the talk-over loss repeats~~ Done 2026-10-01
+  (meeting 20261001-102054-cacc, `--keep`): **all passed.** 8 remote sentences as
+  separate Speaker 1 segments in start order with all 5 own utterances; talk-over
+  SURVIVED (overlap 1.00, listed at 58.48 s after remote 7 at 55.56 s); 0 of 8
+  duplicates; 8 of 13 mic sentences removed, coverage 0.92-1.00, lag +0.04 s; capture
+  clean, system offset 0.116 s. The earlier loss did not repeat (one-off ASR miss,
+  not reproduced). Synthetic echo removal works; the real-meeting residual echo
+  (7cbb) is therefore specific to real calls (several voices, longer sentences).
 - **Residual echo in real meetings (7cbb, see Step 4):** new systematic-debugging
   session under the echo-removal plan. Echo late in the meeting survived although
   aligned in time; check coverage vs `MEETING_ECHO_MIN_COVERAGE` 0.8, the

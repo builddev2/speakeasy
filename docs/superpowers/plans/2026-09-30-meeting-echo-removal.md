@@ -737,7 +737,7 @@ This needs the user and the installed app; it cannot be done by a subagent.
 
 ## Status
 
-- [x] Task 1  - [x] Task 2  - [x] Task 3  - [x] Task 4  - [ ] Task 4b  - [ ] Task 5
+- [x] Task 1  - [x] Task 2  - [x] Task 3  - [x] Task 4  - [x] Task 4b  - [ ] Task 5
 
 Tasks 1–4 done on 2026-09-30 (commits e90cf5b..4163dfb), each reviewed on Opus with mutation checks; full suite 804 passed. Tests only: nothing has been installed or recorded yet.
 
@@ -757,3 +757,5 @@ Deferred minors (left as they are): the coverage boundary (`>=` vs `>`) has no t
 - Dropped frames and writer lag in 20260929-223110-3b95 (738k mic / 185k system frames): separate investigation.
 - Rewriting stored meetings: rejected (their audio is gone; it would be lossy).
 - Route changes in the middle of a meeting are only seen as a start/stop difference; a CoreAudio listener could log every change if that turns out to matter.
+
+Task 4b done (8686074), reviewed with mutation checks; suite 808 passed. Minors left: README says "wired headphones" but only `built_in_headphones` (the Mac's headphone jack) skips removal, so USB headsets still run it; no test feeds punctuation-only tokens; no engine test for (`built_in_headphones`, None).

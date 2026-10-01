@@ -316,7 +316,7 @@ Reviewer (opus): verify by mutation, then record the results below. Each mutatio
   6. In `engine.py`, drop `- system_offset`. Expect `test_dual_track_splits_remote_speech_where_you_reply` to fail.
   7. In `engine.py`, use `+ system_offset`. Expect the same engine test to fail.
 
-- [ ] **Step 2: Install.** Run `./build_app.sh --install` from the merged/branch commit. Afterwards, toggle the Claude Desktop Speakeasy Meetings connector off and on (memory: install kills MCP connector).
+- [x] **Step 2: Install.** Run `./build_app.sh --install` from the merged/branch commit. Afterwards, toggle the Claude Desktop Speakeasy Meetings connector off and on (memory: install kills MCP connector).
 
 - [ ] **Step 3: Live check (user, from Terminal.app).** Run `scripts/check_mic_echo_live.py` in this worktree, the same way as the 2026-09-30 run. Expected:
   - Remote sentences 1-8 come out as separate Speaker 1 segments, about 5 s apart, interleaved with own1, own2, the short reply, the repeat and the talk-over in start order.
@@ -337,7 +337,9 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
 - Task 3 Step 1 mutations (final opus review): all 7 caught. Extra: `<=` → `<` on
   the gap check survives (see TODO); break against `last.end`, gap measured from
   `end`, and `break_at=None` in the engine were all caught.
-- Steps 2-4 (install, live check, first real meeting): not yet done.
+- Step 2: merged to master (9c0aa8c, 824 passed on the merge), pushed, installed
+  with `scripts/build_app.sh --install` and relaunched (process running). Steps 3-4
+  (live check from Terminal.app, first real meeting probe): not yet done.
 
 ### TODO / deferred
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`

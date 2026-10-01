@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import config, settings
+from .capture_timeline import CaptureTimeline
 
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 0.75
@@ -57,6 +58,8 @@ class SystemTrackResult:
     capture_scope: str = "global"
     output_route_start: str | None = None
     output_route_stop: str | None = None
+    timeline: dict | None = None
+    sample_timeline: dict | None = None
 
 
 def helper_path() -> Path:
@@ -136,6 +139,8 @@ class SystemAudioRecorder:
         self._stopping = False
         self._output_route_start: str | None = None
         self._output_route_stop: str | None = None
+        self._timeline: CaptureTimeline | None = None
+        self._sample_timeline: CaptureTimeline | None = None
         self.capture_scope = "global"
         self.status = capability()
 
@@ -168,6 +173,14 @@ class SystemAudioRecorder:
         return self._dropped_frames
 
     @property
+    def timeline(self) -> dict | None:
+        return self._timeline.summary() if self._timeline else None
+
+    @property
+    def sample_timeline(self) -> dict | None:
+        return self._sample_timeline.summary() if self._sample_timeline else None
+
+    @property
     def helper_exited(self) -> bool:
         return self._helper_exited
 
@@ -196,6 +209,8 @@ class SystemAudioRecorder:
         self._helper_exited = False
         self._helper_exit_reason = None
         self._stopping = False
+        self._timeline = None
+        self._sample_timeline = None
         self._events = queue.Queue(_EVENT_QUEUE_MAX)
         try:
             command = [
@@ -247,6 +262,10 @@ class SystemAudioRecorder:
             if not isinstance(event, dict):
                 continue
             kind = event.get("event")
+            if kind == "timeline":
+                # Periodic and frequent; kept out of the bounded event queue.
+                self._observe_timeline(event)
+                continue
             if kind == "first_buffer":
                 value = event.get("host_time_ns")
                 if isinstance(value, int) and value >= 0:
@@ -289,6 +308,29 @@ class SystemAudioRecorder:
             )
         except queue.Full:
             pass
+
+    def _observe_timeline(self, event: dict) -> None:
+        host_ns = event.get("host_time_ns")
+        frames = event.get("frames")
+        rate = event.get("rate")
+        if not (
+            isinstance(host_ns, int)
+            and isinstance(frames, int)
+            and isinstance(rate, (int, float))
+            and rate > 0
+            and frames >= 0
+        ):
+            return
+        if self._timeline is None:
+            self._timeline = CaptureTimeline(rate)
+        self._timeline.observe(host_ns / 1e9, frames)
+        sample_time = event.get("sample_time")
+        if isinstance(sample_time, (int, float)):
+            # Device sample clock: a skipped IO cycle advances it without
+            # delivering frames, independent of host-time conversion.
+            if self._sample_timeline is None:
+                self._sample_timeline = CaptureTimeline(rate)
+            self._sample_timeline.observe(sample_time / rate, frames)
 
     def stop(self) -> SystemTrackResult:
         process = self._process
@@ -369,6 +411,8 @@ class SystemAudioRecorder:
             capture_scope=self.capture_scope,
             output_route_start=self._output_route_start,
             output_route_stop=self._output_route_stop,
+            timeline=self.timeline,
+            sample_timeline=self.sample_timeline,
         )
 
     def discard(self) -> None:

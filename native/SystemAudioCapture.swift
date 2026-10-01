@@ -3,10 +3,13 @@ import Darwin
 import Foundation
 
 private let queueCapacity = 256
+// Seconds of tap input between timeline events (residual-echo debugging).
+private let timelineIntervalSeconds = 5.0
 private var selectedProcessMonitor: DispatchSourceTimer?
 
 private struct AudioPacket {
     let hostTime: UInt64
+    let sampleTime: Double?
     let frameCount: Int
     let buffers: [Data]
     let channelsPerBuffer: [Int]
@@ -251,6 +254,10 @@ private final class SystemTapRecorder {
     private var maxFrames: UInt64 = 0
     private var firstHostTime: UInt64?
     private var framesWritten: UInt64 = 0
+    // Tap-rate frames that reached the writer; with each packet's host and
+    // device sample time this shows whether input was lost after the start.
+    private var inputFramesSeen: UInt64 = 0
+    private var nextTimelineFrames: UInt64 = 0
     private var droppedFrames: UInt64 = 0
     private var queuedPackets = 0
     private var writerLagged = false
@@ -388,6 +395,8 @@ private final class SystemTapRecorder {
         }
         let packet = AudioPacket(
             hostTime: now.pointee.mHostTime == 0 ? mach_absolute_time() : now.pointee.mHostTime,
+            sampleTime: now.pointee.mFlags.contains(.sampleTimeValid)
+                ? now.pointee.mSampleTime : nil,
             frameCount: frameCount,
             buffers: buffers,
             channelsPerBuffer: channels
@@ -431,6 +440,7 @@ private final class SystemTapRecorder {
             firstHostTime = packet.hostTime
             emit(["event": "first_buffer", "host_time_ns": hostTimeNanos(packet.hostTime)])
         }
+        emitTimelineIfDue(packet)
         guard framesWritten < maxFrames else { return }
         let allowed = packet.frameCount
         var mono = [Float](repeating: 0, count: allowed)
@@ -469,6 +479,22 @@ private final class SystemTapRecorder {
             emit(["event": "nonzero_signal"])
         }
         writeOutput(resampler.append(mono))
+    }
+
+    private func emitTimelineIfDue(_ packet: AudioPacket) {
+        defer { inputFramesSeen &+= UInt64(packet.frameCount) }
+        guard inputFramesSeen >= nextTimelineFrames else { return }
+        nextTimelineFrames = inputFramesSeen &+ UInt64(timelineIntervalSeconds * format.mSampleRate)
+        var event: [String: Any] = [
+            "event": "timeline",
+            "host_time_ns": hostTimeNanos(packet.hostTime),
+            "frames": inputFramesSeen,
+            "rate": format.mSampleRate,
+        ]
+        if let sampleTime = packet.sampleTime {
+            event["sample_time"] = sampleTime
+        }
+        emit(event)
     }
 
     private func writeOutput(_ samples: [Int16]) {

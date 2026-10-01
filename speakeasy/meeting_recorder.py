@@ -30,6 +30,7 @@ import numpy as np
 import sounddevice as sd
 
 from . import config, settings
+from .capture_timeline import CaptureTimeline
 from .coreaudio import RecorderBusy, teardown
 from .meeting_stream import MeetingASRSession
 from .system_audio import SystemAudioRecorder, SystemAudioUnavailable
@@ -66,8 +67,15 @@ class MeetingCaptureHealth:
     capture_scope: str = "mic_only"
     output_route_start: str | None = None
     output_route_stop: str | None = None
+    # Residual-echo debugging: PortAudio input-overflow callbacks and each
+    # track's clock-vs-sample-count error (capture_timeline.py).
+    mic_input_overflows: int = 0
+    mic_timeline: dict | None = None
+    mic_arrival_timeline: dict | None = None
+    system_timeline: dict | None = None
+    system_sample_timeline: dict | None = None
 
-    def to_dict(self) -> dict[str, bool | int | str | None]:
+    def to_dict(self) -> dict[str, bool | int | str | dict | None]:
         return {
             "mic_first_buffer": self.mic_first_buffer,
             "system_first_buffer": self.system_first_buffer,
@@ -86,6 +94,11 @@ class MeetingCaptureHealth:
             "capture_scope": self.capture_scope,
             "output_route_start": self.output_route_start,
             "output_route_stop": self.output_route_stop,
+            "mic_input_overflows": self.mic_input_overflows,
+            "mic_timeline": self.mic_timeline,
+            "mic_arrival_timeline": self.mic_arrival_timeline,
+            "system_timeline": self.system_timeline,
+            "system_sample_timeline": self.system_sample_timeline,
         }
 
 
@@ -188,6 +201,9 @@ class MeetingRecorder:
         self._writer_failed = False
         self._writer_lagged = False
         self._pretranscription: MeetingASRSession | None = None
+        self._input_overflows = 0
+        self._adc_timeline = CaptureTimeline(config.SAMPLE_RATE)
+        self._arrival_timeline = CaptureTimeline(config.SAMPLE_RATE)
 
     def configure_pretranscription(
         self, session: MeetingASRSession | None
@@ -216,6 +232,18 @@ class MeetingRecorder:
     @property
     def writer_failed(self) -> bool:
         return self._writer_failed
+
+    @property
+    def input_overflows(self) -> int:
+        return self._input_overflows
+
+    @property
+    def timeline(self) -> dict:
+        return self._adc_timeline.summary()
+
+    @property
+    def arrival_timeline(self) -> dict:
+        return self._arrival_timeline.summary()
 
     @property
     def writer_lagged(self) -> bool:
@@ -249,6 +277,9 @@ class MeetingRecorder:
         self._writer_lagged = False
         self._level = 0.0
         self._first_buffer_ns = None
+        self._input_overflows = 0
+        self._adc_timeline = CaptureTimeline(config.SAMPLE_RATE)
+        self._arrival_timeline = CaptureTimeline(config.SAMPLE_RATE)
         self._writer = threading.Thread(
             target=self._drain, name="meeting-writer", daemon=True
         )
@@ -280,6 +311,11 @@ class MeetingRecorder:
             return
         if self._frames >= config.MEETING_MAX_SECONDS * config.SAMPLE_RATE:
             return  # spool cap: an abandoned recording must not fill the disk
+        if getattr(status, "input_overflow", False):
+            # CoreAudio lost input before PortAudio saw it; the WAV gets
+            # shorter with no other trace.
+            self._input_overflows += 1
+        arrived_ns = monotonic_time.monotonic_ns()
         try:
             self._queue.put_nowait(bytes(indata))
         except queue.Full:
@@ -288,9 +324,12 @@ class MeetingRecorder:
             return
         if self._queue.qsize() >= _WRITER_LAG_BLOCKS:
             self._writer_lagged = True
+        adc_time = getattr(time, "inputBufferAdcTime", None)
+        if isinstance(adc_time, (int, float)) and adc_time > 0:
+            self._adc_timeline.observe(float(adc_time), self._frames)
+        self._arrival_timeline.observe(arrived_ns / 1e9, self._frames)
         if self._first_buffer_ns is None:
-            observed = monotonic_time.monotonic_ns()
-            adc_time = getattr(time, "inputBufferAdcTime", None)
+            observed = arrived_ns
             current_time = getattr(time, "currentTime", None)
             if isinstance(adc_time, (int, float)) and isinstance(
                 current_time, (int, float)
@@ -478,6 +517,11 @@ class MeetingCaptureRecorder:
             capture_scope=self.capture_scope,
             output_route_start=self.system.output_route_start,
             output_route_stop=self.system.output_route_stop,
+            mic_input_overflows=self.mic.input_overflows,
+            mic_timeline=self.mic.timeline,
+            mic_arrival_timeline=self.mic.arrival_timeline,
+            system_timeline=self.system.timeline,
+            system_sample_timeline=self.system.sample_timeline,
         )
 
     def start(self, *, system_audio_pid: int | None = None) -> None:
@@ -592,6 +636,13 @@ class MeetingCaptureRecorder:
             output_route_stop=(
                 system_result.output_route_stop if system_result else None
             ),
+            mic_input_overflows=self.mic.input_overflows,
+            mic_timeline=self.mic.timeline,
+            mic_arrival_timeline=self.mic.arrival_timeline,
+            system_timeline=system_result.timeline if system_result else None,
+            system_sample_timeline=(
+                system_result.sample_timeline if system_result else None
+            ),
         )
         recording = MeetingRecording(
             mic_path=mic_path,
@@ -660,6 +711,11 @@ class MeetingCaptureRecorder:
             capture_scope=capture_scope,
             output_route_start=system_result.output_route_start,
             output_route_stop=system_result.output_route_stop,
+            mic_input_overflows=self.mic.input_overflows,
+            mic_timeline=self.mic.timeline,
+            mic_arrival_timeline=self.mic.arrival_timeline,
+            system_timeline=system_result.timeline,
+            system_sample_timeline=system_result.sample_timeline,
         )
         return MeetingRecording(
             mic_path=mic_path,

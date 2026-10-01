@@ -306,3 +306,42 @@ def test_output_route_outside_known_set_is_unknown(monkeypatch, tmp_path):
     ])
     assert result.output_route_start == "unknown"
     assert result.output_route_stop == "unknown"
+
+
+def test_helper_timeline_events_become_numeric_summaries(monkeypatch, tmp_path):
+    rate = 48_000.0
+    events = [
+        {"event": "ready"},
+        {"event": "first_buffer", "host_time_ns": 10_000_000_000},
+    ]
+    for index in range(12):  # one sample per 5 s of input
+        frames = index * 5 * int(rate)
+        lost = 0.25 if index >= 6 else 0.0
+        events.append({
+            "event": "timeline",
+            "host_time_ns": int((10 + frames / rate + lost) * 1e9),
+            "sample_time": 7.0 + frames + lost * rate,
+            "frames": frames,
+            "rate": rate,
+        })
+    events.append({"event": "stopped", "frames": 10, "dropped_frames": 0})
+    result = _run_helper(monkeypatch, tmp_path, events)
+
+    assert result.timeline["observations"] == 12
+    assert result.timeline["error_ms"] == 250
+    assert result.timeline["max_jump_ms"] == 250
+    assert result.timeline["max_jump_at_s"] == 30.0
+    assert result.timeline["series_ms"] == [0, 250]
+    assert result.sample_timeline["error_ms"] == 250
+
+
+def test_malformed_timeline_events_are_ignored(monkeypatch, tmp_path):
+    result = _run_helper(monkeypatch, tmp_path, [
+        {"event": "ready"},
+        {"event": "first_buffer", "host_time_ns": 5},
+        {"event": "timeline", "host_time_ns": "x", "frames": 0, "rate": 48_000},
+        {"event": "timeline", "host_time_ns": 5, "frames": 0, "rate": 0},
+        {"event": "stopped", "frames": 10, "dropped_frames": 0},
+    ])
+    assert result.timeline is None
+    assert result.sample_timeline is None

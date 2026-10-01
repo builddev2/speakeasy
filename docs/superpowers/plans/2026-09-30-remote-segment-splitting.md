@@ -448,6 +448,38 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
       in `capture_health_json`. Run one real speaker-mode meeting and read the numbers.
       Do not widen `MEETING_ECHO_MAX_LEAD_SECONDS` before the cause is known: real
       timeline slips would also misplace "You" segments in the transcript order.
+    - **Step 4 instrumentation done (branch `residual-echo-timeline-instrumentation`,
+      2026-10-01; not merged, not installed).** `speakeasy/capture_timeline.py`
+      computes error = (buffer time − first buffer time) − frames before / rate;
+      positive = samples missing. Summaries use 30 s window minima (callback delay
+      is only ever positive), so `series_ms` shows step vs ramp. New
+      `capture_health_json` keys: `mic_input_overflows` (PortAudio
+      `status.input_overflow` count), `mic_timeline` (PortAudio
+      `inputBufferAdcTime`), `mic_arrival_timeline` (callback monotonic time),
+      `system_timeline` (tap packet `mHostTime`) and `system_sample_timeline`
+      (tap device `mSampleTime`; moves without frames on a skipped IO cycle). The
+      helper emits a `timeline` event every 5 s of tap input. Each summary has
+      `error_ms` (last window), `min_ms`, `max_ms`, `step_ms`/`step_at_s` (largest
+      window-to-window change), `max_jump_ms`/`max_jump_at_s` (largest
+      buffer-to-buffer change; system: per 5 s sample), `max_jitter_ms`,
+      `series_ms`. Mic ADC time and helper host time are both host-clock seconds.
+    - Smoke checks (no meeting): helper 10 s run, host and sample-time error 0
+      (5.002667 s elapsed vs 240128/48000 frames). Mic 5 s probe: ADC and arrival
+      series all 0 ms, jitter ≤ 1 ms, 0 status flags. 836 tests pass. Mutations
+      (sign flip, window max, overflow not counted, ADC not observed, sample time
+      dropped, rate guard, whitelist entry) each fail a test. The whitelist
+      mutation first exposed that `filter_capture_health` dropped dict values, so
+      numbers-only dicts are now allowed for `*_timeline` keys.
+    - **Reading the numbers after a real speaker-mode meeting:** expected mic-early
+      ≈ `mic_timeline.error_ms − system_timeline.error_ms` (Phase 1 measured
+      +200..+320 ms after 1310 s). Mic step with `mic_input_overflows` > 0 → input
+      overflow; mic step with 0 overflows → loss PortAudio does not flag; flat mic
+      and negative system step → system gained samples; both flat → the lead is
+      not a capture-timeline slip (look at ASR token timing / alignment instead).
+    - Next: build + install the branch (`scripts/build_app.sh --install`; this
+      stops the Desktop MCP connector, toggle it to recover), run one real
+      speaker-mode meeting of 25+ min, read the five keys from
+      `capture_health_json` and compare with the Phase 1 lag measurement.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

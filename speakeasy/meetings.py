@@ -54,6 +54,11 @@ _CAPTURE_HEALTH_KEYS = {
     "mic_echo_sentences_removed",
     "output_route_start",
     "output_route_stop",
+    "mic_input_overflows",
+    "mic_timeline",
+    "mic_arrival_timeline",
+    "system_timeline",
+    "system_sample_timeline",
 }
 
 # A diarization turn further than this from a token is considered unrelated;
@@ -73,8 +78,29 @@ def filter_capture_health(d: dict | None) -> dict:
         str(key): value
         for key, value in (d or {}).items()
         if key in _CAPTURE_HEALTH_KEYS
-        and (value is None or isinstance(value, (bool, int, str)))
+        and (
+            value is None
+            or isinstance(value, (bool, int, str))
+            or (key.endswith("_timeline") and _is_numeric_summary(value))
+        )
     }
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_numeric_summary(value) -> bool:
+    """A capture_timeline summary: string keys, numbers or lists of numbers."""
+    return isinstance(value, dict) and all(
+        isinstance(key, str)
+        and (
+            item is None
+            or _is_number(item)
+            or (isinstance(item, list) and all(_is_number(x) for x in item))
+        )
+        for key, item in value.items()
+    )
 
 
 @dataclass

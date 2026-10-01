@@ -24,6 +24,9 @@ class FakeMic:
         self.dropped_frames = 0
         self.writer_failed = False
         self.writer_lagged = False
+        self.input_overflows = 0
+        self.timeline = {"error_ms": 0}
+        self.arrival_timeline = {"error_ms": 0}
         self.started = False
 
     def start(self):
@@ -70,6 +73,8 @@ class FakeSystem:
         self.writer_lagged = writer_lagged
         self.helper_exited = False
         self.helper_exit_reason = None
+        self.timeline = None
+        self.sample_timeline = None
         self.start_process_ids = []
 
     def start(self, path, *, process_id=None):
@@ -91,6 +96,8 @@ class FakeSystem:
             writer_lagged=self.writer_lagged,
             output_route_start=self.output_route_start,
             output_route_stop=self.output_route_stop,
+            timeline=self.timeline,
+            sample_timeline=self.sample_timeline,
         )
 
     def force_close(self):
@@ -203,6 +210,11 @@ def test_writer_health_and_dropped_frames_are_reported_without_content(spool_dir
         "capture_scope",
         "output_route_start",
         "output_route_stop",
+        "mic_input_overflows",
+        "mic_timeline",
+        "mic_arrival_timeline",
+        "system_timeline",
+        "system_sample_timeline",
     }
 
 
@@ -439,3 +451,23 @@ def test_forced_close_health_reports_output_route(spool_dir):
     assert recording.health.capture_outcome == "forced_close"
     assert recording.health.output_route_start == "built_in_speakers"
     assert recording.health.output_route_stop == "bluetooth"
+
+
+def test_track_timelines_and_mic_overflows_reach_capture_health(spool_dir):
+    mic = FakeMic(spool_dir / "mic.wav")
+    mic.input_overflows = 3
+    mic.timeline = {"error_ms": 250}
+    mic.arrival_timeline = {"error_ms": 251}
+    system = FakeSystem()
+    system.timeline = {"error_ms": 0}
+    system.sample_timeline = {"error_ms": 1}
+    recorder = MeetingCaptureRecorder(mic=mic, system=system)
+
+    recorder.start()
+    health = recorder.stop().health.to_dict()
+
+    assert health["mic_input_overflows"] == 3
+    assert health["mic_timeline"] == {"error_ms": 250}
+    assert health["mic_arrival_timeline"] == {"error_ms": 251}
+    assert health["system_timeline"] == {"error_ms": 0}
+    assert health["system_sample_timeline"] == {"error_ms": 1}

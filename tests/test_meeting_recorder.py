@@ -247,3 +247,27 @@ def test_sweep_spool_dir_removes_orphans(spool_dir):
     orphan.write_bytes(b"leftover")
     meeting_recorder.sweep_spool_dir()
     assert not orphan.exists()
+
+
+def test_input_overflow_flags_and_timelines_are_recorded(spool_dir, fake_stream):
+    class Status:
+        input_overflow = True
+
+    class Timing:
+        def __init__(self, adc):
+            self.inputBufferAdcTime = adc
+            self.currentTime = adc + 0.01
+
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, Timing(50.0), None)
+    rec._on_audio(_block(), 1600, Timing(50.1), Status())
+    # 0.25 s of input lost before this block reached PortAudio.
+    rec._on_audio(_block(), 1600, Timing(50.45), None)
+    rec.stop()
+
+    assert rec.input_overflows == 1
+    assert rec.timeline["observations"] == 3
+    assert rec.timeline["max_jump_ms"] == 250
+    assert rec.timeline["max_jump_at_s"] == 0.2
+    assert rec.arrival_timeline["observations"] == 3

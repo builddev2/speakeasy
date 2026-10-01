@@ -392,7 +392,62 @@ def test_dual_track_meeting_labels_you_and_diarizes_only_remote_track(
     assert stored.track_offsets_seconds == {"mic": 0.0, "system": 0.5}
     assert stored.capture_health["system_nonzero_signal"] is True
     assert stored.capture_health["capture_mode"] == "mic_and_system"
+    assert stored.capture_health["mic_echo_sentences_removed"] == 0
     assert not list(spool_dir.iterdir())
+    engine.shutdown()
+
+
+def _spaced_sentence(start, end, text):
+    # Real parakeet tokens mark word starts with a leading space.
+    sentence = Sentence(start, end, text)
+    for i, token in enumerate(sentence.tokens):
+        token.text = token.text if i == 0 else " " + token.text
+    return sentence
+
+
+class EchoDualTranscriber:
+    """Mic track = one own sentence + a bleed copy of the remote sentence.
+    The recorder fake puts system at offset 0.5 s, so the system sentence at
+    track-local 0.0 lands at 0.5 on the meeting timeline; the mic copy
+    starts at 0.55 (50 ms acoustic lag)."""
+
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        progress(1.0)
+        result = type("Result", (), {})()
+        if float(np.mean(audio)) > 0.001:
+            result.sentences = [
+                _spaced_sentence(0.55, 1.35, "remote one is speaking now"),
+                _spaced_sentence(3.0, 3.8, "local reply here"),
+            ]
+        else:
+            result.sentences = [
+                _spaced_sentence(0.0, 0.8, "remote one is speaking now"),
+                _spaced_sentence(1.0, 1.8, "remote two"),
+            ]
+        return result
+
+
+def test_dual_track_drops_mic_echo_of_system_speech(meetings_dir, spool_dir, capsys):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = EchoDualTranscriber()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting(MeetingOptions(expected_speaker_count=2))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = MeetingLibrary().get_meeting(saved[0])
+    you = [s for s in stored.segments if s.speaker == "You"]
+    assert [s.text for s in you] == ["local reply here"]
+    assert [s.speaker for s in stored.segments].count("You") == 1
+    assert stored.capture_health["mic_echo_sentences_removed"] == 1
+    out = capsys.readouterr().out
+    assert "mic echo: removed 1 of 2 mic sentences" in out
+    assert "remote one" not in out and "local reply" not in out
     engine.shutdown()
 
 

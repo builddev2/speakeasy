@@ -60,5 +60,11 @@ to page through `list_meetings`. Titles must be findable in one call.
 
 ## Remaining / follow-ups
 
-- Installed-app check in Claude Desktop (find "1on1 Todd TEST" by title) after merge
-  and `build_app.sh --install` (which stops the Desktop connector; toggle it back on).
+- **Merged** to master (90141da) on 2026-09-30; 789 tests passed on the branch first.
+  Installed with `build_app.sh --install`.
+- **Installed binary checked over stdio** (`Speakeasy --mcp`, real library, read-only):
+  `list_meetings` schema has `title`; `"todd 1on1"` and `"1on1 Todd TEST"` both return
+  only "1on1 Todd TEST Meeting — Sep 28, 11:10 AM"; `"zzz-nomatch"` returns `[]`.
+- **Still to do (user):** Claude Desktop check. Toggle Settings → Connectors → Speakeasy
+  Meetings off/on, start a new chat, ask it to find "1on1 Todd TEST" by title, and
+  confirm it calls `list_meetings` with `title` in one call.

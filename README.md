@@ -284,10 +284,14 @@ system-audio grant, or an unavailable capture helper falls back safely to the
 original mic-only meeting pipeline. In that mode remote participants are only
 captured through speakers, and every voice audible on the mic is diarized;
 Speakeasy does not falsely label the whole mixed track as **You**. With system
-capture active, speaker playback can still bleed into the microphone and
-appear twice. Speakeasy preserves both segments rather than risk deleting a
-real repeated phrase or overlapping speech; headphones provide the cleanest
-**You** versus remote-speaker separation. A global system tap also includes
+capture active, speaker playback can still bleed into the microphone. Mic
+sentences whose words match system-track words and that arrive within the
+bleed delay window are dropped before the transcript is saved. A deliberate
+repeat (spoken after the other person finishes), speech mixed with bleed and
+short replies (under 3 words) are kept, so some duplication can remain. On
+wired headphones no removal is attempted; headphones still give the cleanest
+**You** versus remote-speaker separation. Capture health records the output
+route category (never the device name) at start and stop. A global system tap also includes
 unrelated notification or music audio played during the meeting. Selected-app
 capture never silently widens to the global tap: if that process exits,
 restarts, or cannot be resolved, the meeting reports the selected application

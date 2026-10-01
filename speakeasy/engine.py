@@ -1150,6 +1150,7 @@ class DictationEngine:
             if not mic_frames and not system_frames:
                 raise ValueError("Meeting contained no readable audio")
 
+            echo_health: dict = {}
             if dual_track:
                 mic_sentences = []
                 if mic_frames:
@@ -1198,6 +1199,38 @@ class DictationEngine:
                 if timing is not None:
                     timing.start("alignment")
                 try:
+                    # Speaker-mode bleed puts the far end on the mic too;
+                    # drop those sentences before they become "You" segments.
+                    health = recording.health
+                    wired_headphones = (
+                        health is not None
+                        and health.output_route_start == "built_in_headphones"
+                        and health.output_route_stop == "built_in_headphones"
+                    )
+                    if wired_headphones:
+                        removed = 0
+                        print("  → mic echo: skipped (headphones)")
+                    else:
+                        mic_sentences, echo_candidates = meetings.remove_mic_echo(
+                            mic_sentences,
+                            system_result.sentences,
+                            mic_offset=offsets.get("mic", 0.0),
+                            system_offset=offsets.get("system", 0.0),
+                        )
+                        removed = sum(c.removed for c in echo_candidates)
+                        for c in echo_candidates:
+                            if c.coverage >= 0.3:
+                                print(
+                                    f"  → echo candidate: words={c.words} "
+                                    f"coverage={c.coverage:.2f} "
+                                    f"lag={c.lag_seconds:+.2f}s "
+                                    f"{'removed' if c.removed else 'kept'}"
+                                )
+                        print(
+                            f"  → mic echo: removed {removed} of "
+                            f"{len(mic_sentences) + removed} mic sentences"
+                        )
+                    echo_health = {"mic_echo_sentences_removed": removed}
                     local_segments = meetings.shift_segments(
                         meetings.known_speaker_segments(mic_sentences),
                         offsets.get("mic", 0.0),
@@ -1285,6 +1318,7 @@ class DictationEngine:
                 capture_health={
                     **(recording.health.to_dict() if recording.health else {}),
                     **diarization_health,
+                    **echo_health,
                 },
                 capture_scope=recording.capture_scope,
                 title=event.title if event is not None else None,

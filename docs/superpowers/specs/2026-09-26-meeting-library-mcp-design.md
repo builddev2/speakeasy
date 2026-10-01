@@ -60,7 +60,9 @@ Speakeasy does stays on this Mac.
 
 In-room speaker-mode meetings transcribe the conversation on both tracks
 (`merge_tracks` keeps both on purpose). Stored transcripts stay unchanged;
-search results collapse the duplicates (see Search).
+search results collapse the duplicates (see Search). Since 2026-09-30, new
+recordings drop bleed per sentence at processing time (plan
+2026-09-30-meeting-echo-removal); search collapse remains for older meetings.
 
 ## Architecture
 

@@ -18,6 +18,7 @@ from speakeasy.meeting_stream import MeetingASRSession
 
 class FakeStream:
     def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
         self.callback = kwargs.get("callback")
         self.started = False
         self.aborted = False
@@ -69,6 +70,30 @@ def test_spool_round_trip(spool_dir, fake_stream):
         assert w.getsampwidth() == 2
         assert w.getnframes() == 16000
     path.unlink()
+
+
+def test_stream_requests_fixed_100ms_blocks(spool_dir, fake_stream):
+    # Left to PortAudio, the 16 kHz stream used 15-frame blocks: about 1,070
+    # GIL-taking callbacks a second. Under contention PortAudio skipped
+    # callbacks without flagging an overflow, so the mic track lost ~0.7% idle
+    # and far more during pretranscription, drifting ahead of the system track.
+    rec = MeetingRecorder()
+    rec.start()
+    kwargs = fake_stream["stream"].kwargs
+    assert kwargs["blocksize"] == config.MEETING_CAPTURE_BLOCK_FRAMES
+    assert config.MEETING_CAPTURE_BLOCK_FRAMES == config.SAMPLE_RATE // 10
+    rec.force_close()
+    rec.discard()
+
+
+def test_writer_queue_holds_buffer_seconds_of_audio(spool_dir, fake_stream):
+    rec = MeetingRecorder()
+    rec.start()
+    held = rec._queue.maxsize * config.MEETING_CAPTURE_BLOCK_FRAMES
+    assert held / config.SAMPLE_RATE >= config.MEETING_CAPTURE_BUFFER_SECONDS
+    assert config.MEETING_CAPTURE_BUFFER_SECONDS >= 30.0
+    rec.force_close()
+    rec.discard()
 
 
 def test_writer_feeds_pretranscription_after_persisting_audio(

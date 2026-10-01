@@ -34,10 +34,12 @@ from .coreaudio import RecorderBusy, teardown
 from .meeting_stream import MeetingASRSession
 from .system_audio import SystemAudioRecorder, SystemAudioUnavailable
 
-# ~30 s of audio at 16 kHz int16 in ~1 KiB blocks. The exact block size varies
-# by host buffer; this is generous enough that only a genuinely stuck writer
-# ever drops frames.
-_QUEUE_MAX_BLOCKS = 1024
+# MEETING_CAPTURE_BUFFER_SECONDS of audio in fixed-size callback blocks; only
+# a genuinely stuck writer ever drops frames.
+_QUEUE_MAX_BLOCKS = -(
+    -int(config.MEETING_CAPTURE_BUFFER_SECONDS * config.SAMPLE_RATE)
+    // config.MEETING_CAPTURE_BLOCK_FRAMES
+)
 _WRITER_LAG_BLOCKS = _QUEUE_MAX_BLOCKS * 3 // 4
 _FORCE_CLOSE_WRITER_TIMEOUT_SECONDS = 0.25
 
@@ -62,6 +64,8 @@ class MeetingCaptureHealth:
     fallback_reason: str | None = None
     capture_mode: str = "mic_only"
     capture_scope: str = "mic_only"
+    output_route_start: str | None = None
+    output_route_stop: str | None = None
 
     def to_dict(self) -> dict[str, bool | int | str | None]:
         return {
@@ -80,6 +84,8 @@ class MeetingCaptureHealth:
             "fallback_reason": self.fallback_reason,
             "capture_mode": self.capture_mode,
             "capture_scope": self.capture_scope,
+            "output_route_start": self.output_route_start,
+            "output_route_stop": self.output_route_stop,
         }
 
 
@@ -256,6 +262,7 @@ class MeetingRecorder:
                 samplerate=config.SAMPLE_RATE,
                 channels=1,
                 dtype="int16",
+                blocksize=config.MEETING_CAPTURE_BLOCK_FRAMES,
                 callback=self._on_audio,
             )
             self._stream.start()
@@ -469,6 +476,8 @@ class MeetingCaptureRecorder:
             fallback_reason=fallback_reason,
             capture_mode=self.capture_mode,
             capture_scope=self.capture_scope,
+            output_route_start=self.system.output_route_start,
+            output_route_stop=self.system.output_route_stop,
         )
 
     def start(self, *, system_audio_pid: int | None = None) -> None:
@@ -577,6 +586,12 @@ class MeetingCaptureRecorder:
             fallback_reason=fallback_reason,
             capture_mode=mode,
             capture_scope=capture_scope,
+            output_route_start=(
+                system_result.output_route_start if system_result else None
+            ),
+            output_route_stop=(
+                system_result.output_route_stop if system_result else None
+            ),
         )
         recording = MeetingRecording(
             mic_path=mic_path,
@@ -643,6 +658,8 @@ class MeetingCaptureRecorder:
             fallback_reason=None if mode == "mic_and_system" else system_status,
             capture_mode=mode,
             capture_scope=capture_scope,
+            output_route_start=system_result.output_route_start,
+            output_route_stop=system_result.output_route_stop,
         )
         return MeetingRecording(
             mic_path=mic_path,

@@ -150,3 +150,41 @@ def test_thresholds_read_from_config_at_call_time(monkeypatch):
     mic = [sentence(10.08, 13.08, REMOTE)]
     monkeypatch.setattr(config, "MEETING_ECHO_MAX_LAG_SECONDS", 0.05)
     assert remove_mic_echo(mic, system)[0] == mic
+
+
+def test_system_offset_decides_the_result():
+    # Raw system times are 1.0 s early; only the offset lines them up.
+    system = [sentence(9.0, 12.0, REMOTE)]
+    mic = [sentence(10.05, 13.05, REMOTE)]
+    kept, candidates = remove_mic_echo(mic, system, system_offset=1.0)
+    assert kept == []
+    assert candidates[0].removed
+    assert abs(candidates[0].lag_seconds - 0.05) < 1e-6
+    kept, candidates = remove_mic_echo(mic, system)
+    assert kept == mic
+    assert all(not c.removed for c in candidates)
+
+
+def test_mic_offset_decides_the_result():
+    # Raw mic times are 1.0 s late; only the (negative) offset fixes them.
+    system = [sentence(10.0, 13.0, REMOTE)]
+    mic = [sentence(11.05, 14.05, REMOTE)]
+    kept, candidates = remove_mic_echo(mic, system, mic_offset=-1.0)
+    assert kept == []
+    assert candidates[0].removed
+    assert abs(candidates[0].lag_seconds - 0.05) < 1e-6
+    kept, candidates = remove_mic_echo(mic, system)
+    assert kept == mic
+    assert all(not c.removed for c in candidates)
+
+
+def test_full_coverage_repeat_beyond_lag_gate_is_kept():
+    # Same three words, fully inside the search window, but 0.9 s late:
+    # coverage 1.0 so only the lag gate can keep it.
+    system = [sentence(10.0, 11.5, "forty hours total")]
+    repeat = sentence(10.9, 12.4, "forty hours total")
+    kept, candidates = remove_mic_echo([repeat], system)
+    assert kept == [repeat]
+    assert candidates[0].coverage == 1.0
+    assert abs(candidates[0].lag_seconds - 0.9) < 1e-6
+    assert not candidates[0].removed

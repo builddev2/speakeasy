@@ -763,3 +763,15 @@ Task 4b done (8686074), reviewed with mutation checks; suite 808 passed. Minors 
 Task 5 finding (2026-09-30): when started with `open` or from Finder, the installed app's stdout and stderr are /dev/null, not None, so `launcher._redirect_streams_to_log` never runs and ~/Library/Logs/Speakeasy.log is never written. The `→ echo candidate` lines are lost unless the app is started from Terminal with its output redirected. Follow-up: make the redirect also happen when stdout is not a terminal (separate task).
 
 Task 5 attempt (2026-09-30): `scripts/check_mic_echo_live.py` (6143f49) runs the real pipeline in a temporary HOME. A Claude-session run got all-zero system audio (a permission problem), so the meeting fell back to mic-only and gave no echo numbers. The route was correctly `built_in_speakers`. Next: the user runs the script from Terminal.app, or a screen-controlled run of the installed app. Headphones check still to do (no headphones attached).
+
+### Task 5 live result (user ran `scripts/check_mic_echo_live.py` from Terminal.app, 2026-09-30, meeting 20260930-193002-668c in a temporary HOME)
+
+- Capture was clean: `mic_and_system`, scope `selected`, both routes `built_in_speakers`, no dropped frames. Offsets: mic 0.0 s, system 3.50 s.
+- **Own speech: all 5 kept** (2 own sentences, the "okay yeah" short reply, the deliberate repeat, the talk-over).
+- **Echo: removed 1 of 13 mic sentences; 6 of 8 remote sentences are still duplicated as "You".** Word coverage of the echoes was 0.80–1.00. The lag gate rejected them.
+- **The candidate lags are negative and grow steadily over the meeting:** −0.22, −0.22, −0.38, −0.62, −0.78, −0.90, −1.02, −1.10 s. Bleed can only arrive after the system audio, so one track's timeline drifts by about 1.5%, roughly 1 s per minute. Segment times agree: for remote sentence 8 the mic copy is at 64.40 s and the system at 65.50 s.
+- The thresholds were **not** changed. Widening the lead gate would hide a timing bug, not fix it.
+
+**Open bug (new session, systematic-debugging):** find which track drifts (mic or system) and why. Check sample-rate handling and resampling in the mic recorder and the system helper, and whether frames are lost without being counted. Find out whether this is specific to the `afplay` selected-process tap or also affects global capture in real meetings. The library probe was refused for privacy, so the user has to run any check against real meetings. If production meetings drift, "You" segments are misplaced against the remote side in long meetings, not only in echo removal. After the fix, re-run `scripts/check_mic_echo_live.py` from Terminal.app: echo lags should be small positive values (about 0 to +0.1 s) and duplicates should be about 0 of 8.
+
+Still to do for Task 5: the headphones run, and opening a real meeting in the Meetings window. The branch is **not merged**. The installed app is built from this branch.

@@ -360,7 +360,24 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
   - Capture clean: `mic_and_system`, `selected`, built-in speakers, no dropped
     frames, no writer lag, `diarization_status` ok. Offsets mic 0.0 s, system 0.103 s.
 - Step 4: not done. No real meeting recorded since the install (23:56, 30 Sep);
-  newest in the library is still 3b95.
+  newest in the library is still 3b95 (re-checked 2026-10-01 by `created_at`).
+  Probe written down below and re-validated on the old meetings: 3b95 28 / 56.8 s /
+  222.8 s / 25 / 56 of 64; c139 37 / 6.2 s / 189.8 s / 6 / 15 of 29. These match
+  the earlier table, except that the 3b95 median is 56.8 s here (the mean of the two
+  middle values of 28) against 57.0 s recorded before.
+
+  Probe (read-only, numbers only; columns: remote count, median, max, count ≥30 s,
+  "You" starts strictly inside a remote segment):
+  ```bash
+  DB=~/Library/Application\ Support/Speakeasy/library.sqlite; M=<meeting id>
+  sqlite3 -readonly "$DB" "
+  with r as (select start_seconds s, end_seconds e, end_seconds-start_seconds d from segments where meeting_id='$M' and speaker!='You'),
+  y as (select start_seconds s from segments where meeting_id='$M' and speaker='You'),
+  o as (select d, row_number() over (order by d) rn, count(*) over () n from r)
+  select (select count(*) from r), (select round(avg(d),1) from o where rn in ((n+1)/2,(n+2)/2)),
+   (select round(max(d),1) from r), (select count(*) from r where d>=30),
+   (select count(*) from y where exists (select 1 from r where y.s>r.s and y.s<r.e)) || ' of ' || (select count(*) from y);"
+  ```
 
 ### TODO / deferred
 - Re-run `scripts/check_mic_echo_live.py` once to see whether the talk-over loss

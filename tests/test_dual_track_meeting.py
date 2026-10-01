@@ -412,3 +412,30 @@ def test_output_route_reaches_capture_health(spool_dir):
     assert recording.health.output_route_start == "built_in_speakers"
     assert recording.health.output_route_stop == "bluetooth"
     assert recording.health.to_dict()["output_route_stop"] == "bluetooth"
+
+
+def test_live_health_reports_output_route_while_recording(spool_dir):
+    recorder = MeetingCaptureRecorder(
+        mic=FakeMic(spool_dir / "mic.wav"),
+        system=FakeSystem(output_route_start="built_in_speakers",
+                          output_route_stop="bluetooth"),
+    )
+    recorder.start()
+    health = recorder.health
+    assert health.output_route_start == "built_in_speakers"
+    assert health.output_route_stop == "bluetooth"
+    recorder.stop()
+
+
+def test_forced_close_health_reports_output_route(spool_dir):
+    recorder = MeetingCaptureRecorder(
+        mic=FakeMic(spool_dir / "mic.wav"),
+        system=FakeSystem(output_route_start="built_in_speakers",
+                          output_route_stop="bluetooth"),
+    )
+    recorder.start()
+    recorder.force_close()
+    recording = recorder.take_recording()
+    assert recording.health.capture_outcome == "forced_close"
+    assert recording.health.output_route_start == "built_in_speakers"
+    assert recording.health.output_route_stop == "bluetooth"

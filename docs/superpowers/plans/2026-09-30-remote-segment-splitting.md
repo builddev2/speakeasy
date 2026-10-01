@@ -515,6 +515,35 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
          out of the Python callback (for example into the helper process, as
          dictation already does). Bigger change; prevents the loss itself.
       Keep the timeline instrumentation either way, to verify.
+    - **Option 1 chosen 2026-10-01; design approved (gap threshold 20 ms).**
+      Branch `residual-echo-timeline-instrumentation`. Status: in progress.
+      - Detection in `MeetingRecorder._on_audio`, ADC clock only:
+        `gap = (adc − first_adc) − frames_written / SAMPLE_RATE`, where
+        frames_written includes inserted silence. If `gap ≥ 0.020` s, queue
+        `round(gap × SAMPLE_RATE)` (an `int`) ahead of the block. Negative gaps
+        never act. No ADC time (None / non-number / ≤ 0) → no repair. Arrival
+        time is never used (a late-but-complete callback would look like a gap).
+      - Queue full when queuing the fill → nothing counted; the gap is retried on
+        the next block because frames_written did not move. The block itself
+        follows the existing drop path.
+      - Writer (`_drain`): an `int` item → write that many zero int16 frames to
+        the WAV and pass the same zeros to `pretranscription.add_pcm`, so ASR
+        chunk positions stay aligned. The callback never allocates the zeros.
+      - Inserted frames count toward `_frames` (elapsed time and spool cap) and
+        toward the timeline frames, so `mic_timeline` measures the repaired track
+        (should stay within ±20 ms).
+      - Health: `mic_gap_fills` (int count) and `mic_gap_fill_ms` (int total) in
+        `MeetingCaptureHealth`, all three construction sites, `to_dict`, and the
+        `meetings.py` whitelist.
+      - Tests first: 258 ms ADC jump → 4128 zero frames before the next block (WAV
+        length and content); ASR chunk start frames include them; jump < 20 ms,
+        negative jump, missing ADC → nothing inserted; queue full → retried next
+        block; health fields reach `capture_health_json`. Mutation review.
+      - Out of scope: dictation recorder, system track, echo lead limit (stays
+        0.25 s), cause of the overload (option 2).
+      - Then: rebuild + install, one solo Teams speaker-mode meeting of 25+ min;
+        expect `mic_gap_fill_ms` > 0 when an overload is logged, `mic_timeline`
+        within ±20 ms, echo lag ≈ 0.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

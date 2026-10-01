@@ -516,7 +516,19 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
          dictation already does). Bigger change; prevents the loss itself.
       Keep the timeline instrumentation either way, to verify.
     - **Option 1 chosen 2026-10-01; design approved (gap threshold 20 ms).**
-      Branch `residual-echo-timeline-instrumentation`. Status: in progress.
+      Branch `residual-echo-timeline-instrumentation`. Status: **implemented
+      (91df833 + review fixes eee81b7), 852 tests pass, installed 2026-10-01 from
+      eee81b7; awaiting a real meeting.** Opus mutation review: 18 mutants, 15
+      caught; the 2 that mattered (take_recording health site, exact threshold)
+      now have tests. Review fixes: fill clamped to the spool cap, zeros written
+      in ≤ 1 s pieces, ADC must be finite.
+      - Known, accepted: a writer-queue drop of a block is now also gap-filled, so
+        the same loss shows in both `mic_dropped_frames` and `mic_gap_fill_ms`.
+      - Open follow-up: a very large ADC jump (for example a clock break over
+        sleep/wake mid-meeting) is filled up to the spool cap. If the system track
+        paused too, that would misalign mic against system. Consider a maximum
+        plausible gap (fill only below it; count larger ones separately) once a
+        real case is seen.
       - Detection in `MeetingRecorder._on_audio`, ADC clock only:
         `gap = (adc − first_adc) − frames_written / SAMPLE_RATE`, where
         frames_written includes inserted silence. If `gap ≥ 0.020` s, queue

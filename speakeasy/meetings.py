@@ -476,7 +476,8 @@ def remove_mic_echo(
 
     A sentence is echo only if >= MEETING_ECHO_MIN_COVERAGE of its words
     match nearby system words in order and the median mic-minus-system lag
-    of those matches lies within [-MAX_LEAD, +MAX_LAG]. Text alone cannot
+    of those matches lies within [-MAX_LEAD, +MAX_LAG]. Sentences under
+    MEETING_ECHO_MIN_WORDS words are always kept. Text alone cannot
     tell echo from a deliberate repeat; arrival time can.
     """
     system_words = sorted(
@@ -508,7 +509,8 @@ def remove_mic_echo(
         coverage = len(lags) / len(mic_words)
         lag = statistics.median(lags)
         removed = (
-            coverage >= config.MEETING_ECHO_MIN_COVERAGE
+            len(mic_words) >= config.MEETING_ECHO_MIN_WORDS
+            and coverage >= config.MEETING_ECHO_MIN_COVERAGE
             and -config.MEETING_ECHO_MAX_LEAD_SECONDS
             <= lag
             <= config.MEETING_ECHO_MAX_LAG_SECONDS

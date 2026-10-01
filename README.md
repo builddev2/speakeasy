@@ -287,8 +287,9 @@ Speakeasy does not falsely label the whole mixed track as **You**. With system
 capture active, speaker playback can still bleed into the microphone. Mic
 sentences whose words match system-track words and that arrive within the
 bleed delay window are dropped before the transcript is saved. A deliberate
-repeat (spoken after the other person finishes) and speech mixed with bleed
-are kept, so some duplication can remain; headphones still give the cleanest
+repeat (spoken after the other person finishes), speech mixed with bleed and
+short replies (under 3 words) are kept, so some duplication can remain. On
+wired headphones no removal is attempted; headphones still give the cleanest
 **You** versus remote-speaker separation. Capture health records the output
 route category (never the device name) at start and stop. A global system tap also includes
 unrelated notification or music audio played during the meeting. Selected-app

@@ -1201,24 +1201,35 @@ class DictationEngine:
                 try:
                     # Speaker-mode bleed puts the far end on the mic too;
                     # drop those sentences before they become "You" segments.
-                    mic_sentences, echo_candidates = meetings.remove_mic_echo(
-                        mic_sentences,
-                        system_result.sentences,
-                        mic_offset=offsets.get("mic", 0.0),
-                        system_offset=offsets.get("system", 0.0),
+                    health = recording.health
+                    wired_headphones = (
+                        health is not None
+                        and health.output_route_start == "built_in_headphones"
+                        and health.output_route_stop == "built_in_headphones"
                     )
-                    removed = sum(c.removed for c in echo_candidates)
-                    for c in echo_candidates:
-                        if c.coverage >= 0.3:
-                            print(
-                                f"  → echo candidate: words={c.words} "
-                                f"coverage={c.coverage:.2f} lag={c.lag_seconds:+.2f}s "
-                                f"{'removed' if c.removed else 'kept'}"
-                            )
-                    print(
-                        f"  → mic echo: removed {removed} of "
-                        f"{len(mic_sentences) + removed} mic sentences"
-                    )
+                    if wired_headphones:
+                        removed = 0
+                        print("  → mic echo: skipped (headphones)")
+                    else:
+                        mic_sentences, echo_candidates = meetings.remove_mic_echo(
+                            mic_sentences,
+                            system_result.sentences,
+                            mic_offset=offsets.get("mic", 0.0),
+                            system_offset=offsets.get("system", 0.0),
+                        )
+                        removed = sum(c.removed for c in echo_candidates)
+                        for c in echo_candidates:
+                            if c.coverage >= 0.3:
+                                print(
+                                    f"  → echo candidate: words={c.words} "
+                                    f"coverage={c.coverage:.2f} "
+                                    f"lag={c.lag_seconds:+.2f}s "
+                                    f"{'removed' if c.removed else 'kept'}"
+                                )
+                        print(
+                            f"  → mic echo: removed {removed} of "
+                            f"{len(mic_sentences) + removed} mic sentences"
+                        )
                     echo_health = {"mic_echo_sentences_removed": removed}
                     local_segments = meetings.shift_segments(
                         meetings.known_speaker_segments(mic_sentences),

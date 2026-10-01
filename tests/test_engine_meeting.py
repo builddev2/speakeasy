@@ -167,7 +167,8 @@ class FakeDiarizer:
 
 
 class FakeDualMeetingRecorder:
-    def __init__(self, spool_dir, *, empty_system=False):
+    def __init__(self, spool_dir, *, empty_system=False, routes=(None, None)):
+        self.routes = routes
         self.mic_path = spool_dir / "meeting-mic.wav"
         self.system_path = spool_dir / "meeting-system.wav"
         self.empty_system = empty_system
@@ -209,6 +210,8 @@ class FakeDualMeetingRecorder:
                 capture_outcome="captured",
                 capture_mode="mic_and_system",
                 capture_scope=self.capture_scope,
+                output_route_start=self.routes[0],
+                output_route_stop=self.routes[1],
             ),
             capture_scope=self.capture_scope,
         )
@@ -450,6 +453,48 @@ def test_dual_track_drops_mic_echo_of_system_speech(meetings_dir, spool_dir, cap
     assert "mic echo: removed 1 of 2 mic sentences" in out
     assert "remote one" not in out and "local reply" not in out
     engine.shutdown()
+
+
+def _run_echo_meeting(spool_dir, routes):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir, routes=routes)
+    engine.transcriber = EchoDualTranscriber()
+    engine.diarization_runner = InProcessDiarizationRunner(FakeRemoteDiarizer())
+    saved = []
+    engine.on_meeting_saved = saved.append
+    engine.begin_meeting(MeetingOptions(expected_speaker_count=2))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    stored = MeetingLibrary().get_meeting(saved[0])
+    engine.shutdown()
+    return stored
+
+
+def test_dual_track_skips_echo_removal_on_wired_headphones(
+    meetings_dir, spool_dir, capsys
+):
+    stored = _run_echo_meeting(
+        spool_dir, ("built_in_headphones", "built_in_headphones")
+    )
+    you = " ".join(s.text for s in stored.segments if s.speaker == "You")
+    assert you == "remote one is speaking now local reply here"
+    assert stored.capture_health["mic_echo_sentences_removed"] == 0
+    out = capsys.readouterr().out
+    assert "  → mic echo: skipped (headphones)" in out
+    assert "mic echo: removed" not in out
+
+
+def test_dual_track_headphones_then_speakers_still_removes_echo(
+    meetings_dir, spool_dir, capsys
+):
+    stored = _run_echo_meeting(
+        spool_dir, ("built_in_headphones", "built_in_speakers")
+    )
+    you = [s.text for s in stored.segments if s.speaker == "You"]
+    assert you == ["local reply here"]
+    assert stored.capture_health["mic_echo_sentences_removed"] == 1
+    assert "skipped (headphones)" not in capsys.readouterr().out
 
 
 def test_dual_track_streams_both_transcripts_and_never_loads_system_in_engine(

@@ -208,3 +208,6 @@ MEETING_ECHO_MIN_COVERAGE = 0.8      # share of mic words matched in order
 MEETING_ECHO_MAX_LEAD_SECONDS = 0.25  # mic word may precede system word by
 MEETING_ECHO_MAX_LAG_SECONDS = 0.75   # mic word may trail system word by
 MEETING_ECHO_WINDOW_SECONDS = 1.0     # system words searched around a sentence
+MEETING_ECHO_MIN_WORDS = 3            # shorter mic sentences are never removed
+                                      # (a short real reply is kept; skipped
+                                      # entirely on wired headphones)

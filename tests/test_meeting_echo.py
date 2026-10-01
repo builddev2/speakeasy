@@ -112,11 +112,31 @@ def test_mic_leading_system_beyond_gate_is_kept():
     assert candidates[0].lag_seconds == -0.5
 
 
-def test_short_sentence_needs_every_word():
+def test_short_sentence_is_kept_even_with_perfect_match():
     system = [sentence(5.0, 5.6, "okay yeah")]
-    assert remove_mic_echo([sentence(5.05, 5.65, "okay yeah")], system)[0] == []
-    partial = sentence(5.05, 5.65, "okay sure")
-    assert remove_mic_echo([partial], system)[0] == [partial]
+    short = sentence(5.05, 5.65, "okay yeah")
+    kept, candidates = remove_mic_echo([short], system)
+    assert kept == [short]
+    assert len(candidates) == 1
+    assert candidates[0].words == 2 and candidates[0].coverage == 1.0
+    assert candidates[0].removed is False
+
+
+def test_three_word_perfect_echo_is_removed():
+    system = [sentence(5.0, 5.9, "ship it friday")]
+    kept, candidates = remove_mic_echo([sentence(5.05, 5.95, "ship it friday")], system)
+    assert kept == []
+    assert candidates[0].removed
+
+
+def test_min_words_setting_changes_result(monkeypatch):
+    system = [sentence(5.0, 5.6, "okay yeah")]
+    short = sentence(5.05, 5.65, "okay yeah")
+    monkeypatch.setattr(config, "MEETING_ECHO_MIN_WORDS", 2)
+    assert remove_mic_echo([short], system)[0] == []
+    monkeypatch.setattr(config, "MEETING_ECHO_MIN_WORDS", 4)
+    three = sentence(5.0, 5.9, "ship it friday")
+    assert remove_mic_echo([three], [sentence(5.0, 5.9, "ship it friday")])[0] == [three]
 
 
 def test_subword_tokens_join_into_words():

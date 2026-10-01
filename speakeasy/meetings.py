@@ -23,8 +23,11 @@ AlignedSentence without importing it.
 
 import json
 import re
+import statistics
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from datetime import datetime
+from difflib import SequenceMatcher
 
 from . import config, settings
 
@@ -424,6 +427,95 @@ def known_speaker_segments(
         else:
             segments.append(MeetingSegment(speaker=speaker, start=start, end=end, text=text))
     return segments
+
+
+_ECHO_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+@dataclass(frozen=True)
+class EchoCandidate:
+    """Content-free match statistics for one mic sentence (for calibration
+    logs); never carries transcript text."""
+    words: int
+    coverage: float
+    lag_seconds: float
+    removed: bool
+
+
+def _timed_words(sentence, offset: float) -> list[tuple[str, float]]:
+    """Normalized (word, start) pairs on the shared meeting timeline.
+
+    parakeet tokens are sub-word pieces; a piece whose text starts with a
+    space begins a new word."""
+    tokens = getattr(sentence, "tokens", None) or []
+    if not tokens:
+        start = float(sentence.start) + offset
+        return [(w, start) for w in _ECHO_WORD_RE.findall(sentence.text.lower())]
+    pieces: list[list] = []
+    for token in tokens:
+        if not pieces or token.text[:1].isspace():
+            pieces.append([token.text, float(token.start) + offset])
+        else:
+            pieces[-1][0] += token.text
+    return [
+        (w, start)
+        for text, start in pieces
+        for w in _ECHO_WORD_RE.findall(text.lower())
+    ]
+
+
+def remove_mic_echo(
+    mic_sentences, system_sentences, *, mic_offset: float = 0.0,
+    system_offset: float = 0.0,
+) -> tuple[list, list[EchoCandidate]]:
+    """Drop mic sentences that are the system track replayed through the
+    speakers (speaker-mode bleed), keeping everything else in order.
+
+    A sentence is echo only if >= MEETING_ECHO_MIN_COVERAGE of its words
+    match nearby system words in order and the median mic-minus-system lag
+    of those matches lies within [-MAX_LEAD, +MAX_LAG]. Text alone cannot
+    tell echo from a deliberate repeat; arrival time can.
+    """
+    system_words = sorted(
+        (w for s in system_sentences or [] for w in _timed_words(s, system_offset)),
+        key=lambda item: item[1],
+    )
+    starts = [t for _, t in system_words]
+    window = config.MEETING_ECHO_WINDOW_SECONDS
+    kept, candidates = [], []
+    for sentence in mic_sentences or []:
+        mic_words = _timed_words(sentence, mic_offset)
+        if not mic_words or not system_words:
+            kept.append(sentence)
+            continue
+        lo = bisect_left(starts, mic_words[0][1] - window)
+        hi = bisect_right(starts, mic_words[-1][1] + window)
+        near = system_words[lo:hi]
+        matcher = SequenceMatcher(
+            None, [w for w, _ in mic_words], [w for w, _ in near], autojunk=False
+        )
+        lags = [
+            mic_words[block.a + k][1] - near[block.b + k][1]
+            for block in matcher.get_matching_blocks()
+            for k in range(block.size)
+        ]
+        if not lags:
+            kept.append(sentence)
+            continue
+        coverage = len(lags) / len(mic_words)
+        lag = statistics.median(lags)
+        removed = (
+            coverage >= config.MEETING_ECHO_MIN_COVERAGE
+            and -config.MEETING_ECHO_MAX_LEAD_SECONDS
+            <= lag
+            <= config.MEETING_ECHO_MAX_LAG_SECONDS
+        )
+        candidates.append(
+            EchoCandidate(len(mic_words), round(coverage, 2), round(lag, 2), removed)
+        )
+        if not removed:
+            kept.append(sentence)
+    return kept, candidates
 
 
 def shift_segments(

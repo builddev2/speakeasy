@@ -196,3 +196,15 @@ FUZZY_MIN_TOKEN_LEN = 3      # ignore very short tokens (too collision-prone)
 # Split on real pauses and cap length so search can cite a moment.
 KNOWN_SPEAKER_MAX_GAP_SECONDS = 1.5
 KNOWN_SPEAKER_MAX_SEGMENT_SECONDS = 60.0
+
+# Speaker bleed: with system capture active, far-end audio played through the
+# Mac speakers is also heard by the mic and was transcribed twice. A mic
+# sentence is dropped as echo only when most of its words match system-track
+# words in order AND those words arrive at about the same moment — acoustic
+# bleed lags by tens of ms, while a person repeating a phrase speaks after the
+# other side finishes. Calibrated on a speaker-mode test recording (plan
+# 2026-09-30-meeting-echo-removal, Task 5).
+MEETING_ECHO_MIN_COVERAGE = 0.8      # share of mic words matched in order
+MEETING_ECHO_MAX_LEAD_SECONDS = 0.25  # mic word may precede system word by
+MEETING_ECHO_MAX_LAG_SECONDS = 0.75   # mic word may trail system word by
+MEETING_ECHO_WINDOW_SECONDS = 1.0     # system words searched around a sentence

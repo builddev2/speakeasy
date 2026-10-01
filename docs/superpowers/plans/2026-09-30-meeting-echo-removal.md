@@ -791,3 +791,15 @@ Still to do for Task 5: the headphones run, and opening a real meeting in the Me
 **Headphones run (user, Terminal.app, 2026-09-30, `--no-own`, meeting 20260930-204743-3594): passed.** Wired headphones on the Mac's jack, with the headset mic as input. `output_route_start` and `output_route_stop` were both `built_in_headphones`. The engine logged `mic echo: skipped (headphones)`, and `mic_echo_sentences_removed` was 0. No "You" segments, so 0 of 8 remote sentences were duplicated. Capture was clean: `mic_and_system`, `selected`, no dropped frames and no writer lag. Offsets: mic 0.0 s, system 0.115 s. Own utterances were not tested, because `say` would also play into the headphones.
 
 **Speaker 1 merging, cause found in code:** `diarized_segments` (meetings.py ~line 380) joins consecutive sentences with the same label and the same overlap flag up to `DIARIZED_MAX_SEGMENT_SECONDS` (60 s), with **no gap limit**. The mic track's `known_speaker_segments` also splits at `KNOWN_SPEAKER_MAX_GAP_SECONDS` (1.5 s). In this run, remote 1–7 (2.68–61.00 s, gaps of about 5 s) became one segment. Remote 8 started a new one only because it would have gone past 60 s. `merge_tracks` sorts by start, so in a real meeting a 60 s remote block is listed before all the "You" replies made during it. This is not caused by echo removal or the drift fix: it predates this branch.
+
+**Speaker 1 merging in real meetings (2026-09-30).** I opened the Meetings window in the installed app with full-screen control. The most recent meeting with speakers is 20260929-223110-3b95, recorded before this branch. I measured it with a read-only, numbers-only sqlite probe (no text):
+
+| Meeting | Remote segments | Median length | Max | ≥30 s | "You" segments starting inside a remote segment |
+|---|---|---|---|---|---|
+| 3b95 (29 min) | 28 | 57.0 s | 222.8 s | 25 | 56 of 64 |
+| c139 (18 min) | 37 | 6.2 s | 189.8 s | 6 | 15 of 29 |
+
+- Confirmed: with no gap limit, remote turns merge up to the 60 s cap, so in the transcript the user's replies are listed after the block of remote speech they answered. Reading order breaks in long two-way meetings.
+- Both meetings also have remote segments longer than 60 s (up to 222.8 s). Their health has no `diarization_status`, so they were probably processed by a build without the 60 s cap (7e5ba8b, 29 Sep 08:53). That is not proven. The cap compares a sentence's end with the segment's start, so a single sentence longer than 60 s is not split either.
+- **Proposed follow-up (needs the user's decision, separate plan):** in `diarized_segments`, also start a new segment after a silence gap (for example `KNOWN_SPEAKER_MAX_GAP_SECONDS` = 1.5 s, the same rule as the mic track). Alternatively, split a remote segment where a "You" segment starts inside it, in `merge_tracks`. Stored meetings would stay as they are unless reprocessed.
+- Still open for Task 5 Step 5: no real meeting with speakers has been recorded since the install (19:53), so a live look at echo removal in a real call is still to do. The synthetic speaker run (0 of 8 duplicates) is the evidence so far.

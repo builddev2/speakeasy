@@ -409,14 +409,15 @@ class EchoDualTranscriber:
     """Mic track = one own sentence + a bleed copy of the remote sentence.
     The recorder fake puts system at offset 0.5 s, so the system sentence at
     track-local 0.0 lands at 0.5 on the meeting timeline; the mic copy
-    starts at 0.55 (50 ms acoustic lag)."""
+    starts at 0.85 (0.35 s lag on the shifted timeline;
+    without the 0.5 s offset it would be 0.85 s, outside the lag gate)."""
 
     def transcribe_long(self, audio, *, progress, cancel=None):
         progress(1.0)
         result = type("Result", (), {})()
         if float(np.mean(audio)) > 0.001:
             result.sentences = [
-                _spaced_sentence(0.55, 1.35, "remote one is speaking now"),
+                _spaced_sentence(0.85, 1.65, "remote one is speaking now"),
                 _spaced_sentence(3.0, 3.8, "local reply here"),
             ]
         else:

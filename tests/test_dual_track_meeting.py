@@ -25,6 +25,8 @@ class FakeMic:
         self.writer_failed = False
         self.writer_lagged = False
         self.input_overflows = 0
+        self.gap_fills = 0
+        self.gap_fill_ms = 0
         self.timeline = {"error_ms": 0}
         self.arrival_timeline = {"error_ms": 0}
         self.started = False
@@ -211,6 +213,8 @@ def test_writer_health_and_dropped_frames_are_reported_without_content(spool_dir
         "output_route_start",
         "output_route_stop",
         "mic_input_overflows",
+        "mic_gap_fills",
+        "mic_gap_fill_ms",
         "mic_timeline",
         "mic_arrival_timeline",
         "system_timeline",
@@ -456,6 +460,8 @@ def test_forced_close_health_reports_output_route(spool_dir):
 def test_track_timelines_and_mic_overflows_reach_capture_health(spool_dir):
     mic = FakeMic(spool_dir / "mic.wav")
     mic.input_overflows = 3
+    mic.gap_fills = 2
+    mic.gap_fill_ms = 516
     mic.timeline = {"error_ms": 250}
     mic.arrival_timeline = {"error_ms": 251}
     system = FakeSystem()
@@ -467,6 +473,8 @@ def test_track_timelines_and_mic_overflows_reach_capture_health(spool_dir):
     health = recorder.stop().health.to_dict()
 
     assert health["mic_input_overflows"] == 3
+    assert health["mic_gap_fills"] == 2
+    assert health["mic_gap_fill_ms"] == 516
     assert health["mic_timeline"] == {"error_ms": 250}
     assert health["mic_arrival_timeline"] == {"error_ms": 251}
     assert health["system_timeline"] == {"error_ms": 0}

@@ -100,6 +100,8 @@ def test_timeline_fields_survive_the_capture_health_whitelist():
 
     health = {
         "mic_input_overflows": 2,
+        "mic_gap_fills": 1,
+        "mic_gap_fill_ms": 258,
         "mic_timeline": {"error_ms": 250},
         "mic_arrival_timeline": {"error_ms": 251},
         "system_timeline": {"error_ms": 0},

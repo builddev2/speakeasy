@@ -268,6 +268,171 @@ def test_input_overflow_flags_and_timelines_are_recorded(spool_dir, fake_stream)
 
     assert rec.input_overflows == 1
     assert rec.timeline["observations"] == 3
-    assert rec.timeline["max_jump_ms"] == 250
-    assert rec.timeline["max_jump_at_s"] == 0.2
+    # The 250 ms loss is repaired with silence, so the timeline (measured
+    # after the fill) sees a continuous track.
+    assert rec.gap_fills == 1
+    assert rec.gap_fill_ms == 250
+    assert abs(rec.timeline["max_jump_ms"]) <= 20
     assert rec.arrival_timeline["observations"] == 3
+
+
+class _Timing:
+    def __init__(self, adc):
+        self.inputBufferAdcTime = adc
+        self.currentTime = adc + 0.01 if isinstance(adc, (int, float)) else None
+
+
+def _wav_samples(path):
+    with wave.open(str(path)) as w:
+        return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+
+
+def test_skipped_mic_cycle_is_filled_with_silence(spool_dir, fake_stream):
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(50.1), None)
+    # 258 ms of input lost: the ADC clock jumps, the sample count does not.
+    rec._on_audio(_block(), 1600, _Timing(50.458), None)
+    path = rec.stop()
+
+    samples = _wav_samples(path)
+    assert len(samples) == 3 * 1600 + 4128
+    assert (samples[:3200] == 1000).all()
+    assert (samples[3200:3200 + 4128] == 0).all()
+    assert (samples[3200 + 4128:] == 1000).all()
+    assert rec.gap_fills == 1
+    assert rec.gap_fill_ms == 258
+    assert abs(rec.timeline["error_ms"]) <= 20
+    path.unlink()
+
+
+def test_gap_fill_reaches_asr_chunks_at_the_same_position(
+    spool_dir, fake_stream, monkeypatch
+):
+    monkeypatch.setattr(config, "MEETING_CHUNK_SECONDS", 1.0)
+    monkeypatch.setattr(config, "MEETING_OVERLAP_SECONDS", 0.0)
+    session = MeetingASRSession(max_chunks=8)
+    rec = MeetingRecorder()
+    rec.configure_pretranscription(session)
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(50.358), None)  # 258 ms lost
+    path = rec.stop()
+
+    chunks = []
+    while True:
+        try:
+            chunks.append(session.get(timeout=0))
+        except Exception:
+            break
+    pcm = b"".join(p for _, p in chunks)
+    assert chunks[0][0] == 0
+    samples = np.frombuffer(pcm, dtype=np.int16)
+    assert len(samples) == 2 * 1600 + 4128
+    assert (samples[:1600] == 1000).all()
+    assert (samples[1600:1600 + 4128] == 0).all()
+    assert (samples[1600 + 4128:] == 1000).all()
+    path.unlink()
+
+
+@pytest.mark.parametrize(
+    "second_adc, expected_fills",
+    [
+        (50.1 + 0.019, 0),   # below the 20 ms threshold
+        (50.1 + 0.021, 1),   # just above it
+        (50.05, 0),          # ADC earlier than expected: never acts
+        (None, 0),           # missing ADC time: no repair
+        (0, 0),              # invalid ADC time: no repair
+    ],
+)
+def test_gap_fill_threshold_and_invalid_clocks(
+    spool_dir, fake_stream, second_adc, expected_fills
+):
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(second_adc), None)
+    path = rec.stop()
+
+    assert rec.gap_fills == expected_fills
+    samples = _wav_samples(path)
+    if expected_fills == 0:
+        assert len(samples) == 3200
+        assert rec.gap_fill_ms == 0
+    else:
+        assert len(samples) > 3200
+    path.unlink()
+
+
+def test_gap_fill_never_uses_arrival_time(spool_dir, fake_stream, monkeypatch):
+    # A late-but-complete callback is not lost audio.
+    ticks = iter([1_000_000_000, 9_000_000_000])
+    monkeypatch.setattr(
+        meeting_recorder.monotonic_time, "monotonic_ns", lambda: next(ticks)
+    )
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, None, None)
+    rec._on_audio(_block(), 1600, None, None)
+    path = rec.stop()
+    assert rec.gap_fills == 0
+    path.unlink()
+
+
+def test_gap_fill_state_resets_on_start(spool_dir, fake_stream):
+    rec = MeetingRecorder()
+    rec.start()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._on_audio(_block(), 1600, _Timing(50.358), None)
+    rec.stop().unlink()
+    assert rec.gap_fills == 1
+
+    rec.start()
+    assert rec.gap_fills == 0 and rec.gap_fill_ms == 0
+    # New recording, new ADC origin: a distant first time is not a gap.
+    rec._on_audio(_block(), 1600, _Timing(900.0), None)
+    path = rec.stop()
+    assert rec.gap_fills == 0
+    path.unlink()
+
+
+def test_gap_fill_queue_full_is_retried_on_the_next_block(spool_dir, fake_stream):
+    rec = MeetingRecorder()
+    rec.start()
+    real_queue = rec._queue
+
+    class FlakyQueue:
+        failed = False
+
+        def put_nowait(self, item):
+            if isinstance(item, int) and not self.failed:
+                self.failed = True
+                raise meeting_recorder.queue.Full
+            real_queue.put_nowait(item)
+
+        def qsize(self):
+            return real_queue.qsize()
+
+    flaky = FlakyQueue()
+    rec._on_audio(_block(), 1600, _Timing(50.0), None)
+    rec._queue = flaky
+    # Fill hits Full; the block itself is queued normally.
+    rec._on_audio(_block(), 1600, _Timing(50.358), None)
+    assert flaky.failed
+    assert rec.gap_fills == 0
+    assert rec.gap_fill_ms == 0
+    assert rec.elapsed_seconds == pytest.approx(0.2)
+
+    # frames did not move for the failed fill, so the same 258 ms gap is
+    # still owed and is retried here.
+    rec._on_audio(_block(), 1600, _Timing(50.458), None)
+    rec._queue = real_queue
+    path = rec.stop()
+
+    assert rec.gap_fills == 1
+    assert rec.gap_fill_ms == 258
+    samples = _wav_samples(path)
+    assert len(samples) == 3 * 1600 + 4128
+    assert (samples[3200:3200 + 4128] == 0).all()
+    path.unlink()

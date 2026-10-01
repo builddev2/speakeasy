@@ -55,6 +55,8 @@ _CAPTURE_HEALTH_KEYS = {
     "output_route_start",
     "output_route_stop",
     "mic_input_overflows",
+    "mic_gap_fills",
+    "mic_gap_fill_ms",
     "mic_timeline",
     "mic_arrival_timeline",
     "system_timeline",

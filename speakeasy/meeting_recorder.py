@@ -43,6 +43,11 @@ _QUEUE_MAX_BLOCKS = -(
 )
 _WRITER_LAG_BLOCKS = _QUEUE_MAX_BLOCKS * 3 // 4
 _FORCE_CLOSE_WRITER_TIMEOUT_SECONDS = 0.25
+# Core Audio sometimes skips a mic IO cycle (~258 ms) without PortAudio flagging
+# it, leaving every later mic sample early against the system track. ADC-clock
+# gaps this large are filled with silence; below it is clock jitter, which a
+# fill would turn into audible clicks and drift.
+_GAP_FILL_MIN_SECONDS = 0.020
 
 _active_spools: set[Path] = set()
 _active_lock = threading.Lock()
@@ -70,6 +75,8 @@ class MeetingCaptureHealth:
     # Residual-echo debugging: PortAudio input-overflow callbacks and each
     # track's clock-vs-sample-count error (capture_timeline.py).
     mic_input_overflows: int = 0
+    mic_gap_fills: int = 0
+    mic_gap_fill_ms: int = 0
     mic_timeline: dict | None = None
     mic_arrival_timeline: dict | None = None
     system_timeline: dict | None = None
@@ -95,6 +102,8 @@ class MeetingCaptureHealth:
             "output_route_start": self.output_route_start,
             "output_route_stop": self.output_route_stop,
             "mic_input_overflows": self.mic_input_overflows,
+            "mic_gap_fills": self.mic_gap_fills,
+            "mic_gap_fill_ms": self.mic_gap_fill_ms,
             "mic_timeline": self.mic_timeline,
             "mic_arrival_timeline": self.mic_arrival_timeline,
             "system_timeline": self.system_timeline,
@@ -189,7 +198,9 @@ def sweep_spool_dir() -> None:
 class MeetingRecorder:
     def __init__(self) -> None:
         self._stream: sd.InputStream | None = None
-        self._queue: queue.Queue[bytes | None] = queue.Queue(_QUEUE_MAX_BLOCKS)
+        self._queue: queue.Queue[bytes | int | None] = queue.Queue(
+            _QUEUE_MAX_BLOCKS
+        )
         self._writer: threading.Thread | None = None
         self._wav: wave.Wave_write | None = None
         self._path: Path | None = None
@@ -202,6 +213,9 @@ class MeetingRecorder:
         self._writer_lagged = False
         self._pretranscription: MeetingASRSession | None = None
         self._input_overflows = 0
+        self._first_adc: float | None = None
+        self._gap_fills = 0
+        self._gap_fill_frames = 0
         self._adc_timeline = CaptureTimeline(config.SAMPLE_RATE)
         self._arrival_timeline = CaptureTimeline(config.SAMPLE_RATE)
 
@@ -236,6 +250,14 @@ class MeetingRecorder:
     @property
     def input_overflows(self) -> int:
         return self._input_overflows
+
+    @property
+    def gap_fills(self) -> int:
+        return self._gap_fills
+
+    @property
+    def gap_fill_ms(self) -> int:
+        return round(self._gap_fill_frames * 1000 / config.SAMPLE_RATE)
 
     @property
     def timeline(self) -> dict:
@@ -278,6 +300,9 @@ class MeetingRecorder:
         self._level = 0.0
         self._first_buffer_ns = None
         self._input_overflows = 0
+        self._first_adc = None
+        self._gap_fills = 0
+        self._gap_fill_frames = 0
         self._adc_timeline = CaptureTimeline(config.SAMPLE_RATE)
         self._arrival_timeline = CaptureTimeline(config.SAMPLE_RATE)
         self._writer = threading.Thread(
@@ -316,6 +341,26 @@ class MeetingRecorder:
             # shorter with no other trace.
             self._input_overflows += 1
         arrived_ns = monotonic_time.monotonic_ns()
+        adc_time = getattr(time, "inputBufferAdcTime", None)
+        adc_valid = isinstance(adc_time, (int, float)) and adc_time > 0
+        if adc_valid:
+            if self._first_adc is None:
+                self._first_adc = float(adc_time)
+            # ADC clock only: a late-but-complete callback must not look like
+            # lost audio. _frames already includes earlier inserted silence.
+            gap = (adc_time - self._first_adc) - self._frames / config.SAMPLE_RATE
+            if gap >= _GAP_FILL_MIN_SECONDS:
+                fill = round(gap * config.SAMPLE_RATE)
+                try:
+                    # An int, so the callback never allocates the zeros; the
+                    # writer builds them.
+                    self._queue.put_nowait(fill)
+                except queue.Full:
+                    pass  # _frames didn't move, so the next block retries
+                else:
+                    self._frames += fill
+                    self._gap_fills += 1
+                    self._gap_fill_frames += fill
         try:
             self._queue.put_nowait(bytes(indata))
         except queue.Full:
@@ -324,8 +369,7 @@ class MeetingRecorder:
             return
         if self._queue.qsize() >= _WRITER_LAG_BLOCKS:
             self._writer_lagged = True
-        adc_time = getattr(time, "inputBufferAdcTime", None)
-        if isinstance(adc_time, (int, float)) and adc_time > 0:
+        if adc_valid:
             self._adc_timeline.observe(float(adc_time), self._frames)
         self._arrival_timeline.observe(arrived_ns / 1e9, self._frames)
         if self._first_buffer_ns is None:
@@ -340,23 +384,28 @@ class MeetingRecorder:
         block = indata[:, 0].astype(np.float32) / 32768.0
         self._level = float(np.sqrt(np.mean(block**2)))
 
+    def _write_block(self, block: bytes) -> None:
+        try:
+            self._wav.writeframes(block)
+        except Exception:
+            # Disk full/unwritable: keep draining so stop() doesn't
+            # hang; the shortfall shows up as a shorter WAV.
+            self._writer_failed = True
+            if self._pretranscription is not None:
+                self._pretranscription.cancel()
+        else:
+            if self._pretranscription is not None:
+                self._pretranscription.add_pcm(block)
+
     def _drain(self) -> None:
         try:
             while True:
                 block = self._queue.get()
                 if block is None:
                     return
-                try:
-                    self._wav.writeframes(block)
-                except Exception:
-                    # Disk full/unwritable: keep draining so stop() doesn't
-                    # hang; the shortfall shows up as a shorter WAV.
-                    self._writer_failed = True
-                    if self._pretranscription is not None:
-                        self._pretranscription.cancel()
-                else:
-                    if self._pretranscription is not None:
-                        self._pretranscription.add_pcm(block)
+                if isinstance(block, int):
+                    block = bytes(2 * block)  # int16 silence for a lost cycle
+                self._write_block(block)
         finally:
             wav, self._wav = self._wav, None
             if wav is not None:
@@ -518,6 +567,8 @@ class MeetingCaptureRecorder:
             output_route_start=self.system.output_route_start,
             output_route_stop=self.system.output_route_stop,
             mic_input_overflows=self.mic.input_overflows,
+            mic_gap_fills=self.mic.gap_fills,
+            mic_gap_fill_ms=self.mic.gap_fill_ms,
             mic_timeline=self.mic.timeline,
             mic_arrival_timeline=self.mic.arrival_timeline,
             system_timeline=self.system.timeline,
@@ -637,6 +688,8 @@ class MeetingCaptureRecorder:
                 system_result.output_route_stop if system_result else None
             ),
             mic_input_overflows=self.mic.input_overflows,
+            mic_gap_fills=self.mic.gap_fills,
+            mic_gap_fill_ms=self.mic.gap_fill_ms,
             mic_timeline=self.mic.timeline,
             mic_arrival_timeline=self.mic.arrival_timeline,
             system_timeline=system_result.timeline if system_result else None,
@@ -712,6 +765,8 @@ class MeetingCaptureRecorder:
             output_route_start=system_result.output_route_start,
             output_route_stop=system_result.output_route_stop,
             mic_input_overflows=self.mic.input_overflows,
+            mic_gap_fills=self.mic.gap_fills,
+            mic_gap_fill_ms=self.mic.gap_fill_ms,
             mic_timeline=self.mic.timeline,
             mic_arrival_timeline=self.mic.arrival_timeline,
             system_timeline=system_result.timeline,

@@ -181,6 +181,10 @@ _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05
 
 
+def _casefold(value):
+    return value.casefold() if isinstance(value, str) else value
+
+
 def connect(path: Path | None = None) -> sqlite3.Connection:
     path = Path(path) if path is not None else settings.library_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,6 +194,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
         os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
     conn = sqlite3.connect(path, timeout=5.0)
     conn.row_factory = sqlite3.Row
+    # SQLite's lower()/LIKE fold ASCII only; title filters need "Ë" == "ë".
+    conn.create_function("casefold", 1, _casefold, deterministic=True)
     conn.execute("PRAGMA busy_timeout = 5000")
     _set_wal_mode(conn)
     conn.execute("PRAGMA foreign_keys = ON")

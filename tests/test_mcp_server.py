@@ -250,6 +250,7 @@ def test_subprocess_round_trip_every_tool(tmp_path):
         ("list_tags", {}), ("list_people", {}),
         ("save_notes", {"id": mid, "summary": "Agreed", "tags": ["budget"]}),
         ("get_meeting", {"id": "20200101-000000-abcd"}),
+        ("list_meetings", {"title": "BUDGET"}), ("list_meetings", {"title": "todd"}),
     ))
     assert proc.returncode == 0, proc.stderr
     assert by_id[0]["result"]["serverInfo"]["name"] == "speakeasy"
@@ -261,6 +262,8 @@ def test_subprocess_round_trip_every_tool(tmp_path):
     assert _payload(by_id[5]) == {"events": []}
     assert _payload(by_id[8])["summary"] == "Agreed"
     assert by_id[9]["result"]["isError"] is True
+    assert [m["id"] for m in _payload(by_id[10])["meetings"]] == [mid]
+    assert _payload(by_id[11])["meetings"] == []
     assert lib.get_meeting(mid).notes.updated_by == "claude"
     stamp = tmp_path / "Library/Application Support/Speakeasy/mcp_last_used"
     assert stamp.read_text().endswith("Z")

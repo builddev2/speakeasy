@@ -58,6 +58,29 @@ def test_list_meetings_shape_and_paging(lib, tools):
     assert last["next_offset"] is None
 
 
+def test_list_meetings_title_filter_and_paging(lib, tools):
+    ids = [_seed(lib, day=d, title=t) for d, t in
+           ((20, "1on1 Todd TEST"), (21, "Budget review"), (22, "Todd standup"),
+            (23, "todd retro"))]
+    page = tools["list_meetings"].run({"title": "TODD", "limit": 2})
+    assert [m["title"] for m in page["meetings"]] == ["todd retro", "Todd standup"]
+    assert page["next_offset"] == 2
+    rest = tools["list_meetings"].run({"title": "TODD", "limit": 2, "offset": 2})
+    assert [m["id"] for m in rest["meetings"]] == [ids[0]]
+    assert rest["next_offset"] is None
+    assert [m["id"] for m in tools["list_meetings"].run({"title": "test 1on1"})["meetings"]] == [ids[0]]
+    assert tools["list_meetings"].run({"title": "nobody"})["meetings"] == []
+
+
+def test_title_lookup_is_described(tools):
+    listing = tools["list_meetings"].definition()
+    assert "title" in listing["inputSchema"]["properties"]
+    assert "find a meeting by name" in listing["description"]
+    search = tools["search_meetings"].definition()
+    assert "title" not in search["inputSchema"]["properties"]
+    assert "titles aren't searched: use list_meetings with title" in search["description"]
+
+
 def test_list_meetings_coerces_and_clamps_loose_numbers(lib, tools, monkeypatch):
     _seed(lib)
     assert len(tools["list_meetings"].run({"limit": "10"})["meetings"]) == 1

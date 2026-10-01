@@ -389,3 +389,45 @@ def test_list_meetings_query_count_does_not_grow_with_rows(library_path, monkeyp
     monkeypatch.undo()
     assert all(r.tags == ["a", "B"] and r.people == ["a", "B"] for r in rows)
     assert sum(s.lstrip().upper().startswith("SELECT") for s in statements) == 1
+
+
+def _titled(lib, *titles):
+    return {t: lib.save_meeting(_new(started=datetime(2026, 9, 10 + i, 9, 0, tzinfo=EDT),
+                                     title=t))
+            for i, t in enumerate(titles)}
+
+
+def test_list_meetings_title_words_any_order_any_case(library_path):
+    lib = MeetingLibrary()
+    ids = _titled(lib, "1on1 Todd TEST", "Todd standup", "Budget review")
+    assert [m.meeting_id for m in lib.list_meetings(title="todd 1on1")] == [ids["1on1 Todd TEST"]]
+    assert [m.title for m in lib.list_meetings(title="TODD")] == ["Todd standup", "1on1 Todd TEST"]
+    assert lib.list_meetings(title="todd review") == []
+
+
+def test_list_meetings_title_wildcards_are_literal(library_path):
+    lib = MeetingLibrary()
+    _titled(lib, "1000 things", "axb sync", "a_b sync", "100% done")
+    assert [m.title for m in lib.list_meetings(title="100%")] == ["100% done"]
+    assert [m.title for m in lib.list_meetings(title="a_b")] == ["a_b sync"]
+
+
+def test_list_meetings_title_folds_non_ascii_case(library_path):
+    lib = MeetingLibrary()
+    _titled(lib, "ZOË sync", "Zoe sync")
+    assert [m.title for m in lib.list_meetings(title="zoë")] == ["ZOË sync"]
+
+
+def test_list_meetings_title_combines_with_date_and_tag(library_path):
+    lib = MeetingLibrary()
+    ids = _titled(lib, "Todd one", "Todd two", "Todd three")
+    lib.save_notes(ids["Todd two"], tags=["vfa"])
+    lib.save_notes(ids["Todd three"], tags=["vfa"])
+    assert [m.title for m in lib.list_meetings(title="todd", tag="vfa")] == ["Todd three", "Todd two"]
+    assert [m.title for m in lib.list_meetings(title="todd", tag="vfa", to_date="2026-09-11")] == ["Todd two"]
+
+
+def test_list_meetings_blank_title_is_no_filter(library_path):
+    lib = MeetingLibrary()
+    _titled(lib, "One", "Two")
+    assert len(lib.list_meetings(title="   ")) == 2

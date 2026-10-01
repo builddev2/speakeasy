@@ -195,6 +195,7 @@ def build_tools(library) -> dict[str, Tool]:
         offset = _int(args, "offset", 0, 0, 1_000_000)
         rows = library.list_meetings(from_date=start, to_date=end,
                                      tag=_text(args, "tag"), person=_text(args, "person"),
+                                     title=_text(args, "title"),
                                      limit=limit + 1, offset=offset)
         return {
             "meetings": [{
@@ -286,8 +287,11 @@ def build_tools(library) -> dict[str, Tool]:
     specs = [
         ("list_meetings",
          "List saved meetings, newest first, with date, duration, speakers, tags "
-         "and whether a summary exists. No transcript text.",
+         "and whether a summary exists. No transcript text. Filter by title words "
+         "to find a meeting by name.",
          {**_FILTERS,
+          "title": {"type": "string", "description": "Words that must all appear in "
+                    "the meeting title, any order, case-insensitive."},
           "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
           "offset": {"type": "integer", "minimum": 0, "default": 0}}, [], list_meetings, True),
         ("get_meeting",
@@ -296,7 +300,8 @@ def build_tools(library) -> dict[str, Tool]:
          _ID, ["id"], get_meeting, True),
         ("search_meetings",
          "Full-text search across transcripts and notes. Returns ranked snippets "
-         "(matches in **bold**) with the meeting id and time offset.",
+         "(matches in **bold**) with the meeting id and time offset. Meeting titles "
+         "aren't searched: use list_meetings with title.",
          {"query": {"type": "string"}, **_FILTERS,
           "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
          ["query"], search_meetings, True),

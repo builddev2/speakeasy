@@ -285,9 +285,10 @@ def _segment(row) -> MeetingSegment:
     )
 
 
-def meeting_filters(from_date=None, to_date=None, tag=None, person=None):
+def meeting_filters(from_date=None, to_date=None, tag=None, person=None, title=None):
     """SQL WHERE fragments over alias `m` plus parameters; shared by list
-    and search so both filter identically."""
+    and search so both filter identically. `title`: every whitespace-separated
+    word must appear in the title, any order, case-folded."""
     clauses, params = [], []
     lower, upper = local_day_bounds(from_date, to_date)
     if lower:
@@ -309,6 +310,10 @@ def meeting_filters(from_date=None, to_date=None, tag=None, person=None):
             " (p.display_name = ? COLLATE NOCASE OR p.email = ?))"
         )
         params += [person.strip(), person.strip()]
+    for word in (title or "").split():
+        # instr, not LIKE: '%' and '_' in a title are ordinary characters.
+        clauses.append("instr(casefold(m.title), ?) > 0")
+        params.append(word.casefold())
     return (" AND ".join(clauses) or "1"), params
 
 
@@ -543,8 +548,8 @@ class MeetingLibrary:
             )
 
     def list_meetings(self, *, from_date=None, to_date=None, tag=None,
-                      person=None, limit=100, offset=0) -> list[MeetingSummary]:
-        where, params = meeting_filters(from_date, to_date, tag, person)
+                      person=None, title=None, limit=100, offset=0) -> list[MeetingSummary]:
+        where, params = meeting_filters(from_date, to_date, tag, person, title)
         limit = max(1, min(int(limit), 500))
         with self._transaction() as conn:
             rows = conn.execute(

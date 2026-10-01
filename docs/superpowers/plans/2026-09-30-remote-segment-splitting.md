@@ -340,8 +340,33 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
 - Step 2: merged to master (9c0aa8c, 824 passed on the merge), pushed, installed
   with `scripts/build_app.sh --install` and relaunched (process running). Steps 3-4
   (live check from Terminal.app, first real meeting probe): not yet done.
+- Step 3 live check (user, Terminal.app, 2026-10-01, meeting 20261001-002557-ea4c,
+  temp HOME, installed build 9c0aa8c): **splitting passed; own speech 4 of 5.**
+  - Segment order: all 8 remote sentences are separate Speaker 1 segments, about
+    5 s apart (2.50, 12.58, 21.22, 30.82, 38.90, 48.02, 56.42, 65.22 s), interleaved
+    in start order with own1 (8.88), own2 (26.96), "okay yeah" (36.88) and the
+    repeat (44.80). Before this change remote 1-7 were one 2.8-61.3 s segment.
+  - Echo: 8 candidates removed (8 of 12 mic sentences), coverage 0.92-1.00, lag
+    +0.06 s (one +0.02 s). 0 of 8 remote sentences duplicated as "You".
+  - **Talk-over LOST** (best You overlap 0.09). Expected 5 of 5. It is absent from
+    the mic sentences entirely: 12 mic sentences = 8 echo + 4 own, and the
+    remote-7 echo candidate has 13 words, the length of remote 7 alone, so the
+    talk-over was not removed as part of it. This change only touches
+    `diarized_segments`/`align_speakers` `break_at` on the system track, after
+    mic transcription and echo removal, so it cannot drop a mic sentence. Likely
+    cause: the ASR did not transcribe Samantha over Daniel's bleed in this run
+    (the 2026-09-30 run kept it, with 16 mic sentences). Not proven; the audio
+    was deleted with the temp HOME.
+  - Capture clean: `mic_and_system`, `selected`, built-in speakers, no dropped
+    frames, no writer lag, `diarization_status` ok. Offsets mic 0.0 s, system 0.103 s.
+- Step 4: not done. No real meeting recorded since the install (23:56, 30 Sep);
+  newest in the library is still 3b95.
 
 ### TODO / deferred
+- Re-run `scripts/check_mic_echo_live.py` once to see whether the talk-over loss
+  (2026-10-01) repeats. If it does, investigate mic ASR / echo removal for
+  overlapping speech (not this plan's code); keep the run's mic WAV next time.
+- Step 4 probe after the first real two-way meeting.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.
 - Optional: engine test with a nonzero mic offset (low risk: local segments are

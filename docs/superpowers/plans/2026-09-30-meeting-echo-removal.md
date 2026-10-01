@@ -728,7 +728,20 @@ This needs the user and the installed app; it cannot be done by a subagent.
 
 ## Status
 
-- [ ] Task 1  - [ ] Task 2  - [ ] Task 3  - [ ] Task 4  - [ ] Task 5
+- [x] Task 1  - [x] Task 2  - [x] Task 3  - [x] Task 4  - [ ] Task 5
+
+Tasks 1–4 done on 2026-09-30 (commits e90cf5b..4163dfb), each reviewed on Opus with mutation checks; full suite 804 passed. Tests only: nothing has been installed or recorded yet.
+
+Changes from the plan text, decided during review:
+- Task 1: added `test_system_offset_decides_the_result`, `test_mic_offset_decides_the_result` and `test_full_coverage_repeat_beyond_lag_gate_is_kept`. The plan's tests passed even with the offsets ignored or the upper lag bound removed.
+- Task 2: the engine test's mic copy moved from 0.55 s to 0.85 s. At 0.55 s the test passed even with the offsets dropped.
+- Task 3: added tests for the route fields at the live-health and forced-close sites.
+
+**Open decision before Task 5 (final review, Important):** removal never looks at sentence length or output route. A short reply the user really said can be deleted when the remote says the same words at about the same time, even on headphones. Synthetic probes that were all removed: "yeah" with lag −0.20 s, "okay" with lag +0.60 s, "thanks bye", and "yes we should ship it" against "no we should ship it" (coverage 0.80, so the "yes" is lost). Options: keep as planned and measure in Task 5; require ≥3 words; skip removal when the route is `built_in_headphones` at start and stop. Any change also changes `test_short_sentence_needs_every_word`.
+
+Task 5 also checks: whether the lags show the 0.25 s lead allowance can be tightened (bleed can't arrive early); the BuiltIn route falling back to `built_in_speakers`; and `outputRoute()` on real speakers, headphones and Bluetooth.
+
+Deferred minors (left as they are): the coverage boundary (`>=` vs `>`) has no test; the search window and median-vs-min have no test; mic-only meetings lacking `mic_echo_sentences_removed` has no test; the 0.3 log threshold is hard-coded; README/AGENTS.md wording and line wrapping.
 
 ## Out of scope / follow-ups
 

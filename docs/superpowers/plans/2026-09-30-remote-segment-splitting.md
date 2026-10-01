@@ -59,7 +59,7 @@
 - Produces: `align_speakers(sentences, turns, *, break_at: Iterable[float] | None = None) -> list[MeetingSegment]`. `break_at` holds times in the **same timeline as `sentences`** (system-track time, before `shift_segments`).
 - Produces: `config.DIARIZED_MAX_GAP_SECONDS = 1.5`.
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/test_meeting_alignment.py`; it already defines `sentence(start, end, text)` and imports `align_speakers`)
+- [x] **Step 1: Write the failing tests** (append to `tests/test_meeting_alignment.py`; it already defines `sentence(start, end, text)` and imports `align_speakers`)
 
 ```python
 def test_same_speaker_splits_after_pause_longer_than_gap():
@@ -117,19 +117,19 @@ def test_break_at_empty_or_unsorted_is_handled():
     assert [(s.start, s.end) for s in segments] == [(0.0, 1.0), (1.2, 2.0), (2.2, 3.0)]
 ```
 
-- [ ] **Step 2: Update the one existing test that now conflicts.** In `test_token_in_distant_gap_inherits_previous_speaker`, the two sentences are 3 s apart (0-2 s and 5-6 s), so they are now two segments. The test is about attribution, not merging. Replace its two asserts with:
+- [x] **Step 2: Update the one existing test that now conflicts.** In `test_token_in_distant_gap_inherits_previous_speaker`, the two sentences are 3 s apart (0-2 s and 5-6 s), so they are now two segments. The test is about attribution, not merging. Replace its two asserts with:
 
 ```python
     # Both attributed to Speaker 1; the 3 s pause now separates segments.
     assert [s.speaker for s in segments] == ["Speaker 1", "Speaker 1"]
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `.venv/bin/python -B -m pytest tests/test_meeting_alignment.py -v`
 Expected: the gap test FAILs (one merged segment), and the `break_at` tests FAIL with `TypeError: ... unexpected keyword argument 'break_at'`.
 
-- [ ] **Step 4: Add the config constant** to `speakeasy/config.py`, directly below `DIARIZED_MAX_SEGMENT_SECONDS = 60.0`:
+- [x] **Step 4: Add the config constant** to `speakeasy/config.py`, directly below `DIARIZED_MAX_SEGMENT_SECONDS = 60.0`:
 
 ```python
 # Like the mic track, a remote pause longer than this starts a new segment.
@@ -138,7 +138,7 @@ Expected: the gap test FAILs (one merged segment), and the `break_at` tests FAIL
 DIARIZED_MAX_GAP_SECONDS = 1.5
 ```
 
-- [ ] **Step 5: Implement in `speakeasy/meetings.py`**
+- [x] **Step 5: Implement in `speakeasy/meetings.py`**
 
 Signature (line 250):
 
@@ -182,12 +182,12 @@ Replace the merge condition (currently ~380-387) with:
 
 (The `bisect` line means "no break b with last.start < b <= start".) Add `import bisect` to the imports at the top of `meetings.py` in alphabetical order.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -B -m pytest tests/test_meeting_alignment.py tests/test_meetings.py tests/test_dual_track_meeting.py -v`
 Expected: all PASS, including the unchanged `test_diarised_segments_split_at_sixty_seconds` (its gaps are 1 s).
 
-- [ ] **Step 7: Update AGENTS.md.** After the bullet that ends "otherwise a whole meeting would land as one segment timestamped 00:00:00.", add:
+- [x] **Step 7: Update AGENTS.md.** After the bullet that ends "otherwise a whole meeting would land as one segment timestamped 00:00:00.", add:
 
 ```markdown
 - Diarized (remote) segments use the same 1.5 s pause rule
@@ -197,7 +197,7 @@ Expected: all PASS, including the unchanged `test_diarised_segments_split_at_six
   offsets) so replies are not listed after the remote speech they answered.
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add speakeasy/config.py speakeasy/meetings.py tests/test_meeting_alignment.py AGENTS.md
@@ -214,7 +214,7 @@ git commit -m "Split diarized segments on 1.5 s pauses and at break_at times"
 - Consumes: `meetings.align_speakers(sentences, turns, *, break_at=None)` from Task 1, which takes times in system-track time.
 - Consumes: the existing `offsets` dict (`recording.track_offsets_seconds`, keys `"mic"` and `"system"`). Segments returned by `shift_segments` are on the shared timeline.
 
-- [ ] **Step 1: Write the failing test** (append to `tests/test_engine_meeting.py`; `Sentence`, `FakeDualMeetingRecorder`, `InProcessDiarizationRunner`, `MeetingOptions`, `MeetingLibrary`, `_engine` and `_wait_for` already exist there). The recorder fake sets offsets to mic 0.0 and system 0.5.
+- [x] **Step 1: Write the failing test** (append to `tests/test_engine_meeting.py`; `Sentence`, `FakeDualMeetingRecorder`, `InProcessDiarizationRunner`, `MeetingOptions`, `MeetingLibrary`, `_engine` and `_wait_for` already exist there). The recorder fake sets offsets to mic 0.0 and system 0.5.
 
 ```python
 class QuickReplyTranscriber:
@@ -265,12 +265,12 @@ def test_dual_track_splits_remote_speech_where_you_reply(meetings_dir, spool_dir
     engine.shutdown()
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `.venv/bin/python -B -m pytest tests/test_engine_meeting.py::test_dual_track_splits_remote_speech_where_you_reply -v`
 Expected: FAIL. The stored order is `[("Speaker 1", 0.5), ("You", 1.35)]`, because the remote speech merged.
 
-- [ ] **Step 3: Implement in `speakeasy/engine.py`.** Replace the `remote_segments = ...` assignment (the `local_segments` assignment above it stays as it is) with:
+- [x] **Step 3: Implement in `speakeasy/engine.py`.** Replace the `remote_segments = ...` assignment (the `local_segments` assignment above it stays as it is) with:
 
 ```python
                     # "You" starts, in system-track time, end remote
@@ -288,7 +288,7 @@ Expected: FAIL. The stored order is `[("Speaker 1", 0.5), ("You", 1.35)]`, becau
 
 Do not change the mic-only fallback call (~1289) or `evaluate.py`. They get the gap rule from Task 1, and they have no separate "You" track.
 
-- [ ] **Step 4: Run the test to verify it passes, then run the full suite**
+- [x] **Step 4: Run the test to verify it passes, then run the full suite**
 
 Run: `.venv/bin/python -B -m pytest tests/test_engine_meeting.py -v`
 Expected: all PASS, including the existing dual-track and echo tests (their "You" starts fall outside any same-speaker merge).
@@ -296,7 +296,7 @@ Expected: all PASS, including the existing dual-track and echo tests (their "You
 Run (Bash `timeout: 600000`): `.venv/bin/python -B -m pytest -q`
 Expected: all pass (810 + 7 new = 817).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/engine.py tests/test_engine_meeting.py
@@ -307,7 +307,7 @@ git commit -m "Break remote segments where a You segment starts in two-track mee
 
 Reviewer (opus): verify by mutation, then record the results below. Each mutation must make at least one test fail. Clear `__pycache__` and use `python -B` for every run.
 
-- [ ] **Step 1: Mutations**
+- [x] **Step 1: Mutations**
   1. Remove `and start - last.end <= config.DIARIZED_MAX_GAP_SECONDS`. Expect `test_same_speaker_splits_after_pause_longer_than_gap` to fail.
   2. Set `DIARIZED_MAX_GAP_SECONDS` to 1.3. Expect the 1.4 s-merges half of the same test to fail.
   3. Replace the `bisect` condition with `True`. Expect the `break_at` tests and the engine test to fail.
@@ -327,4 +327,23 @@ Reviewer (opus): verify by mutation, then record the results below. Each mutatio
 
 ## Results
 
-(Fill in after execution.)
+Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting`
+(worktree `.claude/worktrees/remote-segment-splitting`).
+
+- Task 1: 7c4df21. Uses the existing `from bisect import bisect_left, bisect_right`
+  in `meetings.py` instead of adding `import bisect` (ruling: matches file idiom).
+- Task 2: d04675c.
+- Full suite: 824 passed (baseline was 817, not the 810 the plan assumed; +7 new).
+- Task 3 Step 1 mutations (final opus review): all 7 caught. Extra: `<=` → `<` on
+  the gap check survives (see TODO); break against `last.end`, gap measured from
+  `end`, and `break_at=None` in the engine were all caught.
+- Steps 2-4 (install, live check, first real meeting): not yet done.
+
+### TODO / deferred
+- Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
+  rule as the mic track); currently unpinned.
+- Optional: engine test with a nonzero mic offset (low risk: local segments are
+  already on the shared timeline).
+- `evaluate.py` attributed WER now counts a "Speaker N" label per extra split, so
+  attributed-WER numbers from before this change are not comparable. Plain WER is
+  unaffected.

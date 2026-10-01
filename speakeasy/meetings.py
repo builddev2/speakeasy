@@ -247,7 +247,7 @@ def render_md(meeting: Meeting) -> str:
 # -- speaker/text alignment -------------------------------------------------
 
 
-def align_speakers(sentences, turns) -> list[MeetingSegment]:
+def align_speakers(sentences, turns, *, break_at=None) -> list[MeetingSegment]:
     """Attribute transcribed sentences to diarization speakers.
 
     `sentences`: time-ordered objects with .start/.end/.tokens (tokens carry
@@ -260,8 +260,13 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
     predecessor's speaker (the diarizer missed a beat mid-utterance more
     often than the room actually changed speakers). Each sentence goes to
     its duration-majority speaker — sentence-level voting absorbs the jitter
-    tokens pick up at turn boundaries. Consecutive same-speaker sentences
-    merge into one segment, and speakers are numbered by first appearance.
+    tokens pick up at turn boundaries.
+    Consecutive same-speaker sentences merge into one segment unless the
+    pause exceeds config.DIARIZED_MAX_GAP_SECONDS, the segment would exceed
+    config.DIARIZED_MAX_SEGMENT_SECONDS, or a `break_at` time (same
+    timeline as `sentences`; the two-track path passes "You" starts) falls
+    after the segment's start and at or before the next piece's start.
+    Speakers are numbered by first appearance.
     """
     if not sentences:
         return []
@@ -336,6 +341,7 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
                 (sentence, tokens, speaker) for tokens, speaker in normalized_runs
             )
 
+    breaks = sorted(break_at or ())
     # Merge consecutive same-speaker sentences; label by first appearance.
     labels: dict[int, str] = {}
     profile_ids: dict[int, str | None] = {}
@@ -377,14 +383,17 @@ def align_speakers(sentences, turns) -> list[MeetingSegment]:
             t.overlap and t.start < end and t.end > start
             for t in related
         )
+        last = segments[-1] if segments else None
         if (
-            segments
-            and segments[-1].speaker == labels[speaker]
-            and segments[-1].overlap == overlap
-            and end - segments[-1].start <= config.DIARIZED_MAX_SEGMENT_SECONDS
+            last is not None
+            and last.speaker == labels[speaker]
+            and last.overlap == overlap
+            and start - last.end <= config.DIARIZED_MAX_GAP_SECONDS
+            and end - last.start <= config.DIARIZED_MAX_SEGMENT_SECONDS
+            and bisect_right(breaks, start) == bisect_right(breaks, last.start)
         ):
-            segments[-1].text = (segments[-1].text + " " + text).strip()
-            segments[-1].end = end
+            last.text = (last.text + " " + text).strip()
+            last.end = end
         else:
             segments.append(
                 MeetingSegment(

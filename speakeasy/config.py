@@ -150,6 +150,10 @@ SPEAKER_MERGE_EMBED_SECONDS = 10.0
 # Diarised (system/remote) segments split at this length, like the mic track,
 # so search can cite a moment; the TEST meeting had one 71.9 s segment.
 DIARIZED_MAX_SEGMENT_SECONDS = 60.0
+# Like the mic track, a remote pause longer than this starts a new segment.
+# Without it, remote turns merged up to the 60 s cap and were listed before
+# the "You" replies made during them (3b95: 56 of 64 replies).
+DIARIZED_MAX_GAP_SECONDS = 1.5
 
 # Cosine-similarity floor for attaching an enrolled local voice profile to a
 # diarized cluster. Below this, keep the anonymous "Speaker N" label.

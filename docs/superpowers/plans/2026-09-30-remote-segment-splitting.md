@@ -449,7 +449,7 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
       Do not widen `MEETING_ECHO_MAX_LEAD_SECONDS` before the cause is known: real
       timeline slips would also misplace "You" segments in the transcript order.
     - **Step 4 instrumentation done (branch `residual-echo-timeline-instrumentation`,
-      2026-10-01; not merged, not installed).** `speakeasy/capture_timeline.py`
+      2026-10-01; not merged; installed 2026-10-01 from 374623d, helper sha1 ab403fe8 matches the tested build).** `speakeasy/capture_timeline.py`
       computes error = (buffer time − first buffer time) − frames before / rate;
       positive = samples missing. Summaries use 30 s window minima (callback delay
       is only ever positive), so `series_ms` shows step vs ramp. New

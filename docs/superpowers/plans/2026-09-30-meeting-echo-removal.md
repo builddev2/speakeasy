@@ -710,6 +710,15 @@ git commit -m "Capture health: record output-route category at meeting start and
 
 ---
 
+### Task 4b: Keep short replies; skip removal on wired headphones (user decision, 2026-09-30)
+
+The final review showed that short replies the user really said could be removed. The user chose: **≥3 words, and skip on headphones.**
+
+- `config.MEETING_ECHO_MIN_WORDS = 3`. A mic sentence with fewer normalized words than this is never removed. It is still kept, and still reported as a candidate if any word matched, with `removed=False`. Read it at call time, like the other thresholds.
+- Engine: when the meeting's `output_route_start` **and** `output_route_stop` are both `"built_in_headphones"`, do not call `remove_mic_echo`. Log a numbers-free line `  → mic echo: skipped (headphones)`, and still record `mic_echo_sentences_removed = 0`. Bluetooth, unknown and None routes still run removal, because Bluetooth may be a speaker.
+- Tests: `test_short_sentence_needs_every_word` becomes a short-sentence-is-kept test ("okay yeah" is kept even with a perfect match). Add a test that a 3-word perfect echo is still removed, and that changing the config min-words setting changes the result. Add an engine test where both routes are headphones, so the echo copy is kept, the count is 0 and the skip line is logged. Add one with `built_in_headphones` at start and `built_in_speakers` at stop, where removal still runs.
+- Docs: README speaker-bleed paragraph mentions short replies (under 3 words) being kept, and no removal on wired headphones. Update the config comment.
+
 ### Task 5: Install, calibrate on a real recording, look at it
 
 This needs the user and the installed app; it cannot be done by a subagent.
@@ -728,7 +737,7 @@ This needs the user and the installed app; it cannot be done by a subagent.
 
 ## Status
 
-- [x] Task 1  - [x] Task 2  - [x] Task 3  - [x] Task 4  - [ ] Task 5
+- [x] Task 1  - [x] Task 2  - [x] Task 3  - [x] Task 4  - [ ] Task 4b  - [ ] Task 5
 
 Tasks 1–4 done on 2026-09-30 (commits e90cf5b..4163dfb), each reviewed on Opus with mutation checks; full suite 804 passed. Tests only: nothing has been installed or recorded yet.
 
@@ -737,7 +746,7 @@ Changes from the plan text, decided during review:
 - Task 2: the engine test's mic copy moved from 0.55 s to 0.85 s. At 0.55 s the test passed even with the offsets dropped.
 - Task 3: added tests for the route fields at the live-health and forced-close sites.
 
-**Open decision before Task 5 (final review, Important):** removal never looks at sentence length or output route. A short reply the user really said can be deleted when the remote says the same words at about the same time, even on headphones. Synthetic probes that were all removed: "yeah" with lag −0.20 s, "okay" with lag +0.60 s, "thanks bye", and "yes we should ship it" against "no we should ship it" (coverage 0.80, so the "yes" is lost). Options: keep as planned and measure in Task 5; require ≥3 words; skip removal when the route is `built_in_headphones` at start and stop. Any change also changes `test_short_sentence_needs_every_word`.
+**Decided 2026-09-30 → Task 4b (≥3 words + skip on wired headphones). Original finding:** removal never looks at sentence length or output route. A short reply the user really said can be deleted when the remote says the same words at about the same time, even on headphones. Synthetic probes that were all removed: "yeah" with lag −0.20 s, "okay" with lag +0.60 s, "thanks bye", and "yes we should ship it" against "no we should ship it" (coverage 0.80, so the "yes" is lost). Options: keep as planned and measure in Task 5; require ≥3 words; skip removal when the route is `built_in_headphones` at start and stop. Any change also changes `test_short_sentence_needs_every_word`.
 
 Task 5 also checks: whether the lags show the 0.25 s lead allowance can be tightened (bleed can't arrive early); the BuiltIn route falling back to `built_in_speakers`; and `outputRoute()` on real speakers, headphones and Bluetooth.
 

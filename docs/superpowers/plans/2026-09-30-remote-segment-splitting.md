@@ -323,7 +323,7 @@ Reviewer (opus): verify by mutation, then record the results below. Each mutatio
   - The talk-over reply may still follow the remote sentence it interrupts (the known limit).
   - Echo results unchanged: 0 of 8 remote sentences duplicated as "You", 5 of 5 own utterances kept, lags about +0.05 s.
 
-- [ ] **Step 4: First real meeting after install.** Re-run the numbers-only sqlite probe used for 3b95/c139 (remote segment count, median and max length, and the number of "You" starts inside a remote segment). Expect "You starts inside a remote segment" to drop from most to only talk-over cases, and the median remote length to fall well below 57 s. Record the numbers here, without text.
+- [x] **Step 4: First real meeting after install.** Re-run the numbers-only sqlite probe used for 3b95/c139 (remote segment count, median and max length, and the number of "You" starts inside a remote segment). Expect "You starts inside a remote segment" to drop from most to only talk-over cases, and the median remote length to fall well below 57 s. Record the numbers here, without text.
 
 ## Results
 
@@ -359,7 +359,31 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
     was deleted with the temp HOME.
   - Capture clean: `mic_and_system`, `selected`, built-in speakers, no dropped
     frames, no writer lag, `diarization_status` ok. Offsets mic 0.0 s, system 0.103 s.
-- Step 4: not done. No real meeting recorded since the install (23:56, 30 Sep);
+- Step 4 (2026-10-01, meeting 20261001-090143-7cbb "SSO follow up", 34.7 min, user + 3
+  attendees, built-in speakers, no dropped frames, `diarization_status` ok,
+  151 mic echo sentences removed). Probe, numbers only:
+
+  | Meeting | Remote segs | Median | Max | ≥30 s | "You" starts inside remote |
+  |---|---|---|---|---|---|
+  | 3b95 (before) | 28 | 56.8 s | 222.8 s | 25 | 56 of 64 |
+  | 7cbb (after) | 194 | 5.6 s | 58.7 s | 3 | 36 of 61 |
+
+  - Splitting works: median 56.8 → 5.6 s, ≥30 s segments 25 → 3, max under the 60 s cap.
+  - "Inside" is still 36 of 61, but 24 of the 36 start within 1.0 s of the remote
+    segment's end (turn-boundary overlap); only 11 have the remote continuing >1 s.
+    Splitting is between sentences, so a You start inside one remote sentence can't split.
+  - **New problem, not this plan: residual echo in real meetings.** Classifying You
+    segments with ≥4 content words by share of words also in remote speech within ±3 s:
+    23 echo (≥0.8, 581 s), 8 mixed (0.4-0.8, 178 s), 12 own (<0.4, 192 s), plus 18 short.
+    Control: the same measure against remote speech shifted ±120 s gives 0 of 43 at ≥0.6
+    (mean 0.10-0.13) vs 30 of 43 unshifted (mean 0.65), so it is real duplication, not
+    shared topic words. 22 of 23 echo segments start after 20 min (5-min bins:
+    0,1,0,0,10,5,7). Trigram-estimated echo lag stays about 0 s (within ±2.4 s) all meeting,
+    so not drift. 13 of the 36 "inside" cases are echo. One You segment is 105.8 s
+    (single long ASR sentence over the 60 s cap, known limit). 5 remote speaker labels
+    for 3 attendees (Speaker 3: 9 segs/17 s; Speaker 2: 29 segs/75 s). Audio not kept,
+    so per-sentence echo decisions can't be recovered.
+- Earlier note: no real meeting recorded since the install (23:56, 30 Sep);
   newest in the library is still 3b95 (re-checked 2026-10-01 by `created_at`).
   Probe written down below and re-validated on the old meetings: 3b95 28 / 56.8 s /
   222.8 s / 25 / 56 of 64; c139 37 / 6.2 s / 189.8 s / 6 / 15 of 29. These match
@@ -383,7 +407,12 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
 - Re-run `scripts/check_mic_echo_live.py` once to see whether the talk-over loss
   (2026-10-01) repeats. If it does, investigate mic ASR / echo removal for
   overlapping speech (not this plan's code); keep the run's mic WAV next time.
-- Step 4 probe after the first real two-way meeting.
+- **Residual echo in real meetings (7cbb, see Step 4):** new systematic-debugging
+  session under the echo-removal plan. Echo late in the meeting survived although
+  aligned in time; check coverage vs `MEETING_ECHO_MIN_COVERAGE` 0.8, the
+  ±0.25/0.75 s lead/lag and 1.0 s window against long mic sentences. Needs a meeting's
+  audio kept, e.g. a live check with `--keep DIR` (fa550cd) or a debug retention option.
+- Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.
 - Optional: engine test with a nonzero mic offset (low risk: local segments are

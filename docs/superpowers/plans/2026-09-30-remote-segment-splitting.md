@@ -476,10 +476,45 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
       overflow; mic step with 0 overflows → loss PortAudio does not flag; flat mic
       and negative system step → system gained samples; both flat → the lead is
       not a capture-timeline slip (look at ASR token timing / alignment instead).
-    - Next: build + install the branch (`scripts/build_app.sh --install`; this
-      stops the Desktop MCP connector, toggle it to recover), run one real
-      speaker-mode meeting of 25+ min, read the five keys from
-      `capture_health_json` and compare with the Phase 1 lag measurement.
+    - **Result, meeting 4717 (2026-10-01 12:01, 46 min, solo Teams meeting with
+      mic on, a recorded stand-up recap played through built-in speakers, global
+      capture):**
+      - `mic_timeline`: one step of **+258 ms at stream position 435.5 s**
+        (buffer-to-buffer); end error +229 ms. `mic_arrival_timeline` agrees
+        (+256 ms at 435.4 s). `mic_input_overflows` = 0, `mic_dropped_frames` = 0.
+      - Ramp besides the step: −5 ms over the first 420 s, 253 → 229 ms over the
+        remaining 2280 s, about −11 ppm (≈ 40 ms per hour). Small next to the step.
+      - `system_timeline` and `system_sample_timeline`: 0 ms throughout (552
+        samples).
+      - Echo lag (You segment starting with the same 4 words as a remote segment
+        within ±8 s): −0.13, −0.21, −0.21 s at 1007, 2103, 2750 s, all after the
+        step. Same sign and size as the mic step. No matches before it.
+      - macOS log (`/usr/bin/log show`, "skipping cycle"): exactly one line during
+        the meeting, `HALC_ProxyIOContext::IOWorkLoop: skipping cycle due to
+        overload` in the Speakeasy process at 12:09:03.310 = 436 s after start.
+        The system helper is a separate process, so this is the mic IO context.
+      - Same log for earlier meetings: 7cbb had two, at 1065 s and 1314 s after
+        start (Phase 1 placed its step between 526 s and 1310 s). d2cc (+0.03 s, no
+        lag) had none.
+    - **Root cause of the echo lead (established):** Core Audio skips the mic IO
+      cycle when Speakeasy's in-process IO callback overruns. That input is lost,
+      PortAudio does not flag it (0 overflows), and the spool WAV stays
+      continuous, so every later mic sample sits ~0.25 s early on the shared
+      timeline. Echo then fails the 0.25 s lead limit.
+    - **Why the callback overruns: hypothesis, not proven.** sounddevice's callback
+      needs the GIL, so any Python thread holding it can stall the HAL IO thread.
+      2 of the 3 overloads fall on mic ASR chunk boundaries (120 s + n × 105 s:
+      435 s, n = 3; 1065 s, n = 9); 1314 s does not. Earlier chunk handoffs in the
+      same meetings did not overload.
+    - Fix options (not chosen; decide in a new plan):
+      1. Timeline repair: when consecutive mic ADC times jump by more than the
+         block length plus a tolerance, write the missing duration as silence to
+         the spool (and the ASR chunker). The audio is already lost, but the track
+         stays on the shared timeline whatever caused the overload.
+      2. Remove the GIL from the realtime path: move meeting mic capture
+         out of the Python callback (for example into the helper process, as
+         dictation already does). Bigger change; prevents the loss itself.
+      Keep the timeline instrumentation either way, to verify.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

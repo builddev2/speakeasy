@@ -1235,9 +1235,16 @@ class DictationEngine:
                         meetings.known_speaker_segments(mic_sentences),
                         offsets.get("mic", 0.0),
                     )
+                    # "You" starts, in system-track time, end remote
+                    # segments so replies are not listed after them.
+                    system_offset = offsets.get("system", 0.0)
                     remote_segments = meetings.shift_segments(
-                        meetings.align_speakers(system_result.sentences, turns),
-                        offsets.get("system", 0.0),
+                        meetings.align_speakers(
+                            system_result.sentences,
+                            turns,
+                            break_at=[s.start - system_offset for s in local_segments],
+                        ),
+                        system_offset,
                     )
                     segments = meetings.merge_tracks(local_segments, remote_segments)
                 finally:

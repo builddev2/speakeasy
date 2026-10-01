@@ -1565,3 +1565,51 @@ def test_shutdown_terminates_active_diarization_child_and_is_repeatable(spool_di
     assert engine.diarization_runner.terminated >= 1
     engine.shutdown()  # a menu quit calls shutdown() twice
     assert engine.diarization_runner.terminated >= 2
+
+
+class QuickReplyTranscriber:
+    """One remote voice with a 0.4 s pause (under the 1.5 s gap rule) in
+    which the local user replies. System track-local 0.0-0.8 and 1.2-2.0
+    land at 0.5-1.3 and 1.7-2.5; the reply is at 1.35 on the mic (offset
+    0), which is 0.85 in system time. Only the offset-converted break
+    splits the remote speech; an unconverted 1.35 would miss (0.0, 1.2]."""
+
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        progress(1.0)
+        result = type("Result", (), {})()
+        if float(np.mean(audio)) > 0.001:
+            result.sentences = [Sentence(1.35, 1.6, "quick yes")]
+        else:
+            result.sentences = [
+                Sentence(0.0, 0.8, "remote asks"),
+                Sentence(1.2, 2.0, "remote continues"),
+            ]
+        return result
+
+
+class OneRemoteVoiceDiarizer:
+    def diarize(self, samples, progress=lambda f: None):
+        progress(1.0)
+        return [(0.0, 2.0, 4)]
+
+
+def test_dual_track_splits_remote_speech_where_you_reply(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = FakeDualMeetingRecorder(spool_dir)
+    engine.transcriber = QuickReplyTranscriber()
+    engine.diarization_runner = InProcessDiarizationRunner(OneRemoteVoiceDiarizer())
+    saved = []
+    engine.on_meeting_saved = saved.append
+
+    engine.begin_meeting(MeetingOptions(expected_speaker_count=2))
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+
+    stored = MeetingLibrary().get_meeting(saved[0])
+    assert [(s.speaker, round(s.start, 2)) for s in stored.segments] == [
+        ("Speaker 1", 0.5),
+        ("You", 1.35),
+        ("Speaker 1", 1.7),
+    ]
+    engine.shutdown()

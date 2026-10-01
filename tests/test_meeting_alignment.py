@@ -93,8 +93,8 @@ def test_token_in_distant_gap_inherits_previous_speaker():
     ]
     turns = [(0.0, 2.0, 1), (9.0, 12.0, 2)]
     segments = align_speakers(sentences, turns)
-    assert len(segments) == 1  # both attributed to Speaker 1, merged
-    assert segments[0].speaker == "Speaker 1"
+    # Both attributed to Speaker 1; the 3 s pause now separates segments.
+    assert [s.speaker for s in segments] == ["Speaker 1", "Speaker 1"]
 
 
 def test_token_in_small_gap_snaps_to_nearest_turn():
@@ -192,3 +192,58 @@ def test_existing_reserved_profile_name_does_not_collide_with_anonymous_label():
         "Speaker 2",
         "Speaker 1",
     ]
+
+
+def test_same_speaker_splits_after_pause_longer_than_gap():
+    # 1.4 s pause merges; 1.6 s pause starts a new segment (limit 1.5 s).
+    sentences = [
+        sentence(0.0, 2.0, "First."),
+        sentence(3.4, 5.0, "Second."),
+        sentence(6.6, 8.0, "Third."),
+    ]
+    segments = align_speakers(sentences, [(0.0, 8.0, 1)])
+    assert [(s.speaker, s.start, s.end) for s in segments] == [
+        ("Speaker 1", 0.0, 5.0),
+        ("Speaker 1", 6.6, 8.0),
+    ]
+
+
+def test_break_at_splits_short_pause_where_local_speaker_starts():
+    # 0.5 s pause would merge, but "You" started at 2.2 s inside it.
+    sentences = [sentence(0.0, 2.0, "Question?"), sentence(2.5, 4.0, "Go on.")]
+    segments = align_speakers(sentences, [(0.0, 4.0, 1)], break_at=[2.2])
+    assert [(s.start, s.end) for s in segments] == [(0.0, 2.0), (2.5, 4.0)]
+
+
+def test_break_at_inside_previous_sentence_splits_before_next():
+    # Talk-over: "You" started at 1.0 s, mid-sentence. The current sentence
+    # stays whole; the next one starts a new segment.
+    sentences = [sentence(0.0, 2.0, "Long point."), sentence(2.3, 4.0, "More.")]
+    segments = align_speakers(sentences, [(0.0, 4.0, 1)], break_at=[1.0])
+    assert [(s.start, s.end) for s in segments] == [(0.0, 2.0), (2.3, 4.0)]
+
+
+def test_break_at_equal_to_segment_start_does_not_split():
+    sentences = [sentence(0.0, 2.0, "One."), sentence(2.3, 4.0, "Two.")]
+    segments = align_speakers(sentences, [(0.0, 4.0, 1)], break_at=[0.0])
+    assert [(s.start, s.end) for s in segments] == [(0.0, 4.0)]
+
+
+def test_break_at_outside_segment_does_not_split():
+    sentences = [sentence(5.0, 7.0, "One."), sentence(7.3, 9.0, "Two.")]
+    segments = align_speakers(
+        sentences, [(5.0, 9.0, 1)], break_at=[12.0, -0.4, 3.0]
+    )
+    assert [(s.start, s.end) for s in segments] == [(5.0, 9.0)]
+
+
+def test_break_at_empty_or_unsorted_is_handled():
+    sentences = [
+        sentence(0.0, 1.0, "A."),
+        sentence(1.2, 2.0, "B."),
+        sentence(2.2, 3.0, "C."),
+    ]
+    turns = [(0.0, 3.0, 1)]
+    assert len(align_speakers(sentences, turns, break_at=[])) == 1
+    segments = align_speakers(sentences, turns, break_at=[2.1, 1.1])
+    assert [(s.start, s.end) for s in segments] == [(0.0, 1.0), (1.2, 2.0), (2.2, 3.0)]

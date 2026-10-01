@@ -38,6 +38,11 @@ sweep at next launch). Meetings persist to a SQLite library at
   (`config.KNOWN_SPEAKER_MAX_GAP_SECONDS` /
   `KNOWN_SPEAKER_MAX_SEGMENT_SECONDS`, `meetings.known_speaker_segments`) —
   otherwise a whole meeting would land as one segment timestamped 00:00:00.
+- Diarized (remote) segments use the same 1.5 s pause rule
+  (`config.DIARIZED_MAX_GAP_SECONDS`) under the 60 s cap, and in two-track
+  meetings also split where a "You" segment starts (`align_speakers(...,
+  break_at=...)`, times converted to system-track time with the track
+  offsets) so replies are not listed after the remote speech they answered.
 On macOS 14.2+, meetings capture microphone and outgoing system audio as
 separate temporary tracks through a bundled Core Audio process-tap helper.
 Global system audio is the default; the Dock can instead select one eligible

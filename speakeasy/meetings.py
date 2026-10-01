@@ -52,6 +52,8 @@ _CAPTURE_HEALTH_KEYS = {
     "diarization_status",
     "diarization_failure",
     "mic_echo_sentences_removed",
+    "output_route_start",
+    "output_route_stop",
 }
 
 # A diarization turn further than this from a token is considered unrelated;

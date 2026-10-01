@@ -88,6 +88,8 @@ def test_helper_reports_first_buffer_and_clean_stop(monkeypatch, tmp_path):
     assert result.dropped_frames == 3
     assert result.nonzero_signal is True
     assert result.status == "captured"
+    assert result.output_route_start is None
+    assert result.output_route_stop is None
 
 
 def test_helper_reports_writer_failure_and_lag(monkeypatch, tmp_path):
@@ -272,3 +274,35 @@ def test_wedged_helper_is_killed_and_reported(monkeypatch, tmp_path):
 
     assert process.killed
     assert result.status == "teardown_timeout"
+
+
+def _run_helper(monkeypatch, tmp_path, events):
+    _available(monkeypatch, tmp_path)
+    process = FakeProcess(events)
+    monkeypatch.setattr(system_audio.subprocess, "Popen", lambda *a, **k: process)
+    recorder = system_audio.SystemAudioRecorder()
+    recorder.start(tmp_path / "system.wav")
+    return recorder.stop()
+
+
+def test_helper_reports_output_route_at_start_and_stop(monkeypatch, tmp_path):
+    result = _run_helper(monkeypatch, tmp_path, [
+        {"event": "ready", "output_route": "built_in_speakers"},
+        {"event": "first_buffer", "host_time_ns": 5},
+        {"event": "nonzero_signal"},
+        {"event": "stopped", "frames": 10, "dropped_frames": 0,
+         "output_route": "bluetooth"},
+    ])
+    assert result.output_route_start == "built_in_speakers"
+    assert result.output_route_stop == "bluetooth"
+
+
+def test_output_route_outside_known_set_is_unknown(monkeypatch, tmp_path):
+    result = _run_helper(monkeypatch, tmp_path, [
+        {"event": "ready", "output_route": "Someone's AirPods Pro"},  # a NAME
+        {"event": "first_buffer", "host_time_ns": 5},
+        {"event": "stopped", "frames": 10, "dropped_frames": 0,
+         "output_route": 7},
+    ])
+    assert result.output_route_start == "unknown"
+    assert result.output_route_stop == "unknown"

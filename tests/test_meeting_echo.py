@@ -8,7 +8,7 @@ Sentences are duck-typed like parakeet_mlx AlignedSentence: .start/.end/
 from dataclasses import dataclass, field
 
 from speakeasy import config
-from speakeasy.meetings import remove_mic_echo
+from speakeasy.meetings import filter_capture_health, remove_mic_echo
 
 
 @dataclass
@@ -188,3 +188,17 @@ def test_full_coverage_repeat_beyond_lag_gate_is_kept():
     assert candidates[0].coverage == 1.0
     assert abs(candidates[0].lag_seconds - 0.9) < 1e-6
     assert not candidates[0].removed
+
+
+def test_new_health_keys_pass_the_whitelist():
+    health = {
+        "output_route_start": "built_in_speakers",
+        "output_route_stop": "bluetooth",
+        "mic_echo_sentences_removed": 3,
+        "output_device_name": "MacBook Pro Speakers",  # never whitelisted
+    }
+    assert filter_capture_health(health) == {
+        "output_route_start": "built_in_speakers",
+        "output_route_stop": "bluetooth",
+        "mic_echo_sentences_removed": 3,
+    }

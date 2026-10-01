@@ -114,6 +114,54 @@ private extension Data {
     }
 }
 
+/// Category of the current default output device — never its name, which
+/// would identify the user's hardware in capture health.
+private func outputRoute() -> String {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var device = AudioObjectID(kAudioObjectUnknown)
+    var size = UInt32(MemoryLayout<AudioObjectID>.size)
+    guard AudioObjectGetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device
+    ) == noErr, device != kAudioObjectUnknown else { return "unknown" }
+    var transport: UInt32 = 0
+    address.mSelector = kAudioDevicePropertyTransportType
+    size = UInt32(MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &transport) == noErr
+    else { return "unknown" }
+    switch transport {
+    case kAudioDeviceTransportTypeBuiltIn:
+        var source: UInt32 = 0
+        var sourceAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDataSource,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        size = UInt32(MemoryLayout<UInt32>.size)
+        if AudioObjectGetPropertyData(device, &sourceAddress, 0, nil, &size, &source) == noErr,
+           source == 0x6864_706E /* 'hdpn' */ {
+            return "built_in_headphones"
+        }
+        return "built_in_speakers"
+    case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE:
+        return "bluetooth"
+    case kAudioDeviceTransportTypeUSB:
+        return "usb"
+    case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort:
+        return "display"
+    case kAudioDeviceTransportTypeAirPlay:
+        return "airplay"
+    case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate,
+         kAudioDeviceTransportTypeAutoAggregate:
+        return "virtual"
+    default:
+        return "other"
+    }
+}
+
 private func audioProcessObject(for processID: pid_t) throws -> AudioObjectID {
     var address = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
@@ -450,6 +498,7 @@ private final class SystemTapRecorder {
             "event": "stopped",
             "frames": framesWritten,
             "dropped_frames": droppedFrames,
+            "output_route": outputRoute(),
         ])
     }
 
@@ -532,7 +581,7 @@ private struct SystemAudioCaptureMain {
                 maxSeconds: Int(CommandLine.arguments[2]) ?? 10_800,
                 selectedProcessID: selectedProcessID
             )
-            emit(["event": "ready"])
+            emit(["event": "ready", "output_route": outputRoute()])
             signal(SIGTERM, SIG_IGN)
             signal(SIGINT, SIG_IGN)
             let stopSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)

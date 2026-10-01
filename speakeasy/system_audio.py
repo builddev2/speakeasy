@@ -30,6 +30,19 @@ class SystemAudioUnavailable(Exception):
         self.reason = reason
 
 
+# Content-free output-device categories the helper may report. Anything else
+# (including a device name) is stored as "unknown" so it can never reach
+# capture health.
+OUTPUT_ROUTES = frozenset({
+    "built_in_speakers", "built_in_headphones", "bluetooth", "usb",
+    "display", "airplay", "virtual", "other", "unknown",
+})
+
+
+def _route(value) -> str:
+    return value if isinstance(value, str) and value in OUTPUT_ROUTES else "unknown"
+
+
 @dataclass(frozen=True)
 class SystemTrackResult:
     path: Path | None
@@ -42,6 +55,8 @@ class SystemTrackResult:
     helper_exited: bool = False
     helper_exit_reason: str | None = None
     capture_scope: str = "global"
+    output_route_start: str | None = None
+    output_route_stop: str | None = None
 
 
 def helper_path() -> Path:
@@ -119,12 +134,22 @@ class SystemAudioRecorder:
         self._helper_exited = False
         self._helper_exit_reason: str | None = None
         self._stopping = False
+        self._output_route_start: str | None = None
+        self._output_route_stop: str | None = None
         self.capture_scope = "global"
         self.status = capability()
 
     @property
     def first_buffer_ns(self) -> int | None:
         return self._first_buffer_ns
+
+    @property
+    def output_route_start(self) -> str | None:
+        return self._output_route_start
+
+    @property
+    def output_route_stop(self) -> str | None:
+        return self._output_route_stop
 
     @property
     def nonzero_signal(self) -> bool:
@@ -226,6 +251,9 @@ class SystemAudioRecorder:
                 value = event.get("host_time_ns")
                 if isinstance(value, int) and value >= 0:
                     self._first_buffer_ns = value
+            elif kind == "ready":
+                if "output_route" in event:
+                    self._output_route_start = _route(event.get("output_route"))
             elif kind == "nonzero_signal":
                 self._nonzero_signal = True
             elif kind == "writer_error":
@@ -242,6 +270,8 @@ class SystemAudioRecorder:
                 value = event.get("dropped_frames")
                 if isinstance(value, int) and value >= 0:
                     self._dropped_frames = value
+                if "output_route" in event:
+                    self._output_route_stop = _route(event.get("output_route"))
             try:
                 self._events.put_nowait(event)
             except queue.Full:
@@ -337,6 +367,8 @@ class SystemAudioRecorder:
             helper_exited=self._helper_exited,
             helper_exit_reason=self._helper_exit_reason,
             capture_scope=self.capture_scope,
+            output_route_start=self._output_route_start,
+            output_route_stop=self._output_route_stop,
         )
 
     def discard(self) -> None:

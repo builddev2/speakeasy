@@ -18,7 +18,7 @@
   "tools": [
     {
       "name": "list_meetings",
-      "description": "List saved meetings, newest first, with date, duration, speakers, tags and whether a summary exists. No transcript text."
+      "description": "List saved meetings, newest first, with date, duration, speakers, tags and whether a summary exists. No transcript text. Filter by title words to find a meeting by name."
     },
     {
       "name": "get_meeting",
@@ -26,7 +26,7 @@
     },
     {
       "name": "search_meetings",
-      "description": "Full-text search across transcripts and notes. Returns ranked snippets (matches in **bold**) with the meeting id and time offset."
+      "description": "Full-text search across transcripts and notes. Returns ranked snippets (matches in **bold**) with the meeting id and time offset. Meeting titles aren't searched: use list_meetings with title."
     },
     {
       "name": "get_transcript",

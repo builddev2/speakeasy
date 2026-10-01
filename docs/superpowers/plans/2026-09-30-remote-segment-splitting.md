@@ -417,6 +417,37 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
   aligned in time; check coverage vs `MEETING_ECHO_MIN_COVERAGE` 0.8, the
   ±0.25/0.75 s lead/lag and 1.0 s window against long mic sentences. Needs a meeting's
   audio kept, e.g. a live check with `--keep DIR` (fa550cd) or a debug retention option.
+  - **Debug session 2026-10-01, Phase 1 (stored segments only, numbers only):**
+    - Lag measured precisely where a You segment begins with the same 4 words as a
+      remote segment within ±8 s (start-to-start; tokens are 0.08 s apart): +0.04 s at
+      526 s; then −0.20 to −0.32 s for all 17 matches from 1310 s to 2053 s (values
+      −0.20/−0.28 alternate, one −0.32). Those segments have 0.71-1.00 word coverage.
+      **The mic copy arrives 0.2-0.3 s before the system copy, so echo fails the
+      0.25 s lead limit, not the coverage test.** This explains why echo stops being
+      removed partway through (22 of 23 echo segments after 20 min).
+    - Shape: looks like a step (flat −0.2..−0.3 from 1310 s to 2053 s) more than a
+      steady ramp (150 ppm would add another −0.11 s across that range). Not proven,
+      because there are no matches between 526 s and 1310 s.
+    - Other meetings: d2cc (2026-10-01, 12 min, speakers) +0.03 s at 203 s and 715 s.
+      Older meetings have too few matches to say anything.
+    - Sign: mic early compared with system means the mic track lost samples or the
+      system track gained samples after start. Track alignment is a single start
+      offset (`MeetingRecording.track_offsets_seconds`). After that, both WAVs are
+      treated as continuous.
+    - Leading suspect (unverified): **the mic callback ignores PortAudio `status`**
+      (`meeting_recorder.py` `_on_audio`). Input overflows / CoreAudio input glitches
+      (for example Teams reconfiguring the mic) lose samples silently.
+      `mic_dropped_frames` only counts writer-queue overflow, so health reported 0.
+      The system helper also writes per callback and uses host time only for the
+      first buffer (`SystemAudioCapture.swift` `write`), so a skipped or repeated
+      IO cycle there would not be seen either. Its sign (lost system samples) would
+      give mic-late, the opposite of what we measured.
+    - Next (Phase 1 step 4, instrumentation, no fix): record per track the timeline
+      error = (callback time − first callback time) − frames written / rate, its
+      min/max and when the largest step happened, plus a mic `input_overflow` count,
+      in `capture_health_json`. Run one real speaker-mode meeting and read the numbers.
+      Do not widen `MEETING_ECHO_MAX_LEAD_SECONDS` before the cause is known: real
+      timeline slips would also misplace "You" segments in the transcript order.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

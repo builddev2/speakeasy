@@ -518,7 +518,7 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
     - **Option 1 chosen 2026-10-01; design approved (gap threshold 20 ms).**
       Branch `residual-echo-timeline-instrumentation`. Status: **implemented
       (91df833 + review fixes eee81b7), 852 tests pass, installed 2026-10-01 from
-      eee81b7; awaiting a real meeting.** Opus mutation review: 18 mutants, 15
+      eee81b7; first real meeting (2230) inconclusive, no overload; awaiting a run with one.** Opus mutation review: 18 mutants, 15
       caught; the 2 that mattered (take_recording health site, exact threshold)
       now have tests. Review fixes: fill clamped to the spool cap, zeros written
       in ≤ 1 s pieces, ADC must be finite.
@@ -556,6 +556,28 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
       - Then: rebuild + install, one solo Teams speaker-mode meeting of 25+ min;
         expect `mic_gap_fill_ms` > 0 when an overload is logged, `mic_timeline`
         within ±20 ms, echo lag ≈ 0.
+      - **First run, meeting 2230 (2026-10-01 14:58, 1950 s, solo Teams,
+        recording played aloud, global capture, build eee81b7). Inconclusive for
+        overload repair: 0 "skipping cycle" lines in `/usr/bin/log`.**
+        - `mic_gap_fills` = 5, `mic_gap_fill_ms` = 5550; `mic_input_overflows` = 0,
+          `mic_dropped_frames` = 0. All 5 fills come from the mic input switching
+          device in the first 45 s, not from overloads: output route started
+          `built_in_headphones` (stopped `built_in_speakers`); mic input went
+          headphone input → device 058E… (14:58:51) → built-in mic (14:59:21), with
+          IO stop/restarts at about 10.7, 15.6, 30.5, 35.6 and 45.2 s.
+        - `mic_timeline`: end −20 ms, range −20..0 ms, no step (max jump 0 ms) —
+          the same ≈ −10 ppm ramp as 4717, reaching the ±20 ms bound at the end.
+          `mic_arrival_timeline` −32 → −53 ms, no step. `system_timeline` and
+          `system_sample_timeline` 0 ms throughout.
+        - Echo lag: one 4-word match, +0.03 s at 976 s (4717: −0.13..−0.21 s).
+          `mic_echo_sentences_removed` = 288, so few echoes were left to match.
+        - Still to do: another 25+ min run with speakers selected from the start
+          that contains a logged overload.
+      - Open follow-up (from 2230): device switches during a meeting are also
+        gap-filled — 5.55 s of silence in 2230. The system track kept running, so
+        the fill kept mic and system aligned here (`mic_timeline` stayed flat).
+        Feed this case into the maximum-plausible-gap decision above: a cap must not
+        stop fills for a device switch while the system track keeps running.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

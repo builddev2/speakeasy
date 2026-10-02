@@ -464,16 +464,16 @@
 }
 .turnText { margin: 2px 0 0; color: var(--text); max-width: 68ch; }
 .seg { border-radius: 3px; }
-.lineHighlight { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.lineHighlight { background: color-mix(in srgb, var(--amber) 18%, transparent); }
 
 .mark {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--amber) 28%, transparent);
   color: inherit;
   border-radius: 2px;
 }
 
 .markCurrent {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--amber) 55%, transparent);
   color: var(--text-hi);
 }
 

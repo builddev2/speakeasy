@@ -453,68 +453,28 @@
   outline-offset: 1px;
 }
 
-.lines {
-  padding: 8px 0;
-  font: 400 12px/1.7 var(--mono);
+.lines { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; font: 400 14.5px/1.6 var(--sans); }
+.turn { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 12px; }
+.elapsed { color: var(--text-lo); font: 400 11.5px/1.9 var(--sans); font-variant-numeric: tabular-nums; text-align: right; }
+.turnBody { min-width: 0; }
+.speaker { border: 0; background: transparent; padding: 0; font: 600 12.5px var(--sans); cursor: pointer; }
+.speaker:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
-
-.line {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  column-gap: 10px;
-  padding: 3px 4px;
-  border-radius: 4px;
-}
-
-.lineHead {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.lineHighlight {
-  background: color-mix(in srgb, var(--coral-1) 22%, transparent);
-}
+.turnText { margin: 2px 0 0; color: var(--text); max-width: 68ch; }
+.seg { border-radius: 3px; }
+.lineHighlight { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 
 .mark {
-  background: color-mix(in srgb, var(--coral-1) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
   color: inherit;
   border-radius: 2px;
 }
 
 .markCurrent {
-  background: color-mix(in srgb, var(--coral-1) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
   color: var(--text-hi);
-}
-
-.time {
-  color: color-mix(in srgb, var(--coral-1) 72%, transparent);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.speaker {
-  border: none;
-  background: transparent;
-  padding: 0;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-
-.speaker:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.lineText {
-  color: var(--text);
 }
 
 .menuWrap {

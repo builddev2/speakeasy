@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { EventChip, MeetingDetail as MeetingDetailType, SummaryBlock, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
+import { formatElapsed, groupTurns } from './transcriptTurns';
 import styles from './MeetingDetail.module.css';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import { useOverlayEscape } from './overlayStack';
@@ -157,8 +158,15 @@ export function MeetingDetail({
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const eventWrapRef = useRef<HTMLSpanElement>(null);
   const eventButtonRef = useRef<HTMLButtonElement>(null);
-  const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const lineRefs = useRef<Map<number, HTMLSpanElement>>(new Map());
   const speakerRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const turns = useMemo(() => groupTurns(detail?.lines ?? []), [detail]);
+  // speakerRefs is keyed by each turn's first segment; map every segment to it.
+  const turnFirstSegment = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const turn of turns) for (const l of turn.lines) m.set(l.segmentIndex, turn.lines[0].segmentIndex);
+    return m;
+  }, [turns]);
 
   useEffect(() => {
     if (searchFocusToken === undefined) return;
@@ -243,7 +251,7 @@ export function MeetingDetail({
     if (autoOpenedRef.current) return;
     const first = detail.lines[0];
     const raf = window.requestAnimationFrame(() => {
-      const btn = speakerRefs.current.get(first.segmentIndex);
+      const btn = speakerRefs.current.get(turnFirstSegment.get(first.segmentIndex) ?? first.segmentIndex);
       if (btn) {
         const rect = btn.getBoundingClientRect();
         onSpeakerClick(first, { top: rect.bottom, left: rect.left });
@@ -251,7 +259,7 @@ export function MeetingDetail({
       }
     });
     return () => window.cancelAnimationFrame(raf);
-  }, [autoOpenPopover, tab, detail, onSpeakerClick]);
+  }, [autoOpenPopover, tab, detail, onSpeakerClick, turnFirstSegment]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -729,63 +737,69 @@ export function MeetingDetail({
                   </div>
                 )}
                 <div className={styles.lines}>
-                  {detail.lines.map((line) => {
-                    const isJumpHighlight = highlightSegment === line.segmentIndex;
-                    const parts = lineParts.get(line.segmentIndex);
-                    const lineClass = isJumpHighlight ? `${styles.line} ${styles.lineHighlight}` : styles.line;
-                    return (
-                      <div
-                        key={line.segmentIndex}
-                        ref={(el) => {
-                          if (el) lineRefs.current.set(line.segmentIndex, el);
-                          else lineRefs.current.delete(line.segmentIndex);
-                        }}
-                        className={lineClass}
-                      >
-                        <span className={styles.lineHead}>
-                          <span className={styles.time}>
-                            {detail.approximate ? '≈' : ''}
-                            {line.time}
-                          </span>
-                          <button
-                            ref={(el) => {
-                              if (el) speakerRefs.current.set(line.segmentIndex, el);
-                              else speakerRefs.current.delete(line.segmentIndex);
-                            }}
-                            className={styles.speaker}
-                            style={{ color: speakerColor(line.speakerNumber, colorCodeSpeakers) }}
-                            onClick={(e) => {
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              onSpeakerClick(line, { top: rect.bottom, left: rect.left });
-                            }}
-                          >
-                            {line.speakerLabel}:
-                          </button>
-                        </span>
-                        <span className={styles.lineText}>
-                          {line.overlap ? '[overlap] ' : ''}
-                          {parts
-                            ? parts.map((part, partIndex) =>
-                                part.hit ? (
-                                  <mark
-                                    key={partIndex}
-                                    className={
-                                      currentMatch?.segmentIndex === line.segmentIndex && currentMatch.partIndex === partIndex
-                                        ? `${styles.mark} ${styles.markCurrent}`
-                                        : styles.mark
-                                    }
-                                  >
-                                    {part.text}
-                                  </mark>
-                                ) : (
-                                  <span key={partIndex}>{part.text}</span>
-                                ),
-                              )
-                            : line.text}
-                        </span>
+                  {turns.map((turn) => (
+                    <div key={turn.lines[0].segmentIndex} className={styles.turn}>
+                      <span className={styles.elapsed} title={`${detail.approximate ? '≈' : ''}${turn.time}`}>
+                        {detail.approximate ? '≈' : ''}
+                        {formatElapsed(turn.start)}
+                      </span>
+                      <div className={styles.turnBody}>
+                        <button
+                          ref={(el) => {
+                            if (el) speakerRefs.current.set(turn.lines[0].segmentIndex, el);
+                            else speakerRefs.current.delete(turn.lines[0].segmentIndex);
+                          }}
+                          className={styles.speaker}
+                          style={{ color: speakerColor(turn.speakerNumber, colorCodeSpeakers) }}
+                          onClick={(e) => {
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            onSpeakerClick(turn.lines[0], { top: rect.bottom, left: rect.left });
+                          }}
+                        >
+                          {turn.speakerLabel}
+                        </button>
+                        <p className={styles.turnText}>
+                          {turn.lines.map((line) => {
+                            const parts = lineParts.get(line.segmentIndex);
+                            return (
+                              <span
+                                key={line.segmentIndex}
+                                ref={(el) => {
+                                  if (el) lineRefs.current.set(line.segmentIndex, el);
+                                  else lineRefs.current.delete(line.segmentIndex);
+                                }}
+                                className={
+                                  highlightSegment === line.segmentIndex
+                                    ? `${styles.seg} ${styles.lineHighlight}`
+                                    : styles.seg
+                                }
+                              >
+                                {line.overlap ? '[overlap] ' : ''}
+                                {parts
+                                  ? parts.map((part, partIndex) =>
+                                      part.hit ? (
+                                        <mark
+                                          key={partIndex}
+                                          className={
+                                            currentMatch?.segmentIndex === line.segmentIndex && currentMatch.partIndex === partIndex
+                                              ? `${styles.mark} ${styles.markCurrent}`
+                                              : styles.mark
+                                          }
+                                        >
+                                          {part.text}
+                                        </mark>
+                                      ) : (
+                                        <span key={partIndex}>{part.text}</span>
+                                      ),
+                                    )
+                                  : line.text}{' '}
+                              </span>
+                            );
+                          })}
+                        </p>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

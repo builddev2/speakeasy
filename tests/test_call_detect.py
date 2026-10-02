@@ -77,3 +77,9 @@ def test_probe_never_reports_unknown():
     p.stop()
     p._thread.join(1.0)
     assert calls and results == []
+
+
+def test_poll_interval_is_five_seconds():
+    assert call_detect.POLL_SECONDS == 5.0
+    p = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: True)
+    assert p._interval == 5.0

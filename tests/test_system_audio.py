@@ -349,10 +349,15 @@ def test_malformed_timeline_events_are_ignored(monkeypatch, tmp_path):
 
 def _helper_prints(monkeypatch, payload):
     result = type("Result", (), {"stdout": json.dumps(payload)})()
-    calls = []
+    class Calls(list):
+        kwargs: list = []
+
+    calls = Calls()
+    calls.kwargs = []
 
     def run(args, **kwargs):
         calls.append(args)
+        calls.kwargs.append(kwargs)
         return result
 
     monkeypatch.setattr(system_audio.subprocess, "run", run)
@@ -365,6 +370,7 @@ def test_input_process_ids_are_read_from_helper(monkeypatch, tmp_path):
         monkeypatch, {"event": "input_processes", "pids": [101, 0, -4, "7", 202]})
     assert system_audio.input_process_ids() == {101, 202}
     assert calls[0][1:] == ["--list-input-pids"]
+    assert calls.kwargs[0]["timeout"] == 1.0
 
 
 def test_input_process_ids_empty_list_is_an_answer(monkeypatch, tmp_path):

@@ -1,9 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { EventChip, MeetingDetail as MeetingDetailType, TranscriptLine } from '../mock/meetings';
+import type { EventChip, MeetingDetail as MeetingDetailType, SummaryBlock, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
-import { bridge } from '../bridge';
 import styles from './MeetingDetail.module.css';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import { useOverlayEscape } from './overlayStack';
@@ -35,6 +34,7 @@ interface MeetingDetailProps {
   onRequestDelete: () => void;
   onCopy: () => void;
   onExport: () => void;
+  onRequestSummary: () => void;
   jumpTarget?: JumpTarget | null;
   searchFocusToken?: number;
   /** Same-day events the meeting can be linked to; the chip menu fetches on open. */
@@ -46,6 +46,31 @@ interface MeetingDetailProps {
 interface FindMatch {
   segmentIndex: number;
   partIndex: number;
+}
+
+function SummaryBlocks({ blocks }: { blocks: SummaryBlock[] }) {
+  return (
+    <div className={styles.summaryBody}>
+      {blocks.map((b, i) => {
+        switch (b.kind) {
+          case 'tldr':
+            return <p key={i} className={styles.summaryTldr}>{b.text}</p>;
+          case 'heading':
+            return <h3 key={i} className={styles.summaryHeading}>{b.text}</h3>;
+          case 'para':
+            return <p key={i} className={styles.summaryPara}>{b.text}</p>;
+          case 'bullets':
+            return (
+              <ul key={i} className={styles.summaryList}>
+                {b.items.map((item, j) => (
+                  <li key={j}><span className={styles.summaryDot} aria-hidden="true" />{item}</li>
+                ))}
+              </ul>
+            );
+        }
+      })}
+    </div>
+  );
 }
 
 function initials(name: string): string {
@@ -98,6 +123,7 @@ export function MeetingDetail({
   onRequestDelete,
   onCopy,
   onExport,
+  onRequestSummary,
   jumpTarget,
   searchFocusToken,
   onLoadEvents,
@@ -569,7 +595,10 @@ export function MeetingDetail({
             <div className={styles.summaryPane}>
               {detail.summary ? (
                 <>
-                  <p className={styles.summaryText}>{detail.summary}</p>
+                  {detail.summaryQueued && (
+                    <div className={styles.queuedNote}>Queued for a new summary. Claude checks every 30 minutes while the Claude app is open.</div>
+                  )}
+                  <SummaryBlocks blocks={detail.summaryBlocks} />
                   {detail.actionItems.length > 0 && (
                     <>
                       <div className={styles.actionItemsHeading}>Action items</div>
@@ -586,29 +615,11 @@ export function MeetingDetail({
                 </>
               ) : (
                 <div className={styles.noSummary}>
-                  <p>No summary yet. Ask Claude to summarise this meeting.</p>
-                  <ActionButton
-                    onClick={() => {
-                      const prompt = `Summarise and tag my Speakeasy meeting "${detail.title}" (${detail.id}) and save the notes. Reuse my existing tags where they fit.`;
-                      const fallback = () => {
-                        if (bridge.embedded) {
-                          void bridge
-                            .call('meetings.copyText', { text: prompt })
-                            .catch((err) => console.error('meetings.copyText failed', err));
-                        }
-                      };
-                      // navigator.clipboard.writeText can both throw synchronously
-                      // and reject its promise in WKWebView, so fallback covers both.
-                      try {
-                        const clip = navigator.clipboard?.writeText(prompt);
-                        if (clip) void clip.catch(fallback);
-                        else fallback();
-                      } catch {
-                        fallback();
-                      }
-                    }}
-                  >
-                    Copy prompt
+                  <p>{detail.summaryQueued
+                        ? 'Queued — Claude will summarise this the next time it checks (every 30 minutes while the Claude app is open).'
+                        : 'No summary yet.'}</p>
+                  <ActionButton disabled={detail.summaryQueued} onClick={onRequestSummary}>
+                    Summarise
                   </ActionButton>
                 </div>
               )}
@@ -740,6 +751,18 @@ export function MeetingDetail({
                   >
                     Rename…
                   </button>
+                  {detail.summary && !detail.summaryQueued && (
+                    <button
+                      role="menuitem"
+                      className={styles.menuItem}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onRequestSummary();
+                      }}
+                    >
+                      Redo summary
+                    </button>
+                  )}
                   <button
                     role="menuitem"
                     className={`${styles.menuItem} ${styles.menuItemDanger}`}

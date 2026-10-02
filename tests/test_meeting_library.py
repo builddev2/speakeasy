@@ -496,3 +496,51 @@ def test_delete_cascades_request(lib, library_path):
     lib.delete(mid)
     conn = meeting_store.connect(library_path)
     assert conn.execute("SELECT COUNT(*) FROM summary_requests").fetchone()[0] == 0
+
+
+def test_new_request_after_a_saved_summary_is_pending_until_next_summary(lib):
+    mid = _at(lib, 30)
+    lib.save_notes(mid, summary="TL;DR: x")
+    lib.request_summary(mid)
+    lib.save_notes(mid, action_items=["a"])          # existing summary, not passed
+    assert lib.summary_pending(mid, now=NOW)
+
+
+def test_explicit_requests_come_before_automatic(lib):
+    auto = _at(lib, 1)
+    req = _at(lib, 30)
+    lib.request_summary(req)
+    assert lib.pending_summaries(now=NOW) == [(req, True), (auto, False)]
+
+
+def test_request_order_is_kept_and_rerequest_does_not_move_it(lib):
+    older = _at(lib, 5)
+    newer = _at(lib, 2)
+    lib.request_summary(newer)
+    lib.request_summary(older)
+    lib.request_summary(newer)                        # must not refresh the time
+    assert lib.pending_summaries(now=NOW) == [(newer, True), (older, True)]
+
+
+def test_window_and_length_boundaries(lib):
+    edge = lib.save_meeting(_new(started=NOW - timedelta(days=7), duration_seconds=120))
+    over = lib.save_meeting(_new(started=NOW - timedelta(days=7, seconds=1),
+                                 duration_seconds=600))
+    short = lib.save_meeting(_new(started=NOW - timedelta(days=1), duration_seconds=119))
+    assert lib.summary_pending(edge, now=NOW)
+    assert not lib.summary_pending(over, now=NOW)
+    assert not lib.summary_pending(short, now=NOW)
+
+
+def test_now_is_honoured(lib):
+    mid = _at(lib, 1)
+    assert lib.summary_pending(mid, now=NOW)
+    assert not lib.summary_pending(mid, now=NOW + timedelta(days=30))
+
+
+def test_limit_is_clamped(lib):
+    for i in range(12):
+        _at(lib, 1, title=f"M{i}")
+    assert len(lib.pending_summaries(limit=0, now=NOW)) == 1
+    assert len(lib.pending_summaries(now=NOW)) == 5
+    assert len(lib.pending_summaries(limit=50, now=NOW)) == 10

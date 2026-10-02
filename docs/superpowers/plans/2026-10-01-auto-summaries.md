@@ -909,6 +909,17 @@ Using the Speakeasy Meetings connector (local, on this Mac):
     `next_cursor` to the end could not be confirmed.
   - Not checked by Claude: the spaced layout of these summaries in the
     installed app.
+  - 2 Oct: routine prompt revised after the first run (live copy:
+    `~/.claude/scheduled-tasks/speakeasy-auto-summaries/SKILL.md`). It now
+    calls list_tags once, caps the summary at 170 words (aim ~150, no
+    padding; TL;DR ≤35 words; ≤3 decisions, ≤4 key points, ≤3 open
+    questions; ≤15 words a line) with a word count before saving, requires
+    3–8 tags (broader existing tags before new ones), and reports
+    "(N words, T tags, P transcript pages)" per meeting so the next run is
+    checkable. Not yet run with the revised prompt. The 5 earlier summaries
+    were not redone.
+  - 2 Oct: worktree `.claude/worktrees/auto-summaries` and branch removed
+    (lock from the old session 67330 overridden at the user's request).
   - Earlier note: the first run. `run_scheduled_task` was refused by the
     auto-mode permission classifier, so the user clicks **Run now** on the
     task (this also pre-approves its connector tools for later runs). Then

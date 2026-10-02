@@ -336,6 +336,35 @@ have already added to it) to show your day and to name and label recordings.
   be merged into another voice. Setting the remote-speaker count in the Dock
   overrides the cap.
 
+### Record prompts
+
+Speakeasy can ask whether to record, in a small banner at the top right of
+your screen. It never records without your click: every recording started or
+stopped from a banner follows a click on that banner's button.
+
+- **Calendar meetings:** from 2 minutes before to 5 minutes after an event
+  starts, a "Record" banner offers it, but only for events with other
+  invitees. If several overlap, the nearest is offered and the rest appear
+  under "N more". **Not Now**, or no answer for 5 minutes, hides the banner,
+  and that event is not offered again that day (also after a relaunch).
+- **Calls in other apps:** if another app uses the microphone for 10 seconds,
+  "Record this call?" appears, once per call. Not Now means it is not offered
+  again during that call.
+- **Call ended:** while you record a call, 60 seconds without that other
+  app's microphone use shows "Call ended — Stop recording?". Stop ends the
+  meeting; Keep Recording hides it, and it hides itself if the microphone use
+  resumes. Nothing ever stops automatically.
+- **The banner:** it does not take keyboard focus, so you can keep typing in
+  the app you are using.
+- **Settings:** two toggles in **Meetings › Settings**, "Offer to record
+  calendar meetings" and "Offer to record calls in other apps" (both on by
+  default).
+- **Privacy:** the only thing checked is whether another app is using the
+  microphone. Which app, and its process IDs, are never stored, logged or
+  shown, and nothing extra is recorded. Calendar offers read the cached
+  calendar events only.
+- **Requirements:** call detection is unavailable before macOS 14.2.
+
 ### Use your meetings with Claude
 
 Speakeasy can let Claude read your meeting library through a small local

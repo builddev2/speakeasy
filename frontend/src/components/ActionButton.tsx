@@ -6,13 +6,14 @@ interface ActionButtonProps {
   variant?: 'default' | 'strong' | 'danger';
   className?: string;
   onClick?: () => void;
+  disabled?: boolean;
 }
 
-export function ActionButton({ children, variant = 'default', className, onClick }: ActionButtonProps) {
+export function ActionButton({ children, variant = 'default', className, onClick, disabled }: ActionButtonProps) {
   const variantClass = variant !== 'default' ? styles[variant] : '';
   const classes = [styles.btn, variantClass, className].filter(Boolean).join(' ');
   return (
-    <button className={classes} onClick={onClick}>
+    <button className={classes} onClick={onClick} disabled={disabled}>
       {children}
     </button>
   );

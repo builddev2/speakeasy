@@ -34,10 +34,18 @@ export interface CalendarToggle { id: string; name: string; enabled: boolean }
 export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
 export interface MeetingSettings { offerToRecord: boolean; accounts: CalendarAccountSettings[] }
 
+export type SummaryBlock =
+  | { kind: 'tldr'; text: string }
+  | { kind: 'heading'; text: string }
+  | { kind: 'para'; text: string }
+  | { kind: 'bullets'; items: string[] };
+
 export interface MeetingDetail extends MeetingMeta {
   date: string;
   lines: TranscriptLine[];
   summary: string | null;
+  summaryBlocks: SummaryBlock[];
+  summaryQueued: boolean;
   actionItems: string[];
   event: EventChip | null;
 }
@@ -258,6 +266,14 @@ const standupDetail = detail(standupMeta, {
   summary:
     'Quick sync on sprint progress. Mobile offline sync is still dropping on airplane mode and is now a P1. ' +
     'Revenue dashboard is on track for Friday. No other blockers.',
+  summaryQueued: false,
+  summaryBlocks: [
+    { kind: 'tldr', text: 'Quick sync on sprint progress. Offline sync is now a P1; the revenue dashboard is on track for Friday.' },
+    { kind: 'heading', text: 'Progress' },
+    { kind: 'bullets', items: ['Revenue dashboard on track for review by Friday', 'Empty state copy to be checked with design'] },
+    { kind: 'heading', text: 'Blockers' },
+    { kind: 'bullets', items: ['Mobile offline sync still drops on airplane mode', 'Raised to P1; Sam already has a repro'] },
+  ],
   actionItems: ['Fix offline sync drop on airplane mode (Sam)', 'Ship revenue dashboard by Friday (Priya)'],
   lines: [
     ln('9:00:03 AM', 3, 1, 'Alex', "Morning — let's keep this quick. Priya, how's the dashboard?", 0),
@@ -276,6 +292,14 @@ const oneOnOneDetail = detail(oneOnOneMeta, {
   summary:
     'Alex and Jordan covered career growth goals for the quarter, the staffing gap on the mobile team, ' +
     'and agreed to revisit the roadmap after the offline-sync fix ships.',
+  summaryQueued: false,
+  summaryBlocks: [
+    { kind: 'tldr', text: 'Career growth goals for the quarter, the mobile staffing gap, and a roadmap review after the sync fix ships.' },
+    { kind: 'heading', text: 'Growth' },
+    { kind: 'bullets', items: ['More ownership of the mobile roadmap', 'Mentoring the new hire'] },
+    { kind: 'heading', text: 'Next steps' },
+    { kind: 'bullets', items: ['Revisit the roadmap after the offline-sync fix ships'] },
+  ],
   actionItems: ["Draft Q4 growth plan (Jordan)", 'Confirm mobile hire start date (Alex)'],
   lines: [
     ln('1:00:05 PM', 5, 1, 'Alex', "How are you feeling about the quarter so far?", 0),
@@ -290,6 +314,8 @@ const designReviewDetail = detail(designReviewMeta, {
   date: 'Sat 26 Sep',
   event: null,
   summary: null,
+  summaryQueued: false,
+  summaryBlocks: [],
   actionItems: [],
   lines: [
     ln('11:30:08 AM', 8, 2, 'Priya', "Let's walk through the new onboarding flow.", 0),
@@ -305,6 +331,14 @@ const sprintPlanningDetail = detail(sprintPlanningMeta, {
   summary:
     'Planned sprint 15: offline sync fix, dashboard polish and onboarding flow rework carry over. ' +
     'Team agreed to hold scope steady given the mobile hire starts mid-sprint.',
+  summaryQueued: false,
+  summaryBlocks: [
+    { kind: 'tldr', text: 'Sprint 15 scope held steady: offline sync fix, dashboard polish and onboarding rework carry over.' },
+    { kind: 'heading', text: 'Scope' },
+    { kind: 'bullets', items: ['Offline sync fix sized at five and moved to the top of the backlog', 'Dashboard polish and onboarding rework carry over'] },
+    { kind: 'heading', text: 'Risks' },
+    { kind: 'bullets', items: ['Mobile hire starts mid-sprint, so no scope increase'] },
+  ],
   actionItems: ['Move offline sync fix to top of backlog (Alex)', 'Split onboarding tickets by screen (Sam)'],
   lines: [
     ln('3:00:10 PM', 10, 1, 'Alex', "Let's size the offline sync fix first.", 0),
@@ -321,6 +355,14 @@ const customerCallDetail = detail(customerCallMeta, {
   summary:
     'Fenwick Labs reported the export feature is working well for their team. They asked about calendar ' +
     'integration timing and requested a follow-up demo once Today view ships.',
+  summaryQueued: false,
+  summaryBlocks: [
+    { kind: 'tldr', text: 'Fenwick Labs is happy with export and wants a calendar integration timeline plus a follow-up demo.' },
+    { kind: 'heading', text: 'Feedback' },
+    { kind: 'bullets', items: ['Export feature working well for their team'] },
+    { kind: 'heading', text: 'Requests' },
+    { kind: 'bullets', items: ['Timing for calendar integration', 'Follow-up demo once Today view ships'] },
+  ],
   actionItems: ['Send Fenwick the calendar integration timeline (Morgan)', 'Schedule follow-up demo (Priya)'],
   lines: [
     ln('2:15:00 PM', 0, 5, 'Morgan', "Thanks for hopping on — how has export been working for you?", 0),
@@ -336,6 +378,14 @@ const retroDetail = detail(retroMeta, {
   summary:
     'Dashboard shipped a day early. The offline sync bug took longer than planned; the team agreed to budget ' +
     'more time for device testing on future sprints.',
+  summaryQueued: false,
+  summaryBlocks: [
+    { kind: 'tldr', text: 'Dashboard shipped a day early; offline sync overran. Budget more device-testing time next sprint.' },
+    { kind: 'heading', text: 'Went well' },
+    { kind: 'bullets', items: ['Dashboard shipped a day early'] },
+    { kind: 'heading', text: 'To improve' },
+    { kind: 'bullets', items: ['Offline sync bug took longer than planned', 'Add a device-testing buffer to estimates'] },
+  ],
   actionItems: ['Add a device-testing buffer to sprint estimates (Jordan)'],
   lines: [
     ln('4:00:06 PM', 6, 1, 'Alex', "What went well this sprint?", 0),
@@ -351,6 +401,14 @@ const q3KickoffDetail = detail(q3KickoffMeta, {
   summary:
     'Kicked off Q3 priorities: mobile reliability, the onboarding rework, and a customer-facing export feature. ' +
     'Team agreed on rough milestones for each and a mid-quarter check-in.',
+  summaryQueued: false,
+  summaryBlocks: [
+    { kind: 'tldr', text: 'Q3 priorities set: mobile reliability, onboarding rework and customer-facing export, with a mid-quarter check-in.' },
+    { kind: 'heading', text: 'Priorities' },
+    { kind: 'bullets', items: ['Mobile reliability', 'Onboarding rework', 'Customer-facing export feature'] },
+    { kind: 'heading', text: 'Next steps' },
+    { kind: 'bullets', items: ['Rough milestones for each priority', 'Mid-quarter check-in'] },
+  ],
   actionItems: ['Draft mobile reliability milestones (Sam)', 'Schedule mid-quarter check-in (Alex)'],
   lines: [
     ln('10:00:12 AM', 12, 1, 'Alex', "Let's set priorities for the quarter.", 0),
@@ -365,6 +423,8 @@ const onboardingSamDetail = detail(onboardingSamMeta, {
   date: 'Tue 4 Aug',
   event: null,
   summary: null,
+  summaryQueued: false,
+  summaryBlocks: [],
   actionItems: [],
   lines: [
     ln('9:30:05 AM', 5, 3, 'Sam', "Excited to get started — where should I look first?", 0),

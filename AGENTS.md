@@ -77,7 +77,10 @@ visibly to the original mic-only diarization mode. See README's
   source `claude` and never displace `user` tags or re-add suppressed ones),
   `tag_meetings` (source `user`) and `manage_tags`. Every tag name resolves
   through `tag_names.tag_slug` then `tag_aliases`; never insert into `tags`
-  directly.
+  directly. `pending_summaries` is read-only. The only other summary-queue
+  writer is the app (`MeetingLibrary.request_summary` via
+  `meetings.requestSummary`); `save_notes` with a non-empty summary clears a
+  request.
 - **`--mcp` stays import-light** (no AppKit, MLX, sherpa-onnx or UI modules);
   `test_mcp_mode_imports_nothing_heavy` in `tests/test_mcp_server.py` enforces it.
 - **Calendar privacy.** EventKit is used only on the `calendar` thread

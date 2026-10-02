@@ -740,6 +740,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
                 console.log('export', selectedId);
               }
             }}
+            onRequestSummary={() => {
+              if (embedded && selectedId) {
+                const id = selectedId;
+                void bridge
+                  .call<MeetingDetailType>('meetings.requestSummary', { id })
+                  .then((d) => setDetails((prev) => ({ ...prev, [id]: d })))
+                  .catch((err) => {
+                    if (isNotFoundError(err)) recoverFromNotFound(id);
+                    else console.error('meetings.requestSummary failed', err);
+                  });
+              } else {
+                console.log('request-summary', selectedId);
+              }
+            }}
             jumpTarget={jumpTarget}
             searchFocusToken={searchFocusToken}
             onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}

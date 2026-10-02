@@ -34,7 +34,8 @@ def tools(lib):
 def test_tool_names_order_and_definitions(tools):
     assert list(tools) == ["list_meetings", "get_meeting", "search_meetings",
                            "get_transcript", "get_calendar", "list_tags",
-                           "list_people", "save_notes", "tag_meetings", "manage_tags"]
+                           "list_people", "save_notes", "tag_meetings", "manage_tags",
+                           "pending_summaries"]
     writers = {"save_notes", "tag_meetings", "manage_tags"}
     for t in tools.values():
         d = t.definition()
@@ -314,3 +315,62 @@ def test_tag_descriptions_steer_reuse(tools):
     assert "the user asked" in tools["tag_meetings"].description
     assert "alias" in tools["manage_tags"].description
     assert "aliases" in tools["list_tags"].description
+
+
+def test_pending_summaries_returns_meetings_and_instructions(lib, tools):
+    from speakeasy.summary_format import SUMMARY_INSTRUCTIONS
+    recent = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 4, "hello")], duration_seconds=600,
+        title="Recent", started_at=datetime.now(timezone.utc) - timedelta(days=1)))
+    old = _seed(lib, day=1)                       # September: outside the window
+    lib.request_summary(old)
+    out = tools["pending_summaries"].run({})
+    assert [m["id"] for m in out["meetings"]] == [old, recent]
+    assert [m["requested"] for m in out["meetings"]] == [True, False]
+    first = out["meetings"][0]
+    assert set(first) == {"id", "title", "start", "duration_minutes", "speakers",
+                          "tags", "has_summary", "requested"}
+    assert out["instructions"] == SUMMARY_INSTRUCTIONS
+    assert tools["pending_summaries"].run({"limit": 1})["meetings"][0]["id"] == old
+    # Out-of-range limits clamp (like every other tool's _int), not raise.
+    assert len(tools["pending_summaries"].run({"limit": 11})["meetings"]) == 2
+    with pytest.raises(ToolError):
+        tools["pending_summaries"].run({"limit": "many"})
+
+
+def test_pending_summaries_default_and_max_limit(lib, tools):
+    for i in range(12):
+        lib.request_summary(_seed(lib, day=1, title=f"P{i}"))
+    assert len(tools["pending_summaries"].run({})["meetings"]) == 5
+    assert len(tools["pending_summaries"].run({"limit": 11})["meetings"]) == 10
+
+
+def test_pending_summaries_redo_of_summarised_meeting(lib, tools):
+    mid = _seed(lib, day=1)
+    tools["save_notes"].run({"id": mid, "summary": "TL;DR: done"})
+    lib.request_summary(mid)
+    [m] = tools["pending_summaries"].run({})["meetings"]
+    assert m["id"] == mid and m["has_summary"] is True and m["requested"] is True
+
+
+def test_pending_summaries_skips_meeting_deleted_mid_run(lib, tools, monkeypatch):
+    real = _seed(lib, day=1)
+    gone = _seed(lib, day=2)
+    lib.delete(gone)
+    monkeypatch.setattr(lib, "pending_summaries",
+                        lambda limit: [(gone, True), (real, True)])
+    out = tools["pending_summaries"].run({})
+    assert [m["id"] for m in out["meetings"]] == [real]
+
+
+def test_save_notes_clears_pending(lib, tools):
+    old = _seed(lib, day=1)
+    lib.request_summary(old)
+    tools["save_notes"].run({"id": old, "summary": "TL;DR: done"})
+    assert tools["pending_summaries"].run({})["meetings"] == []
+
+
+def test_save_notes_description_points_at_summary_format(tools):
+    assert "pending_summaries returns" in tools["save_notes"].description
+    props = tools["save_notes"].definition()["inputSchema"]["properties"]
+    assert "TL;DR" in props["summary"]["description"]

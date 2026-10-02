@@ -339,7 +339,7 @@ def test_v3_merges_tags_that_collide_on_slug(library_path):
                                ["project-x"], ["!!!"]])
     conn = meeting_store.connect(library_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
         tags = {r["slug"]: r["name"] for r in conn.execute("SELECT name, slug FROM tags")}
         # project-x has the most links, so it survives; an empty slug keeps
         # its tag under tag<id> rather than losing it.
@@ -407,7 +407,7 @@ def test_failed_v3_migration_leaves_a_v2_file_intact(library_path, monkeypatch):
     monkeypatch.setattr(meeting_store, "tag_slug", real)
     conn = meeting_store.connect(library_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     finally:
         conn.close()
 
@@ -446,7 +446,32 @@ def test_concurrent_v3_migration_converges(tmp_path):
         assert errors == [None, None], (k, errors)
         check = sqlite3.connect(path)
         try:
-            assert check.execute("PRAGMA user_version").fetchone()[0] == 3
+            assert check.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
             assert check.execute("SELECT slug FROM tags").fetchall() == [("projectx",)]
         finally:
             check.close()
+
+
+def test_v4_adds_summary_requests(library_path):
+    conn = meeting_store.connect(library_path)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(summary_requests)")]
+    assert cols == ["meeting_id", "requested_at"]
+    assert meeting_store.SCHEMA_VERSION == 4
+    conn.close()
+
+
+def test_migrates_populated_v3_library_to_v4(library_path):
+    from datetime import datetime, timezone
+    from speakeasy.meeting_library import MeetingLibrary, NewMeeting
+    meeting_store.connect(library_path).close()
+    mid = MeetingLibrary().save_meeting(NewMeeting(
+        started_at=datetime(2026, 9, 24, 13, 0, tzinfo=timezone.utc),
+        segments=[], duration_seconds=600.0))
+    conn = meeting_store.connect(library_path)
+    conn.executescript("DROP TABLE summary_requests; PRAGMA user_version = 3;")
+    conn.close()
+    conn = meeting_store.connect(library_path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("SELECT COUNT(*) FROM summary_requests").fetchone()[0] == 0
+    assert conn.execute("SELECT id FROM meetings").fetchone()["id"] == mid
+    conn.close()

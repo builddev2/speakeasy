@@ -15,6 +15,7 @@ from pathlib import Path
 from speakeasy import mcp_setup
 from speakeasy import meetings as meeting_render
 from speakeasy import settings
+from speakeasy.summary_format import parse_summary
 from speakeasy.meeting_library import (
     LibraryWatcher, MeetingLibrary, MeetingNotFound, local_start,
 )
@@ -98,6 +99,7 @@ class MeetingsBridge:
             "meetings.delete": self.delete_payload,
             "library.status": self.status_payload,
             "meetings.copyText": self.copy_text_payload,
+            "meetings.requestSummary": self.request_summary_payload,
             "meetings.copy": self.copy_payload,
             "claude.setupInfo": self.claude_setup_payload,
             "claude.installExtension": self.install_extension_payload,
@@ -282,6 +284,8 @@ class MeetingsBridge:
             "date": m.local_start.strftime("%a %-d %b"),
             "lines": _wallclock_lines(m.segments, m.local_start),
             "summary": (m.notes.summary or None) if m.notes else None,
+            "summaryBlocks": parse_summary(m.notes.summary if m.notes else ""),
+            "summaryQueued": self.library.summary_pending(m.meeting_id, now=self._now()),
             "actionItems": m.notes.action_items if m.notes else [],
             # Never look up a None key: only linked meetings have an event.
             "event": (calendar_payloads.event_chip(ev, self._now().tzinfo)
@@ -325,9 +329,13 @@ class MeetingsBridge:
     def status_payload(self, params) -> dict:
         return dict(self._status)
 
+    def request_summary_payload(self, params) -> dict:
+        self.library.request_summary(str(params.get("id", "")))
+        return self.get_payload(params)
+
     def copy_text_payload(self, params) -> bool:
-        # WKWebView can reject navigator.clipboard.writeText; MeetingDetail's
-        # "Copy prompt" fallback lands here instead.
+        # WKWebView can reject navigator.clipboard.writeText; App.tsx's copy
+        # helper falls back to this handler.
         self._set_clipboard(str(params.get("text", "")))
         return True
 

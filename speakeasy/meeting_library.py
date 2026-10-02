@@ -65,6 +65,17 @@ def _now_iso() -> str:
     return utc_iso(datetime.now(timezone.utc))
 
 
+# A meeting is waiting for a summary when the user asked (summary_requests)
+# or it is recent, long enough to matter and still has no summary. The
+# window keeps the pre-feature backlog from being summarised automatically.
+PENDING_WINDOW_DAYS = 7
+PENDING_MIN_SECONDS = 120
+_PENDING_SQL = (
+    "(r.meeting_id IS NOT NULL OR (m.started_at >= ? AND m.duration_seconds >= ?"
+    " AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.meeting_id = m.id"
+    " AND n.summary <> '')))")
+
+
 def local_start(started_at: str, tz_offset_minutes: int) -> datetime:
     utc = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=timezone.utc
@@ -653,6 +664,7 @@ class MeetingLibrary:
             tags = clean_tag_names(tags)
             if len(tags) > MAX_TAGS_PER_MEETING:
                 raise ValueError(f"At most {MAX_TAGS_PER_MEETING} tags per meeting.")
+        new_summary = summary
         with self._transaction() as conn:
             self._touch(conn, meeting_id)
             created, suppressed = ([], []) if tags is None else \
@@ -673,9 +685,48 @@ class MeetingLibrary:
                 (meeting_id, summary, json.dumps(action_items),
                  "\n".join(action_items), now, updated_by),
             )
+            if new_summary:  # a written summary answers any pending request
+                conn.execute("DELETE FROM summary_requests WHERE meeting_id = ?",
+                             (meeting_id,))
             notes = self._notes(conn, meeting_id)
             notes.created_tags, notes.suppressed_tags = created, suppressed
             return notes
+
+    # -- summaries ----------------------------------------------------------
+
+    def _pending_params(self, now):
+        now = now or datetime.now(timezone.utc)
+        return [utc_iso(now - timedelta(days=PENDING_WINDOW_DAYS)), PENDING_MIN_SECONDS]
+
+    def request_summary(self, meeting_id: str) -> None:
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            self._touch(conn, meeting_id)
+            conn.execute(
+                "INSERT INTO summary_requests (meeting_id, requested_at) VALUES (?, ?)"
+                " ON CONFLICT(meeting_id) DO NOTHING",
+                (meeting_id, datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+
+    def pending_summaries(self, limit=5, now=None) -> list[tuple[str, bool]]:
+        """[(meeting_id, requested)], explicit requests first (oldest request
+        first), then recent unsummarised meetings oldest first."""
+        limit = max(1, min(int(limit), 10))
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT m.id, r.meeting_id IS NOT NULL AS requested FROM meetings m"
+                " LEFT JOIN summary_requests r ON r.meeting_id = m.id"
+                f" WHERE {_PENDING_SQL}"
+                " ORDER BY requested DESC, r.requested_at, r.rowid, m.started_at, m.id"
+                " LIMIT ?", (*self._pending_params(now), limit)).fetchall()
+        return [(r["id"], bool(r["requested"])) for r in rows]
+
+    def summary_pending(self, meeting_id: str, now=None) -> bool:
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            return conn.execute(
+                "SELECT 1 FROM meetings m LEFT JOIN summary_requests r"
+                f" ON r.meeting_id = m.id WHERE m.id = ? AND {_PENDING_SQL}",
+                (meeting_id, *self._pending_params(now))).fetchone() is not None
 
     def _set_claude_tags(self, conn, meeting_id, names) -> tuple[list[str], list[str]]:
         """Make `names` this meeting's Claude-suggested tags. User tags are

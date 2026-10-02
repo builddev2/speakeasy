@@ -6,19 +6,19 @@
 }
 
 .green {
-  background: #3ddc84;
-  box-shadow: 0 0 7px 1px rgba(61,220,132,0.7);
+  background: var(--green);
+  box-shadow: var(--glow-green);
 }
 
 .rec {
-  background: #ff453a;
-  box-shadow: 0 0 8px 1px rgba(255,69,58,0.7);
+  background: var(--rec-red);
+  box-shadow: var(--glow-red);
   animation: recdot 1.4s ease-in-out infinite;
 }
 
 @keyframes recdot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .amber {
-  background: #f0b34a;
-  box-shadow: 0 0 7px 1px rgba(240,179,74,0.6);
+  background: var(--amber);
+  box-shadow: var(--glow-amber);
 }

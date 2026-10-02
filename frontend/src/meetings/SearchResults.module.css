@@ -108,6 +108,6 @@
 @media (prefers-reduced-transparency: reduce) {
   .list,
   .empty {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }

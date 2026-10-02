@@ -90,7 +90,7 @@
   border: none;
   border-radius: 8px;
   background: var(--coral-1);
-  color: var(--text-on-accent);
+  color: var(--on-accent);
   font: 600 13px/1 var(--sans);
   cursor: pointer;
 }

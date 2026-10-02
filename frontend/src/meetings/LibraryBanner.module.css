@@ -75,6 +75,6 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .banner {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }

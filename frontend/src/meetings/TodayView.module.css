@@ -113,7 +113,7 @@ button.row:hover {
   border: none;
   border-radius: 7px;
   background: var(--coral-1);
-  color: var(--text-on-accent);
+  color: var(--on-accent);
   font: 600 12px/1 var(--sans);
   cursor: pointer;
 }
@@ -139,7 +139,7 @@ button.row:hover {
 
 @media (prefers-reduced-transparency: reduce) {
   button.row:hover {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }
 
@@ -230,6 +230,6 @@ button.row:hover {
 
 @media (prefers-reduced-transparency: reduce) {
   .disclosureRow:hover {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }

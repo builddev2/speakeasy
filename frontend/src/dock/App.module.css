@@ -16,7 +16,7 @@
   align-items: center;
   gap: 12px;
   font: 500 11.5px/1 var(--sans);
-  color: rgba(255,255,255,0.52);
+  color: var(--dock-label);
 }
 
 .meetingOptions label {
@@ -28,9 +28,9 @@
 .meetingOptions input[type="number"] {
   width: 52px;
   padding: 4px 6px;
-  color: rgba(255,255,255,0.85);
-  background: rgba(255,255,255,0.08);
-  border: 0.5px solid rgba(255,255,255,0.16);
+  color: var(--text-soft);
+  background: var(--glass-fill);
+  border: 0.5px solid var(--hairline);
   border-radius: 6px;
 }
 
@@ -42,9 +42,9 @@
   min-width: 190px;
   max-width: 240px;
   padding: 4px 6px;
-  color: rgba(255,255,255,0.85);
-  background: rgba(255,255,255,0.08);
-  border: 0.5px solid rgba(255,255,255,0.16);
+  color: var(--text-soft);
+  background: var(--glass-fill);
+  border: 0.5px solid var(--hairline);
   border-radius: 6px;
 }
 
@@ -76,16 +76,16 @@
 
 .quit {
   font: 400 12.5px/1 var(--sans);
-  color: rgba(255,255,255,0.32);
+  color: var(--text-xlo);
   text-decoration: none;
 }
 
 .quit:hover {
-  color: rgba(255,255,255,0.5);
+  color: var(--dock-label-2);
 }
 
 .name {
-  color: rgba(255,255,255,0.9);
+  color: var(--text-heading);
   font-weight: 600;
 }
 
@@ -98,32 +98,32 @@
 
 .pillBadge {
   font: 500 11.5px/1 var(--sans);
-  color: #F0B34A;
+  color: var(--amber);
   padding: 4px 8px;
   border-radius: 6px;
-  background: rgba(240,179,74,0.13);
-  border: 0.5px solid rgba(240,179,74,0.25);
+  background: var(--amber-bg);
+  border: 0.5px solid var(--amber-border);
 }
 
 .captureGood,
 .captureWarning {
   font: 500 10.5px/1 var(--sans);
-  color: rgba(255,255,255,0.62);
+  color: var(--text-mid);
 }
 
 .captureWarning {
-  color: #F0B34A;
+  color: var(--amber);
 }
 
 .timer {
   font: 600 12.5px/1 var(--mono);
-  color: rgba(255,255,255,0.7);
+  color: var(--dock-text-2);
   letter-spacing: .4px;
 }
 
 .progress {
   font: 500 11.5px/1 var(--sans);
-  color: rgba(255,255,255,0.62);
+  color: var(--text-mid);
 }
 
 .cancelRow {
@@ -151,7 +151,7 @@
 .cancelPrompt {
   white-space: nowrap;
   font: 500 11.5px/1 var(--sans);
-  color: rgba(255,255,255,0.62);
+  color: var(--text-mid);
 }
 
 .cancelBtn {
@@ -160,9 +160,9 @@
   border-radius: 6px;
   cursor: pointer;
   font: 600 11px/1 var(--sans);
-  color: rgba(255,255,255,0.92);
-  background: rgba(255,255,255,0.08);
-  border: 0.5px solid rgba(255,255,255,0.14);
+  color: var(--text-action);
+  background: var(--glass-fill);
+  border: 0.5px solid var(--control-border);
 }
 
 .cancelBtn:disabled {
@@ -175,9 +175,9 @@
 }
 
 .cancelDanger {
-  color: #FF8A80;
-  background: rgba(255,90,78,0.14);
-  border-color: rgba(255,90,78,0.30);
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
 }
 
 .eventMenuWrap {

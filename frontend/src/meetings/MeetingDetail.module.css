@@ -614,7 +614,7 @@
   .findBar,
   .searchInput,
   .findInput {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

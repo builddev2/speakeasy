@@ -68,7 +68,7 @@ def test_light_mode_redefines_every_colour_token():
     css = TOKENS.read_text()
     inner = _block(css, css.index("@media (prefers-color-scheme: light)"))
     redefined = set(_decls(inner))
-    skip = {"--sans", "--mono", "--radius", "--text-on-accent", "--text-on-accent-mid"}
+    skip = {"--sans", "--mono", "--radius"}
     missing = sorted(set(dark) - redefined - skip)
     assert missing == []
 
@@ -92,3 +92,26 @@ def test_pinned_accent_values():
     assert (dark["--accent"].upper(), dark["--on-accent"].upper()) == ("#E8955A", "#1D1F1E")
     assert (light["--accent"].upper(), light["--on-accent"].upper()) == ("#B8551F", "#FFFFFF")
     assert (dark["--rec"].upper(), light["--rec"].upper()) == ("#FF5A4E", "#D33A2F")
+
+
+SRC = TOKENS.parents[1]
+LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
+
+
+def test_css_modules_use_tokens_only():
+    offenders = []
+    for path in sorted(SRC.rglob("*.module.css")):
+        text = re.sub(r"/\*.*?\*/", "", path.read_text(), flags=re.S)
+        for n, line in enumerate(text.splitlines(), 1):
+            if LITERAL.search(line):
+                offenders.append(f"{path.relative_to(SRC)}:{n}: {line.strip()}")
+    assert offenders == []
+
+
+def test_no_removed_tokens_and_no_js_theme_detection():
+    for path in SRC.rglob("*"):
+        if path.suffix not in {".css", ".tsx", ".ts"} or path.name == "tokens.css":
+            continue
+        text = path.read_text()
+        assert "--text-on-accent" not in text, path
+        assert "prefers-color-scheme" not in text, path   # CSS-only theming lives in tokens.css

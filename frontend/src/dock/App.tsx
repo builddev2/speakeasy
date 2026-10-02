@@ -126,7 +126,7 @@ function liveCaptureStatus(app: AppState): string {
 
 function MeetingsIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="1.7" strokeLinecap="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--text-mid)" }} strokeWidth="1.7" strokeLinecap="round">
       <rect x="4" y="3.5" width="16" height="17" rx="2.5" />
       <line x1="8" y1="8" x2="16" y2="8" />
       <line x1="8" y1="12" x2="16" y2="12" />
@@ -137,7 +137,7 @@ function MeetingsIcon() {
 
 function TrainIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--text-mid)" }} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="8" r="4" />
       <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
     </svg>

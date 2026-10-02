@@ -51,7 +51,7 @@
 }
 
 .rowActive .count {
-  color: var(--text-on-accent);
+  color: var(--on-accent);
 }
 
 .rowLabel {
@@ -140,6 +140,6 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .sidebar {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }

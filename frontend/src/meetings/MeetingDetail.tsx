@@ -67,6 +67,10 @@ function SummaryBlocks({ blocks }: { blocks: SummaryBlock[] }) {
                 ))}
               </ul>
             );
+          default: {
+            const _exhaustive: never = b;
+            return _exhaustive;
+          }
         }
       })}
     </div>

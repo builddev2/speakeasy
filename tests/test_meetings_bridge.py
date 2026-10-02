@@ -195,7 +195,7 @@ def test_library_status(library_path):
 
 
 def test_copy_text_registers_and_writes_via_injected_clipboard(library_path):
-    # Regression: meetings_window.py's "Copy prompt" fallback (Task 11) posts
+    # Regression: App.tsx's copy helper posts
     # meetings.copyText with {"text": ...}. The handler lives on the bridge
     # (pure-Python) precisely so its registration and its exact clipboard
     # call are unit-testable here — a prior round silently renamed the

@@ -380,9 +380,9 @@ What Claude can do:
 - `pending_summaries` — meetings waiting for a summary (recent unsummarised
   ones and any you queued in the app), with the summary format Claude uses.
 
-**Automatic summaries.** A Claude Desktop scheduled task checks
-`pending_summaries` every 30 minutes and saves a summary for each waiting
-meeting. In the app, **Summarise** and **Redo summary** queue a meeting for
+**Automatic summaries.** Set up a Claude Desktop scheduled task once
+(the app does not create it) that checks `pending_summaries` every 30 minutes
+and saves a summary for each waiting meeting. In the app, **Summarise** and **Redo summary** queue a meeting for
 the next check. The app itself never goes online.
 
 Claude never sees capture health, device names or audio. The sheet also shows

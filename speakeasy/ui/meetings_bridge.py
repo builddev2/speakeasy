@@ -334,8 +334,8 @@ class MeetingsBridge:
         return self.get_payload(params)
 
     def copy_text_payload(self, params) -> bool:
-        # WKWebView can reject navigator.clipboard.writeText; MeetingDetail's
-        # "Copy prompt" fallback lands here instead.
+        # WKWebView can reject navigator.clipboard.writeText; App.tsx's copy
+        # helper falls back to this handler.
         self._set_clipboard(str(params.get("text", "")))
         return True
 

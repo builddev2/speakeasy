@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import settings
-from .meeting_library import HIT_CLOSE, HIT_OPEN, local_start, utc_iso
+from .meeting_library import HIT_CLOSE, HIT_OPEN, MeetingNotFound, local_start, utc_iso
 from .meetings import _ID_RE
 from .summary_format import SUMMARY_INSTRUCTIONS
 
@@ -323,7 +323,10 @@ def build_tools(library) -> dict[str, Tool]:
         limit = _int(args, "limit", 5, 1, 10)
         meetings = []
         for meeting_id, requested in library.pending_summaries(limit=limit):
-            m = library.get_meeting(meeting_id, with_segments=False)
+            try:
+                m = library.get_meeting(meeting_id, with_segments=False)
+            except MeetingNotFound:
+                continue          # deleted since the queue query ran
             meetings.append({
                 "id": m.meeting_id, "title": m.title,
                 "start": _start(m.started_at, m.tz_offset_minutes),

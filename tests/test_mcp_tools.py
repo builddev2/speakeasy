@@ -353,6 +353,16 @@ def test_pending_summaries_redo_of_summarised_meeting(lib, tools):
     assert m["id"] == mid and m["has_summary"] is True and m["requested"] is True
 
 
+def test_pending_summaries_skips_meeting_deleted_mid_run(lib, tools, monkeypatch):
+    real = _seed(lib, day=1)
+    gone = _seed(lib, day=2)
+    lib.delete(gone)
+    monkeypatch.setattr(lib, "pending_summaries",
+                        lambda limit: [(gone, True), (real, True)])
+    out = tools["pending_summaries"].run({})
+    assert [m["id"] for m in out["meetings"]] == [real]
+
+
 def test_save_notes_clears_pending(lib, tools):
     old = _seed(lib, day=1)
     lib.request_summary(old)

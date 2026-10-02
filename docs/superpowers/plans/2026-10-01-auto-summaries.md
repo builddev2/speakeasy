@@ -859,7 +859,7 @@ Using the Speakeasy Meetings connector (local, on this Mac):
 
 ## Status
 
-- [x] Task 1 — [x] Task 2 — [x] Task 3 — [x] Task 4 — [x] Task 5 — [~] Task 6 — [ ] Task 7
+- [x] Task 1 — [x] Task 2 — [x] Task 3 — [x] Task 4 — [x] Task 5 — [x] Task 6 (installed-app look is user-side) — [~] Task 7 (first run is user-side)
 - 1 Oct 2026: Tasks 1–5 were executed on branch `worktree-auto-summaries`
   (worktree `.claude/worktrees/auto-summaries`), commits 480d113..da1b423.
   Each task got an Opus review with mutation checks. The final whole-branch
@@ -876,7 +876,13 @@ Using the Speakeasy Meetings connector (local, on this Mac):
   - NOT done: looking at the installed app (the user declined screen
     control). The user still needs to check f167's legacy layout and the
     Summarise → Queued state in the real app.
-  - NOT done: toggling the Claude Desktop connector off and on (user-side).
+  - Done (1 Oct, after the toggle): Claude Desktop's real "Speakeasy Meetings"
+    connector lists `pending_summaries` and answers it on the real v4
+    library: 5 automatic meetings (c139, 3b95, 7cbb, d2cc, 4717), none
+    `requested`, and the format instructions. `summary_requests` is empty,
+    so no test meeting was left queued.
+  - Still user-side: the installed-app look (f167 legacy layout, Summarise →
+    "Queued —" and the button disabling). Not verified by Claude.
 - Changes made while executing:
   - The parser checks bullets before ALL-CAPS headings.
   - An ALL-CAPS heading only counts at the start of a block (after a blank line).
@@ -886,5 +892,12 @@ Using the Speakeasy Meetings connector (local, on this Mac):
   - `tests/test_meeting_recorder.py::test_gap_fill_queue_full_is_retried_on_the_next_block`
     failed once in a full run (flaky, unrelated).
   - Numbered lists in old summaries collapse into one paragraph.
-- Task 7 (scheduled task + real run) and the merge are still to do, and they
-  need the user's go-ahead.
+- Task 7 status (1 Oct):
+  - Done: scheduled task `speakeasy-auto-summaries` created as specified
+    (every 30 min, notify off, prompt verbatim from Task 7).
+  - NOT done: the first run. `run_scheduled_task` was refused by the
+    auto-mode permission classifier, so the user clicks **Run now** on the
+    task (this also pre-approves its connector tools for later runs). Then
+    check one summarised meeting in the app: new format, spaced layout,
+    action items as "Owner — task (due)", request cleared.
+  - Branch merged to master after the user approved Task 7.

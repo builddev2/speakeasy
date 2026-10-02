@@ -211,10 +211,14 @@ class MeetingsBridge:
         calendars = self._calendar.calendars if self._calendar is not None else []
         return {"offerToRecord": stored["offer_to_record"],
                 "detectCalls": stored["detect_calls"],
+                "appearance": settings.get_appearance(),
                 "accounts": calendar_payloads.calendars_payload(
                     calendars, stored["calendar_choices"])}
 
     def settings_set_payload(self, params) -> dict:
+        if params.get("appearance") is not None:
+            from . import appearance
+            appearance.apply(settings.set_appearance(params["appearance"]))
         settings.set_meeting_settings(
             offer_to_record=params.get("offerToRecord"),
             detect_calls=params.get("detectCalls"),

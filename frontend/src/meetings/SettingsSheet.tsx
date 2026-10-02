@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { MeetingSettings } from '../mock/meetings';
+import type { Appearance, MeetingSettings } from '../mock/meetings';
 import { Sheet } from './Sheet';
 import { Switch } from '../components/Switch';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -9,7 +9,7 @@ interface SettingsSheetProps {
   settings: MeetingSettings;
   /** "No calendars found." only makes sense once access is granted. */
   calendarConnected: boolean;
-  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; calendars?: Record<string, boolean> }) => void;
+  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; calendars?: Record<string, boolean> }) => void;
   onClose: () => void;
   onExportAll: () => void;
 }

@@ -608,6 +608,21 @@ def test_meeting_settings_round_trip(library_path, tmp_path, monkeypatch):
     assert settings.get_meeting_settings()["detect_calls"] is False
 
 
+def test_settings_round_trip_appearance(library_path, tmp_path, monkeypatch):
+    from speakeasy import settings
+    from speakeasy.ui import appearance
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    applied = []
+    monkeypatch.setattr(appearance, "apply", applied.append)
+    b = _calendar_bridge(library_path)
+    assert b.settings_get_payload({})["appearance"] == "system"
+    out = b.settings_set_payload({"appearance": "dark"})
+    assert out["appearance"] == "dark" and applied == ["dark"]
+    with pytest.raises(ValueError):
+        b.settings_set_payload({"appearance": "neon"})
+    assert applied == ["dark"]
+
+
 def test_get_payload_never_looks_up_a_missing_event_key(library_path, monkeypatch):
     lib = MeetingLibrary(library_path)
     mid = lib.save_meeting(NewMeeting(segments=[MeetingSegment("You", 0, 1, "hi")],

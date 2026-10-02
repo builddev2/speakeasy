@@ -39,6 +39,7 @@ import type {
   CalendarAccess,
   UpcomingDay,
   EventChip,
+  Appearance,
   MeetingSettings,
 } from '../mock/meetings';
 import { bridge } from '../bridge';
@@ -321,7 +322,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       });
   }, [embedded, settingsOpen]);
 
-  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; calendars?: Record<string, boolean> }) {
+  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; calendars?: Record<string, boolean> }) {
     if (embedded) {
       bridge
         .call<MeetingSettings>('settings.meetings.set', patch)
@@ -334,6 +335,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         ? {
             offerToRecord: patch.offerToRecord ?? prev.offerToRecord,
             detectCalls: patch.detectCalls ?? prev.detectCalls,
+            appearance: patch.appearance ?? prev.appearance,
             accounts: prev.accounts.map((account) => ({
               ...account,
               calendars: account.calendars.map((cal) =>

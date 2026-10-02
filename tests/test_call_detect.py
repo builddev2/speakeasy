@@ -122,3 +122,11 @@ def test_poll_interval_is_five_seconds():
     assert call_detect.POLL_SECONDS == 5.0
     p = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: True)
     assert p._interval == 5.0
+
+
+def test_forgive_after_ignore_in_one_poll_wins():
+    w = _watch([set(), {30}, {30}])
+    assert [w(), w()] == [False, True]
+    w.ignore_current()
+    w.forgive_waved()
+    assert w() is True

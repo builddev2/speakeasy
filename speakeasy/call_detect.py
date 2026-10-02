@@ -69,12 +69,14 @@ class MicWatch:
         others = active - self._own_ids()
         if self._baseline is None:
             self._baseline = set(others)
-        if self._forgive_requests != self._forgives_applied:
-            self._forgives_applied = self._forgive_requests
-            self._waved = set()
         if self._ignore_requests != self._ignores_applied:
             self._ignores_applied = self._ignore_requests
             self._waved |= others
+        # Forgive after ignore: Not Now then Begin Meeting within one poll
+        # leaves that app counted during the recording.
+        if self._forgive_requests != self._forgives_applied:
+            self._forgives_applied = self._forgive_requests
+            self._waved = set()
         self._baseline &= others   # released the mic: its next use counts
         self._waved &= others
         return bool(others - self._baseline - self._waved)

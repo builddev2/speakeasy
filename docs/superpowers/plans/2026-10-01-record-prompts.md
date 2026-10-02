@@ -1863,6 +1863,216 @@ Also check by reading that nothing calls `makeKeyAndOrderFront_` or `activateIgn
   6. Dictation still pastes once in TextEdit, Codex and Teams. Insertion code is untouched, but check anyway.
 - [ ] **Step 7: Checkpoint** (per CLAUDE.md): update this plan's status, commit, list loose ends, and give the `/clear` reminder. Merge only when the user says "merge and clean up".
 
+### Task 6: Only apps that start using the mic count (follow-up, 2 Oct 2026)
+
+**Why:** in the live check, GeForce NOW kept Core Audio input running while idle. Speakeasy treated it as a call that never ends. The result was a false "Record this call?" banner, no offers for real Teams calls, and no "Call ended". The user chose this rule: only apps that *start* using the mic count.
+
+**Rule:**
+- An app already using the mic at the first known answer after launch is ignored until it releases the mic.
+- After a release, its next use counts.
+- The app behind a call offer that is waved off (Not Now, or the 5-minute timeout) is ignored the same way. This covers GeForce NOW opened *after* Speakeasy: one offer, then it stays quiet.
+- Recording, or a meeting started by hand, never ignores anything, so "Call ended" still works.
+- **Trade-off:** a call already in progress when Speakeasy launches is not offered. Begin Meeting still works.
+
+PIDs stay inside `call_detect.py` (Global Constraints). The controller only sends a "wave off" flag.
+
+**Files:**
+- Modify: `speakeasy/call_detect.py`, `speakeasy/record_prompt.py`, `speakeasy/ui/record_prompt_controller.py`, `README.md` (Record prompts), `AGENTS.md` (call-probe thread)
+- Test: `tests/test_call_detect.py`, `tests/test_record_prompt.py`, `tests/test_record_prompt_controller.py`
+
+- [ ] **Step 1: Failing tests.**
+
+  `tests/test_call_detect.py` replaces `test_other_app_using_mic_ignores_speakeasy_processes` (keep that name for Review Focus 4) and adds the rest:
+
+```python
+def _watch(answers, own=frozenset({10})):
+    seq = iter(answers)
+    return call_detect.MicWatch(input_ids=lambda: next(seq), own_ids=lambda: set(own))
+
+
+def test_other_app_using_mic_ignores_speakeasy_processes():
+    w = _watch([set(), {10, 11}, {10, 12}], own={10, 11})
+    assert [w(), w(), w()] == [False, False, True]
+
+
+def test_apps_already_using_the_mic_are_ignored_until_they_release_it():
+    w = _watch([{20}, {20}, {20, 30}, {20}, set(), {20}])
+    assert [w(), w(), w(), w(), w(), w()] == [False, False, True, False, False, True]
+
+
+def test_unknown_answers_pass_through_and_do_not_set_the_baseline():
+    w = _watch([None, {20}, {20, 30}])
+    assert [w(), w(), w()] == [None, False, True]
+
+
+def test_waved_off_apps_are_ignored_until_they_release_the_mic():
+    w = _watch([set(), {30}, {30}, {30, 40}, set(), {30}])
+    assert [w(), w()] == [False, True]
+    w.ignore_current()
+    assert [w(), w(), w(), w()] == [False, True, False, True]
+
+
+def test_probe_ignore_current_reaches_its_watch():
+    p = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False)
+    assert isinstance(p.watch, call_detect.MicWatch)
+    p.ignore_current()
+    assert p.watch._ignore_requested
+    q = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False,
+                              probe=lambda: True)
+    assert q.watch is None
+    q.ignore_current()        # no watch: nothing to do, no error
+```
+
+  `tests/test_record_prompt.py` gets:
+
+```python
+def test_waving_off_a_call_offer_is_reported_once():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.not_now()
+    assert c.take_call_waved_off() is True
+    assert c.take_call_waved_off() is False
+
+
+def test_call_offer_timeout_counts_as_waving_off():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.calendar_tick([], at(5, 10), offer_enabled=True)
+    assert c.banner is None and c.take_call_waved_off() is True
+
+
+def test_recording_or_calendar_dismissal_is_not_waving_off_a_call():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.record()
+    assert c.take_call_waved_off() is False
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.engine_state("meeting_recording")
+    assert c.take_call_waved_off() is False
+    c = coord()
+    c.calendar_tick([ev("a")], at(0), offer_enabled=True)
+    c.not_now()
+    assert c.take_call_waved_off() is False
+```
+
+  `tests/test_record_prompt_controller.py`: `FakeProbe` gains `ignored = 0` and `def ignore_current(self): self.ignored += 1`. Then add:
+
+```python
+def test_not_now_on_a_call_offer_ignores_that_app(monkeypatch):
+    c, panel, probe, times = make(monkeypatch, FakeEngine())
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=10)
+    c.callObserved_(True)
+    c.bannerSecondary_(None)
+    assert probe.ignored == 1
+    c.shutdown()
+
+
+def test_not_now_on_a_calendar_offer_ignores_nothing(monkeypatch):
+    c, panel, probe, _ = make(monkeypatch, FakeEngine(events=[ev("k1")]))
+    c.tick_(None)
+    c.bannerSecondary_(None)
+    assert probe.ignored == 0
+    c.shutdown()
+```
+
+- [ ] **Step 2: Run them to verify they fail.** `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_call_detect.py tests/test_record_prompt.py tests/test_record_prompt_controller.py`
+
+- [ ] **Step 3: `speakeasy/call_detect.py`.** Replace `other_app_using_mic` with `MicWatch`. Keep `own_process_ids` unchanged. Update the module docstring's first paragraph to say an app counts only from when it starts using the mic.
+
+```python
+class MicWatch:
+    """Is another app on a call? An app counts only from when it starts using
+    the mic while Speakeasy watches. Apps already using it at the first known
+    answer (GeForce NOW keeps input running while idle), and apps behind a
+    waved-off call offer, are ignored until they release the mic. Called on
+    the probe thread; the PIDs never leave this object."""
+
+    def __init__(self, input_ids=None, own_ids=None) -> None:
+        self._input_ids = input_ids or system_audio.input_process_ids
+        self._own_ids = own_ids or own_process_ids
+        self._ignored: set[int] | None = None   # None until the first known answer
+        self._ignore_requested = False
+
+    def ignore_current(self) -> None:
+        """Main thread: ignore the apps using the mic now. A plain flag that
+        the probe thread applies on its next answer."""
+        self._ignore_requested = True
+
+    def __call__(self) -> bool | None:
+        active = self._input_ids()
+        if active is None:
+            return None
+        others = active - self._own_ids()
+        requested, self._ignore_requested = self._ignore_requested, False
+        if self._ignored is None or requested:
+            self._ignored = (self._ignored or set()) | others
+        self._ignored &= others   # released the mic: its next use counts
+        return bool(others - self._ignored)
+```
+
+  In `CallProbe.__init__`, replace `self._probe = probe or other_app_using_mic` with:
+
+```python
+        self.watch = MicWatch() if probe is None else None
+        self._probe = probe or self.watch
+```
+
+  Then add this method:
+
+```python
+    def ignore_current(self) -> None:
+        if self.watch is not None:
+            self.watch.ignore_current()
+```
+
+- [ ] **Step 4: `speakeasy/record_prompt.py`.**
+  - In `__init__`, add `self._call_waved_off = False   # a call offer got Not Now or timed out`.
+  - In `not_now`, and in `_expire` before `_close_offer()`, set `self._call_waved_off = True` when `self.banner.kind == "call"`.
+  - Add this method:
+
+```python
+    def take_call_waved_off(self) -> bool:
+        """True once after a call offer was waved off (Not Now or timeout), so
+        the controller can tell the probe to ignore the apps on that call."""
+        waved, self._call_waved_off = self._call_waved_off, False
+        return waved
+```
+
+- [ ] **Step 5: `speakeasy/ui/record_prompt_controller.py`.** At the start of `_render` (after `_persist()`), add:
+
+```python
+        if self.coordinator.take_call_waved_off():
+            self.probe.ignore_current()
+```
+
+- [ ] **Step 6: Docs.**
+  - README Record prompts, call banner: only an app that *starts* using the mic counts. Apps already using it when Speakeasy starts are ignored until they release it, as is an app whose call offer you dismissed (or that timed out). So a game launcher or voice app that keeps the mic open only asks once. A call already running when Speakeasy launches isn't offered.
+  - AGENTS.md call-probe bullet: `MicWatch` keeps the ignored PIDs inside `call_detect.py`, and the controller only sends `ignore_current()`.
+
+- [ ] **Step 7: Tests, full suite (timeout 300000), commit** `Call detect: only apps that start using the mic count; waved-off calls ignored`.
+
+**Review mutations (Opus):**
+- baseline not taken on the first answer;
+- `self._ignored &= others` removed (a released app stays ignored);
+- `ignore_current` flag never applied;
+- `_call_waved_off` set on Record or on a manual meeting start;
+- the controller never calls `ignore_current`;
+- the expiry path not marking a waved-off call;
+- own PIDs not excluded.
+
+- [ ] **Step 8: Reinstall (needs the user's go-ahead) and live check.**
+  1. Start GeForce NOW, then relaunch Speakeasy: no call banner.
+  2. A synthetic or real call while GeForce NOW stays open: a banner within about 15 s.
+  3. Open GeForce NOW while Speakeasy is already running: one banner. Not Now, then a synthetic call within the next minute or two: a banner.
+
+---
+
 ## Execution notes
 
 (Record deviations, surprises, review findings and acceptance results here during execution.)
@@ -1924,3 +2134,4 @@ Also in `f0e3c93`:
   - **Check 3 passed:** the call was detected, linked to the right event, the banner took no focus, and Not Now was remembered.
   - **Not verified live:** the call offer hiding by itself about 60 s after the call ends, because the click came first. Unit tests cover it (`test_call_offer_hides_when_the_call_ends`).
   - **Still for the user:** checks 1, 2, 4 and 6.
+- **User, 2 Oct:** toggled the call-offer setting in Meetings › Settings (persistence after relaunch not yet confirmed). Chose the follow-up "only apps that start using the mic count" → Task 6.

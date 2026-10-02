@@ -8,6 +8,19 @@ from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
 
+_MIN_SIZE = (820, 520)
+_SCREEN_FRACTION = 0.9
+# Restores the user's last size/position across launches (NSUserDefaults).
+_AUTOSAVE_NAME = "SpeakeasyMeetingsWindow"
+
+
+def default_content_size(visible_width, visible_height):
+    """First-launch size: most of the screen, never below the minimum."""
+    return (
+        max(_MIN_SIZE[0], round(visible_width * _SCREEN_FRACTION)),
+        max(_MIN_SIZE[1], round(visible_height * _SCREEN_FRACTION)),
+    )
+
 
 class MeetingsWindowController(NSObject):
     def init(self):
@@ -42,10 +55,16 @@ class MeetingsWindowController(NSObject):
         dispatcher = BridgeDispatcher()
         self._bridge.register(dispatcher)
         dispatcher.register("meetings.export", self._export)
+        from AppKit import NSScreen
+
+        visible = NSScreen.mainScreen().visibleFrame().size
+        width, height = default_content_size(visible.width, visible.height)
         self._web = WebWindow(
-            "Meetings", 1040, 660, "meetings", dispatcher,
-            resizable=True, min_size=(820, 520),
+            "Meetings", width, height, "meetings", dispatcher,
+            resizable=True, min_size=_MIN_SIZE,
         )
+        # Overrides the centred default frame when a saved one exists.
+        self._web.window.setFrameAutosaveName_(_AUTOSAVE_NAME)
         self._web.window.setDelegate_(self)
         return self
 

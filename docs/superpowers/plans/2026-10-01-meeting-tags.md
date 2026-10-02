@@ -1400,7 +1400,9 @@ Confirm the real path with `settings.library_path()` first. Copy the `-wal` file
 
 ## Progress
 
-- [x] Task 1 · [x] Task 2 · [x] Task 3 · [x] Task 4 · [x] Task 5 · [x] Task 6 · [~] Task 7 (steps 1–4 done; live check pending)
+- [x] Task 1 · [x] Task 2 · [x] Task 3 · [x] Task 4 · [x] Task 5 · [x] Task 6 · [x] Task 7 (live check passed; Meetings sidebar not looked at)
+
+**Live check (Step 5), 1 Oct 2026:** after the user re-enabled the connector, MCP `list_tags` returned all 8 real tags in the v3 shape (count 1, empty description, no aliases). `list_meetings(tag="Project Black")` found the project-black meeting (f167), so variant spelling works on real data. Not done: looking at the Meetings sidebar in the app.
 
 **Executed 1 October 2026** on branch `worktree-meeting-tags` (527fa6c..f12ab32), subagent-driven. Each task got an opus review that checked by mutation. The whole-branch review triggered one fix wave:
 - The calendar tests asserted schema 2.

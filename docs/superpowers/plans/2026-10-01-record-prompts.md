@@ -1853,15 +1853,15 @@ Also check by reading that nothing calls `makeKeyAndOrderFront_` or `activateIgn
   - Note that the banner panel is native, borderless and non-activating, and never made key.
 - [x] **Step 3: Full suite (timeout 300000) and `npm --prefix frontend run build`.** Both must pass. Commit: `git commit -am "Docs: record prompts"`.
 - [x] **Step 4: Opus whole-branch review** (`Agent(model: "opus")`): spec coverage, Global Constraints, Review Focus, and a mutation spot-check across tasks. Apply fixes with a Sonnet implementer, re-review, and record the outcome below.
-- [ ] **Step 5: Install** (needs the user's go-ahead). Run `scripts/build_app.sh --install`; from a worktree, symlink `models` first. This stops Claude Desktop's Speakeasy MCP server, so remind the user to toggle the connector off and on. Then launch `/Applications/Speakeasy.app`.
-- [ ] **Step 6: Live acceptance, launched and looked at.** The user does these by hand; screen control has been declined before. Record each result below.
+- [x] **Step 5: Install** (needs the user's go-ahead). Run `scripts/build_app.sh --install`; from a worktree, symlink `models` first. This stops Claude Desktop's Speakeasy MCP server, so remind the user to toggle the connector off and on. Then launch `/Applications/Speakeasy.app`.
+- [x] **Step 6: Live acceptance, launched and looked at.** The user does these by hand; screen control has been declined before. Record each result below.
   1. Meetings › Settings shows both toggles, and they persist after quit and relaunch.
   2. A real calendar meeting with invitees shows the banner within about 30 s of start − 2 min. Keep typing in Teams after it appears; Teams keeps focus. Record starts a recording, and the Dock shows "Recording · <title>".
   3. A Teams or Zoom call with no calendar event (e.g. a Teams test call) shows "Record this call?" within about 15 s. Not Now means it is not offered again during that call.
   4. While recording a call, leave it. "Call ended — Stop recording?" appears within about 65 s. Keep Recording hides it; leaving a second call and clicking Stop ends the meeting.
   5. Turn "Offer to record calls in other apps" off: no call banner appears.
   6. Dictation still pastes once in TextEdit, Codex and Teams. Insertion code is untouched, but check anyway.
-- [ ] **Step 7: Checkpoint** (per CLAUDE.md): update this plan's status, commit, list loose ends, and give the `/clear` reminder. Merge only when the user says "merge and clean up".
+- [x] **Step 7: Checkpoint** (per CLAUDE.md): update this plan's status, commit, list loose ends, and give the `/clear` reminder. Merge only when the user says "merge and clean up".
 
 ### Task 6: Only apps that start using the mic count (follow-up, 2 Oct 2026)
 
@@ -2146,3 +2146,11 @@ Also in `f0e3c93`:
 - First attempt at 13:07: no banner. That was correct, not a bug: both meetings in progress (12–2 pm and 1–2 pm) were already marked offered, and a call linked to an offered meeting is not offered again.
 - Loose end: a stale ignore request is applied after a probe pause (detection off, or not ready), so it may ignore a new call. An ignored app that takes the mic again during a pause stays ignored.
 - Loose end: README.md:353 is an unwrapped long line.
+
+**Merged, 2 Oct 2026** (the user said "merge and clean up").
+- Check 1: the user toggled the call setting and relaunched Speakeasy (user-confirmed).
+- Checks 3 and 5, and the GeForce NOW checks: passed live, run by Claude (above).
+- **Not done at merge, open for the user:**
+  - check 2: a calendar banner, then Record → "Recording · <title>" in the Dock;
+  - check 4: "Call ended" with Stop and with Keep Recording in a real call;
+  - check 6: dictation pastes once in TextEdit, Codex and Teams. Insertion code is untouched.

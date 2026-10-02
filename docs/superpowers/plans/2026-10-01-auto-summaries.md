@@ -859,7 +859,7 @@ Using the Speakeasy Meetings connector (local, on this Mac):
 
 ## Status
 
-- [x] Task 1 — [x] Task 2 — [x] Task 3 — [x] Task 4 — [x] Task 5 — [x] Task 6 (installed-app look is user-side) — [~] Task 7 (first run is user-side)
+- [x] Task 1 — [x] Task 2 — [x] Task 3 — [x] Task 4 — [x] Task 5 — [x] Task 6 (installed-app look is user-side) — [x] Task 7
 - 1 Oct 2026: Tasks 1–5 were executed on branch `worktree-auto-summaries`
   (worktree `.claude/worktrees/auto-summaries`), commits 480d113..da1b423.
   Each task got an Opus review with mutation checks. The final whole-branch
@@ -895,7 +895,21 @@ Using the Speakeasy Meetings connector (local, on this Mac):
 - Task 7 status (1 Oct):
   - Done: scheduled task `speakeasy-auto-summaries` created as specified
     (every 30 min, notify off, prompt verbatim from Task 7).
-  - NOT done: the first run. `run_scheduled_task` was refused by the
+  - The user changed the schedule to daily at 16:00 (`0 16 * * *`).
+  - Done (2 Oct, 05:10 UTC): the user ran it once with Run now. It succeeded
+    in about 1 minute and saved 5 meetings (c139, 3b95, 7cbb, d2cc, 4717).
+    `updated_by` is claude. Checked 4717 through the connector: TL;DR +
+    Decisions / Key points / Open questions, action items as "Owner — task",
+    tags reused or new (5 new: vfa, product-strategy, renewals, security,
+    sso). `summary_requests` is empty. Project Black Meeting Part 1 (2230) is
+    next in the queue (5 per run).
+  - Run quality notes (loose ends, not bugs): the 4717 summary is about
+    250 words against the ~150 target; 3b95 and d2cc got 2 tags (format asks
+    3–8); the run transcript shows tool names only, so following
+    `next_cursor` to the end could not be confirmed.
+  - Not checked by Claude: the spaced layout of these summaries in the
+    installed app.
+  - Earlier note: the first run. `run_scheduled_task` was refused by the
     auto-mode permission classifier, so the user clicks **Run now** on the
     task (this also pre-approves its connector tools for later runs). Then
     check one summarised meeting in the app: new format, spaced layout,

@@ -1900,3 +1900,21 @@ Also in `f0e3c93`:
 - `test_meeting_recorder::test_gap_fill_queue_full_is_retried_on_the_next_block` is flaky (untouched file, existed before this branch). It failed once in a full run and in 1 of 3 solo reruns.
 
 **Add to Step 6 live acceptance:** check whether an always-on system process (e.g. "Hey Siri") reports running mic input. If it does, it would cause a false "Record this call?" while idle and stop "Call ended" from ever appearing.
+
+**Step 5, 2 Oct 2026:** built and installed from the worktree with `build_app.sh --install` (HEAD `ddeb14a`), then launched `/Applications/Speakeasy.app`. The Claude Desktop connector needs its off/on toggle.
+
+**Step 6, live checks done by Claude (no screen control: screen capture and Accessibility are both denied to the session):**
+- **Detection works.** The installed helper's `--list-input-pids` listed a throwaway `sounddevice` recorder within 6 s and dropped it when it stopped. Speakeasy's own processes (main, mic helper) were not listed while idle.
+- **Surprise: GeForce NOW (`/Applications/GeForceNOW.app`) keeps Core Audio input running while idle.** Speakeasy therefore showed a call banner about 15 s after launch with no call in progress. This is the "always-on process" risk from Review Focus/M3, and it is real.
+  - While GeForce NOW holds the mic, its "call" never ends. Real Teams/Zoom calls get no offer, and "Call ended" never appears.
+  - **Open decision for the user:** quit GeForce NOW, or change detection so only apps that *start* using the mic count (per-PID onset tracking kept inside `call_detect.py`).
+- **Banner geometry and focus confirmed with CGWindowList.** The banner is 360×92 at x=1356, y=45 (top-left coordinates), which is 12 pt from the top-right of the visible frame (1728×1117 screen, menu bar plus Dock inset). Window layer is 25 (status). The frontmost app stayed NVIDIA GeForce NOW, so the banner took no focus.
+- **Check 5 passed, and the I2 fix works live.** Setting `detect_calls: false` in settings.json hid the showing call banner within 5 s. No banner came back for 45 s while GeForce NOW still held the mic. settings.json was then restored byte for byte from a backup; only that key had changed.
+- **One offer per call holds across the toggle.** After detection was switched back on with GeForce NOW still using the mic, no new banner appeared.
+- **Not checked yet (needs the user's eyes or clicks):**
+  - (1) the toggles in Meetings › Settings, and that they persist across relaunch;
+  - (2) a real calendar meeting banner and its Record button;
+  - (3) the Teams call banner, and Not Now (blocked by GeForce NOW, see above);
+  - (4) "Call ended" → Stop / Keep Recording;
+  - (6) dictation paste in TextEdit, Codex and Teams;
+  - the banner's text and look.

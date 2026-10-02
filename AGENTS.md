@@ -153,7 +153,10 @@ contexts are intentionally bounded and single-purpose:
 - **`call-probe`** (1 daemon thread, `call_detect.CallProbe`) — every 5 s while
   wanted, runs the system-audio helper's `--list-input-pids` (1 s timeout) and
   `pgrep -P`, and hands a bool to the main thread. It never opens audio and
-  never touches the model, executors or UI.
+  never touches the model, executors or UI. `call_detect.MicWatch` keeps the
+  ignored PIDs (apps already on the mic at the first answer, or behind a
+  waved-off offer) inside `call_detect.py`; the controller only sends
+  `ignore_current()`.
 - **`ax-warmup`** (1 thread, `ax_warmup.AccessibilityWarmer`) — on every app
   activation, one focus query; if the app answers NoValue and
   `AXEnhancedUserInterface` is settable and off, writes it once (Chromium

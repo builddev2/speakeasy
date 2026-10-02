@@ -1,4 +1,5 @@
 """Is another app using the microphone? One boolean for the record banner.
+An app counts only from when it starts using the mic while Speakeasy watches.
 
 PIDs stay inside this module: they are never logged, stored or shown. The
 probe runs on its own daemon thread because each answer costs a helper
@@ -34,11 +35,34 @@ def own_process_ids() -> set[int]:
     return ids
 
 
-def other_app_using_mic(input_ids=None, own_ids=None) -> bool | None:
-    active = (input_ids or system_audio.input_process_ids)()
-    if active is None:
-        return None
-    return bool(active - (own_ids or own_process_ids)())
+class MicWatch:
+    """Is another app on a call? An app counts only from when it starts using
+    the mic while Speakeasy watches. Apps already using it at the first known
+    answer (GeForce NOW keeps input running while idle), and apps behind a
+    waved-off call offer, are ignored until they release the mic. Called on
+    the probe thread; the PIDs never leave this object."""
+
+    def __init__(self, input_ids=None, own_ids=None) -> None:
+        self._input_ids = input_ids or system_audio.input_process_ids
+        self._own_ids = own_ids or own_process_ids
+        self._ignored: set[int] | None = None   # None until the first known answer
+        self._ignore_requested = False
+
+    def ignore_current(self) -> None:
+        """Main thread: ignore the apps using the mic now. A plain flag that
+        the probe thread applies on its next answer."""
+        self._ignore_requested = True
+
+    def __call__(self) -> bool | None:
+        active = self._input_ids()
+        if active is None:
+            return None
+        others = active - self._own_ids()
+        requested, self._ignore_requested = self._ignore_requested, False
+        if self._ignored is None or requested:
+            self._ignored = (self._ignored or set()) | others
+        self._ignored &= others   # released the mic: its next use counts
+        return bool(others - self._ignored)
 
 
 class CallProbe:
@@ -51,10 +75,15 @@ class CallProbe:
                  interval: float = POLL_SECONDS) -> None:
         self._on_result = on_result
         self._wanted = wanted
-        self._probe = probe or other_app_using_mic
+        self.watch = MicWatch() if probe is None else None
+        self._probe = probe or self.watch
         self._interval = interval
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="call-probe", daemon=True)
+
+    def ignore_current(self) -> None:
+        if self.watch is not None:
+            self.watch.ignore_current()
 
     def start(self) -> None:
         self._thread.start()

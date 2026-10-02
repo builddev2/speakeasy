@@ -347,9 +347,14 @@ stopped from a banner follows a click on that banner's button.
   invitees. If several overlap, the nearest is offered and the rest appear
   under "N more". **Not Now**, or no answer for 5 minutes, hides the banner,
   and that event is not offered again that day (also after a relaunch).
-- **Calls in other apps:** if another app uses the microphone for 10 seconds,
-  "Record this call?" appears, once per call. Not Now means it is not offered
-  again during that call.
+- **Calls in other apps:** if another app starts using the microphone and keeps
+  using it for 10 seconds, "Record this call?" appears, once per call. Not Now
+  means it is not offered again during that call. Only an app that *starts*
+  using the microphone counts: apps already using it when Speakeasy starts are
+  ignored until they release it, as is an app whose call offer you dismissed
+  (or that timed out). So a game launcher or voice app that keeps the
+  microphone open only asks once. A call already running when Speakeasy
+  launches isn't offered; Begin Meeting still works.
 - **Call ended:** while you record a call, 60 seconds without that other
   app's microphone use shows "Call ended — Stop recording?". Stop ends the
   meeting; Keep Recording hides it, and it hides itself if the microphone use

@@ -158,6 +158,8 @@ class RecordPromptController(NSObject):
     @objc.python_method
     def _render(self):
         self._persist()
+        if self.coordinator.take_call_waved_off():
+            self.probe.ignore_current()
         banner = self.coordinator.banner
         if banner is None:
             if self._shown is not None:

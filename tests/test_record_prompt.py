@@ -326,3 +326,37 @@ def test_banner_text():
     ended = rp.banner_text(rp.CallEnded(), at(0))
     assert (ended.title, ended.subtitle, ended.primary, ended.secondary) == (
         "Call ended", "Stop recording?", "Stop", "Keep Recording")
+
+
+def test_waving_off_a_call_offer_is_reported_once():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.not_now()
+    assert c.take_call_waved_off() is True
+    assert c.take_call_waved_off() is False
+
+
+def test_call_offer_timeout_counts_as_waving_off():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.calendar_tick([], at(5, 10), offer_enabled=True)
+    assert c.banner is None and c.take_call_waved_off() is True
+
+
+def test_recording_or_calendar_dismissal_is_not_waving_off_a_call():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.record()
+    assert c.take_call_waved_off() is False
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.engine_state("meeting_recording")
+    assert c.take_call_waved_off() is False
+    c = coord()
+    c.calendar_tick([ev("a")], at(0), offer_enabled=True)
+    c.not_now()
+    assert c.take_call_waved_off() is False

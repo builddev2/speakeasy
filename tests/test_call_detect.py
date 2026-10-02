@@ -4,15 +4,42 @@ import threading
 from speakeasy import call_detect
 
 
+def _watch(answers, own=frozenset({10})):
+    seq = iter(answers)
+    return call_detect.MicWatch(input_ids=lambda: next(seq), own_ids=lambda: set(own))
+
+
 def test_other_app_using_mic_ignores_speakeasy_processes():
-    assert call_detect.other_app_using_mic(
-        input_ids=lambda: {10, 11}, own_ids=lambda: {10, 11}) is False
-    assert call_detect.other_app_using_mic(
-        input_ids=lambda: {10, 12}, own_ids=lambda: {10, 11}) is True
-    assert call_detect.other_app_using_mic(
-        input_ids=lambda: set(), own_ids=lambda: {10}) is False
-    assert call_detect.other_app_using_mic(
-        input_ids=lambda: None, own_ids=lambda: {10}) is None
+    w = _watch([set(), {10, 11}, {10, 12}], own={10, 11})
+    assert [w(), w(), w()] == [False, False, True]
+
+
+def test_apps_already_using_the_mic_are_ignored_until_they_release_it():
+    w = _watch([{20}, {20}, {20, 30}, {20}, set(), {20}])
+    assert [w(), w(), w(), w(), w(), w()] == [False, False, True, False, False, True]
+
+
+def test_unknown_answers_pass_through_and_do_not_set_the_baseline():
+    w = _watch([None, {20}, {20, 30}])
+    assert [w(), w(), w()] == [None, False, True]
+
+
+def test_waved_off_apps_are_ignored_until_they_release_the_mic():
+    w = _watch([set(), {30}, {30}, {30, 40}, set(), {30}])
+    assert [w(), w()] == [False, True]
+    w.ignore_current()
+    assert [w(), w(), w(), w()] == [False, True, False, True]
+
+
+def test_probe_ignore_current_reaches_its_watch():
+    p = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False)
+    assert isinstance(p.watch, call_detect.MicWatch)
+    p.ignore_current()
+    assert p.watch._ignore_requested
+    q = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False,
+                              probe=lambda: True)
+    assert q.watch is None
+    q.ignore_current()        # no watch: nothing to do, no error
 
 
 def test_own_process_ids_include_children(monkeypatch):

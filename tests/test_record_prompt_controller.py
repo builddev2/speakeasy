@@ -35,6 +35,10 @@ class FakePanel:
 
 class FakeProbe:
     started = stopped = False
+    ignored = 0
+
+    def ignore_current(self):
+        self.ignored += 1
 
     def start(self):
         self.started = True
@@ -257,4 +261,22 @@ def test_more_menu_ignores_out_of_range_tags(monkeypatch):
     for tag in (0, 2, 99, -1):
         c.bannerMore_(Item(tag))
     assert engine.begun == []
+    c.shutdown()
+
+
+def test_not_now_on_a_call_offer_ignores_that_app(monkeypatch):
+    c, panel, probe, times = make(monkeypatch, FakeEngine())
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=10)
+    c.callObserved_(True)
+    c.bannerSecondary_(None)
+    assert probe.ignored == 1
+    c.shutdown()
+
+
+def test_not_now_on_a_calendar_offer_ignores_nothing(monkeypatch):
+    c, panel, probe, _ = make(monkeypatch, FakeEngine(events=[ev("k1")]))
+    c.tick_(None)
+    c.bannerSecondary_(None)
+    assert probe.ignored == 0
     c.shutdown()

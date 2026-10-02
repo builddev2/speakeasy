@@ -79,6 +79,7 @@ class RecordPromptCoordinator:
         self._call_offered = False      # this call was offered (or recorded) already
         self._heard_call = False        # another app used the mic during this recording
         self._ended_dismissed = False   # Keep Recording, until the mic is used again
+        self._call_waved_off = False    # a call offer got Not Now or timed out
 
     # -- inputs ---------------------------------------------------------------
 
@@ -157,7 +158,14 @@ class RecordPromptCoordinator:
 
     def not_now(self) -> None:
         if isinstance(self.banner, Offer):
+            self._call_waved_off |= self.banner.kind == "call"
             self._close_offer()
+
+    def take_call_waved_off(self) -> bool:
+        """True once after a call offer was waved off (Not Now or timeout), so
+        the controller can tell the probe to ignore the apps on that call."""
+        waved, self._call_waved_off = self._call_waved_off, False
+        return waved
 
     def stop(self) -> None:
         if isinstance(self.banner, CallEnded):
@@ -185,6 +193,7 @@ class RecordPromptCoordinator:
 
     def _expire(self, now: datetime) -> None:
         if isinstance(self.banner, Offer) and now - self.banner.shown_at >= OFFER_TIMEOUT:
+            self._call_waved_off |= self.banner.kind == "call"
             self._close_offer()
 
     def _close_offer(self) -> None:

@@ -518,7 +518,7 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
     - **Option 1 chosen 2026-10-01; design approved (gap threshold 20 ms).**
       Branch `residual-echo-timeline-instrumentation`. Status: **implemented
       (91df833 + review fixes eee81b7), 852 tests pass, installed 2026-10-01 from
-      eee81b7; first real meeting (2230) inconclusive, no overload; awaiting a run with one.** Opus mutation review: 18 mutants, 15
+      eee81b7; real meetings 2230 and f167 had no overload; treated as verified enough (see assessment below).** Opus mutation review: 18 mutants, 15
       caught; the 2 that mattered (take_recording health site, exact threshold)
       now have tests. Review fixes: fill clamped to the spool cap, zeros written
       in ≤ 1 s pieces, ADC must be finite.
@@ -578,6 +578,28 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
         the fill kept mic and system aligned here (`mic_timeline` stayed flat).
         Feed this case into the maximum-plausible-gap decision above: a cap must not
         stop fills for a device switch while the system track keeps running.
+      - **Second run, meeting f167 (2026-10-01 16:55, 1893 s, solo Teams,
+        recording played aloud, global capture, speakers from start to stop).
+        No overload again: 0 "skipping cycle" lines.**
+        - `mic_gap_fills` = 0, `mic_gap_fill_ms` = 0; overflows 0, dropped 0.
+        - `mic_timeline` end −20 ms, no step (≈ −10 ppm ramp);
+          `mic_arrival_timeline` −1 → −20 ms, no step; `system_timeline` and
+          `system_sample_timeline` 0 ms throughout.
+        - `mic_echo_sentences_removed` = 303. One 4-word echo match: −1.26 s at
+          1169.7 s ("I plugged Sudan in"). Not a timeline slip (both tracks flat).
+      - **Assessment after 2230 + f167:** overloads are random (1 in 4717, 0 in
+        d2cc, 2230, f167), so waiting for one has diminishing returns. 4717 shows
+        a skipped cycle appears as an ADC step; 2230 shows real ADC jumps are
+        filled and keep mic aligned with system. Treat option 1 as verified enough;
+        keep reading the health numbers passively. Optional: a mic-only
+        forced-stall script (hold the GIL in the recorder process) can run from a
+        Claude session, since mic ADC timing works there.
+- Echo leak from overlapping remote splits (seen in f167): remote segment
+  "Yeah, I think…" 1162.14–1171.86 s overlaps the next remote split, which starts
+  at 1170.94 s with "I plugged Sudan in". The mic copy ("You") starts at 1169.68 s,
+  so the split start is ~1.26 s late, the echo exceeds the 0.25 s lead limit and
+  is kept in the transcript. Likely a split-boundary placement error in remote
+  segment splitting, not capture; check how split start times are chosen.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

@@ -208,16 +208,23 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
 
 
 def _backfill_tag_slugs(conn: sqlite3.Connection) -> None:
-    """Give every tag its slug; fold tags that share one into the tag with
-    the most meetings (ties: lowest id). Indexed access, not names: migrate()
-    may run on a plain connection without the Row factory, and with
-    foreign keys off, so links are deleted explicitly."""
+    """Give every tag its slug. Pass 1: tags with a real slug; those sharing
+    one fold into the tag with the most meetings (ties: lowest id). Pass 2:
+    tags whose name has no letter or digit get `tag<id>` (or `tag<id>v2`,
+    `v3`, ... if that slug is taken); they are never merged with anything.
+    Indexed access, not names: migrate() may run on a plain connection
+    without the Row factory, and with foreign keys off, so links are
+    deleted explicitly."""
     survivors = {}
+    empty = []
     rows = conn.execute(
         "SELECT t.id, t.name, (SELECT COUNT(*) FROM meeting_tags mt"
         " WHERE mt.tag_id = t.id) AS n FROM tags t ORDER BY n DESC, t.id").fetchall()
     for tag_id, name, _ in rows:
-        slug = tag_slug(name) or f"tag{tag_id}"
+        slug = tag_slug(name)
+        if not slug:
+            empty.append(tag_id)
+            continue
         survivor = survivors.setdefault(slug, tag_id)
         if survivor == tag_id:
             conn.execute("UPDATE tags SET slug = ? WHERE id = ?", (slug, tag_id))
@@ -227,6 +234,14 @@ def _backfill_tag_slugs(conn: sqlite3.Connection) -> None:
             " SELECT meeting_id, ? FROM meeting_tags WHERE tag_id = ?", (survivor, tag_id))
         conn.execute("DELETE FROM meeting_tags WHERE tag_id = ?", (tag_id,))
         conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+    taken = set(survivors)
+    for tag_id in sorted(empty):
+        slug, n = f"tag{tag_id}", 1
+        while slug in taken:
+            n += 1
+            slug = f"tag{tag_id}v{n}"
+        taken.add(slug)
+        conn.execute("UPDATE tags SET slug = ? WHERE id = ?", (slug, tag_id))
 
 
 # (target version, script). Append; never edit a shipped entry. migrate()
@@ -261,9 +276,13 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     # SQLite's lower()/LIKE fold ASCII only; title filters need "Ë" == "ë".
     conn.create_function("casefold", 1, _casefold, deterministic=True)
     conn.execute("PRAGMA busy_timeout = 5000")
-    _set_wal_mode(conn)
-    conn.execute("PRAGMA foreign_keys = ON")
-    migrate(conn)
+    try:
+        _set_wal_mode(conn)
+        conn.execute("PRAGMA foreign_keys = ON")
+        migrate(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 

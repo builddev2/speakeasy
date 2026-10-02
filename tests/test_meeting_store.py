@@ -361,6 +361,57 @@ def test_v3_merges_tags_that_collide_on_slug(library_path):
         conn.close()
 
 
+def test_v3_empty_slug_fallback_never_collides_with_a_real_slug(library_path):
+    # "tag2" is id 1, "!!!" is id 2: the fallback tag2 must not eat the real one.
+    _v2_library(library_path, [["tag2"], ["!!!"], ["!!!"]])
+    conn = meeting_store.connect(library_path)
+    try:
+        assert {r["slug"]: r["name"] for r in conn.execute(
+            "SELECT name, slug FROM tags")} == {"tag2": "tag2", "tag2v2": "!!!"}
+        counts = {r["name"]: r["n"] for r in conn.execute(
+            "SELECT t.name, COUNT(mt.meeting_id) AS n FROM tags t"
+            " LEFT JOIN meeting_tags mt ON mt.tag_id = t.id GROUP BY t.id")}
+        assert counts == {"tag2": 1, "!!!": 2}
+    finally:
+        conn.close()
+
+
+def test_failed_v3_migration_leaves_a_v2_file_intact(library_path, monkeypatch):
+    _v2_library(library_path, [["Alpha"], ["Beta", "Alpha"]])
+    real = meeting_store.tag_slug
+    calls = []
+
+    def flaky(name):
+        calls.append(name)
+        if len(calls) == 2:
+            raise RuntimeError("boom")
+        return real(name)
+
+    monkeypatch.setattr(meeting_store, "tag_slug", flaky)
+    with pytest.raises(RuntimeError, match="boom"):
+        meeting_store.connect(library_path)
+    raw = sqlite3.connect(library_path)
+    try:
+        assert raw.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert "slug" not in [r[1] for r in raw.execute("PRAGMA table_info(tags)")]
+        assert raw.execute("SELECT name FROM sqlite_master"
+                           " WHERE name = 'tag_aliases'").fetchall() == []
+        assert raw.execute("SELECT id, name FROM tags ORDER BY id").fetchall() == [
+            (1, "Alpha"), (2, "Beta")]
+        assert raw.execute("SELECT meeting_id, tag_id FROM meeting_tags"
+                           " ORDER BY meeting_id, tag_id").fetchall() == [
+            ("20260901-000000-abcd", 1), ("20260901-000001-abcd", 1),
+            ("20260901-000001-abcd", 2)]
+    finally:
+        raw.close()
+    monkeypatch.setattr(meeting_store, "tag_slug", real)
+    conn = meeting_store.connect(library_path)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    finally:
+        conn.close()
+
+
 def test_v3_collision_tie_keeps_the_lowest_id(library_path):
     _v2_library(library_path, [["B-1"], ["b1"]])
     conn = meeting_store.connect(library_path)

@@ -211,3 +211,95 @@ def test_twenty_tag_limit_counts_user_and_claude_tags(lib):
     assert len(lib.meeting_tags(a)) == 18
     lib.save_notes(a, tags=["n1", "n2"])
     assert len(lib.meeting_tags(a)) == 20
+
+
+def test_rename_keeps_old_name_resolving(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Proj"])
+    assert lib.rename_tag("proj", "Project Phoenix") == TagInfo("Project Phoenix", "", ["Proj"], 1)
+    assert [m.meeting_id for m in lib.list_meetings(tag="Proj")] == [a]
+    assert lib.save_notes(a, tags=["proj"]).created_tags == []
+    assert lib.meeting_tags(a) == ["Project Phoenix"]
+
+
+def test_rename_case_only_changes_display_without_alias(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["budget"])
+    assert lib.rename_tag("budget", "Budget") == TagInfo("Budget", "", [], 1)
+
+
+def test_rename_back_to_an_own_alias(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Proj"])
+    lib.rename_tag("Proj", "Phoenix")
+    assert lib.rename_tag("Phoenix", "Proj") == TagInfo("Proj", "", ["Phoenix"], 1)
+
+
+def test_rename_onto_another_tag_or_its_alias_says_merge(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Ops", "Budget"])
+    with pytest.raises(ValueError, match="already exists; use merge"):
+        lib.rename_tag("Ops", "budget")
+    lib.rename_tag("Budget", "Finance")          # "Budget" is now an alias of Finance
+    with pytest.raises(ValueError, match="already exists; use merge"):
+        lib.rename_tag("Ops", "BUDGET")
+    with pytest.raises(ValueError, match="No tag named"):
+        lib.rename_tag("missing", "Whatever")
+
+
+def test_merge_moves_links_user_wins_and_leaves_alias(lib):
+    a, b, c = _meeting(lib, 0), _meeting(lib, 1), _meeting(lib, 2)
+    lib.tag_meetings([a], add=["proj-x"])         # user link on the source
+    lib.save_notes(a, tags=["Project X"])         # claude link on the target
+    lib.save_notes(b, tags=["proj-x"])            # source only, from Claude
+    lib.tag_meetings([c], add=["Project X"])      # target only, from the user
+    assert lib.merge_tags("proj-x", "project x") == TagInfo("Project X", "", ["proj-x"], 3)
+    assert lib.meeting_tag_details(a) == [("Project X", "user")]
+    assert lib.meeting_tag_details(b) == [("Project X", "claude")]
+    assert lib.meeting_tag_details(c) == [("Project X", "user")]
+    assert len(lib.list_meetings(tag="projx")) == 3
+
+
+def test_merge_link_beats_suppression_and_moves_suppressions(lib, library_path):
+    a, b = _meeting(lib, 0), _meeting(lib, 1)
+    lib.tag_meetings([a], add=["Target", "Source"])
+    lib.tag_meetings([a], remove=["Source"])      # a: Target linked, Source suppressed
+    lib.tag_meetings([b], add=["Source"])
+    lib.tag_meetings([b], remove=["Source"])      # b: Source suppressed only
+    lib.merge_tags("Source", "Target")
+    assert lib.meeting_tags(a) == ["Target"]
+    assert _sql(library_path, "SELECT meeting_id FROM tag_suppressions") == [(b,)]
+    assert lib.save_notes(b, tags=["Target"]).suppressed_tags == ["Target"]
+    assert lib.save_notes(a, tags=["Target"]).suppressed_tags == []
+
+
+def test_merge_repoints_aliases_and_rejects_self_and_missing(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["A", "C"])
+    lib.rename_tag("A", "B")                      # alias A -> B
+    assert lib.merge_tags("B", "C") == TagInfo("C", "", ["A", "B"], 1)
+    with pytest.raises(ValueError, match="into itself"):
+        lib.merge_tags("C", "a")
+    with pytest.raises(ValueError, match="No tag named"):
+        lib.merge_tags("missing", "C")
+
+
+def test_delete_tag_removes_links_aliases_and_suppressions(lib, library_path):
+    a, b = _meeting(lib, 0), _meeting(lib, 1)
+    lib.tag_meetings([a, b], add=["Ops"])
+    lib.tag_meetings([b], remove=["Ops"])
+    lib.rename_tag("Ops", "Operations")
+    assert lib.delete_tag("ops") == "Operations"
+    for table in ("tags", "meeting_tags", "tag_aliases", "tag_suppressions"):
+        assert _sql(library_path, f"SELECT COUNT(*) FROM {table}") == [(0,)], table
+    assert lib.save_notes(b, tags=["Ops"]).created_tags == ["Ops"]
+
+
+def test_describe_tag(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Ops"])
+    assert lib.describe_tag("ops", "  Running   the shop ").description == "Running the shop"
+    with pytest.raises(ValueError, match="at most 200 characters"):
+        lib.describe_tag("Ops", "x" * 201)
+    assert lib.describe_tag("Ops", "x" * 200).description == "x" * 200
+    assert lib.describe_tag("Ops", "").description == ""

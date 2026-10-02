@@ -892,6 +892,76 @@ class MeetingLibrary:
             self._drop_orphan_tags(conn)
             return TagUpdate([(i, self._tags(conn, i)) for i in ids], created, not_found)
 
+    def rename_tag(self, tag: str, name: str) -> TagInfo:
+        """Change a tag's display name everywhere; the old spelling stays
+        as an alias so it keeps resolving. Refuses a name another tag (or
+        another tag's alias) already has: that is a merge."""
+        new = clean_tag_name(name)
+        slug = tag_slug(new)
+        with self._transaction() as conn:
+            tag_id = self._require_tag(conn, tag)
+            owner = self._find_tag(conn, new)
+            if owner is not None and owner != tag_id:
+                raise ValueError(f"A tag named {new!r} already exists; use merge.")
+            old_name, old_slug = conn.execute(
+                "SELECT name, slug FROM tags WHERE id = ?", (tag_id,)).fetchone()
+            # Renaming back to one of its own aliases: the alias becomes the name.
+            conn.execute("DELETE FROM tag_aliases WHERE slug = ?", (slug,))
+            conn.execute("UPDATE tags SET name = ?, slug = ? WHERE id = ?", (new, slug, tag_id))
+            if slug != old_slug:
+                conn.execute("INSERT INTO tag_aliases (slug, name, tag_id) VALUES (?, ?, ?)",
+                             (old_slug, old_name, tag_id))
+            return self._tag_info(conn, tag_id)
+
+    def merge_tags(self, tag: str, into: str) -> TagInfo:
+        """Fold `tag` into `into`: links (a 'user' link wins), suppressions
+        and aliases move; the merged name becomes an alias of the target."""
+        with self._transaction() as conn:
+            source, target = self._require_tag(conn, tag), self._require_tag(conn, into)
+            if source == target:
+                raise ValueError("A tag cannot be merged into itself.")
+            conn.execute(
+                "UPDATE meeting_tags SET source = 'user' WHERE tag_id = ? AND meeting_id IN"
+                " (SELECT meeting_id FROM meeting_tags WHERE tag_id = ? AND source = 'user')",
+                (target, source))
+            conn.execute(
+                "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_id, source, added_at)"
+                " SELECT meeting_id, ?, source, added_at FROM meeting_tags WHERE tag_id = ?",
+                (target, source))
+            conn.execute(
+                "INSERT OR IGNORE INTO tag_suppressions (meeting_id, tag_id, created_at)"
+                " SELECT meeting_id, ?, created_at FROM tag_suppressions WHERE tag_id = ?",
+                (target, source))
+            # Where the merged tag is on a meeting, the link beats a suppression.
+            conn.execute(
+                "DELETE FROM tag_suppressions WHERE tag_id = ? AND meeting_id IN"
+                " (SELECT meeting_id FROM meeting_tags WHERE tag_id = ?)", (target, target))
+            conn.execute("UPDATE tag_aliases SET tag_id = ? WHERE tag_id = ?", (target, source))
+            name, slug = conn.execute(
+                "SELECT name, slug FROM tags WHERE id = ?", (source,)).fetchone()
+            conn.execute("DELETE FROM tags WHERE id = ?", (source,))  # cascades its links
+            conn.execute("INSERT INTO tag_aliases (slug, name, tag_id) VALUES (?, ?, ?)",
+                         (slug, name, target))
+            return self._tag_info(conn, target)
+
+    def delete_tag(self, tag: str) -> str:
+        """Remove a tag from every meeting, with its aliases and
+        suppressions (all cascade). Returns the deleted display name."""
+        with self._transaction() as conn:
+            tag_id = self._require_tag(conn, tag)
+            name = self._tag_name(conn, tag_id)
+            conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+            return name
+
+    def describe_tag(self, tag: str, description: str) -> TagInfo:
+        text = " ".join(str(description).split())
+        if len(text) > MAX_DESCRIPTION_CHARS:
+            raise ValueError(f"Tag descriptions are at most {MAX_DESCRIPTION_CHARS} characters.")
+        with self._transaction() as conn:
+            tag_id = self._require_tag(conn, tag)
+            conn.execute("UPDATE tags SET description = ? WHERE id = ?", (text, tag_id))
+            return self._tag_info(conn, tag_id)
+
     # -- search -------------------------------------------------------------
 
     def search(self, query: str, *, from_date=None, to_date=None, tag=None,

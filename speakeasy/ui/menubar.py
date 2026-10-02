@@ -14,6 +14,7 @@ primary interface; the Dock window is a fallback, not a replacement.
 """
 
 import json
+import logging
 import sys
 
 import objc
@@ -654,7 +655,11 @@ class AppDelegate(NSObject):
 
         # Offers to record when a calendar meeting starts or another app
         # starts using the mic; never records without a click.
-        self.record_prompt = RecordPromptController.alloc().initWithEngine_(engine)
+        try:
+            self.record_prompt = RecordPromptController.alloc().initWithEngine_(engine)
+        except Exception:
+            logging.getLogger(__name__).exception("record prompt unavailable")
+            self.record_prompt = None
         record_prompt = self.record_prompt
         # Reverse link: profile switches happen in the status-item menu but
         # must refresh the dock too (no engine state change to ride on).
@@ -678,9 +683,10 @@ class AppDelegate(NSObject):
             main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
             )
-            record_prompt.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"engineStateChanged:", state.value, False
-            )
+            if record_prompt is not None:
+                record_prompt.performSelectorOnMainThread_withObject_waitUntilDone_(
+                    b"engineStateChanged:", state.value, False
+                )
 
         def on_meeting_progress(text):
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
@@ -714,7 +720,8 @@ class AppDelegate(NSObject):
         engine.upgrade_library()
         controller.engineStateChanged_(engine.state.value)
         main_window.engineStateChanged_(engine.state.value)
-        self.record_prompt.engineStateChanged_(engine.state.value)
+        if self.record_prompt is not None:
+            self.record_prompt.engineStateChanged_(engine.state.value)
         # Cold launch from the Dock counts as "the user clicked the icon" —
         # show the fallback window right away rather than only on a later
         # reopen click.

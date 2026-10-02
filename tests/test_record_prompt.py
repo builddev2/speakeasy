@@ -188,6 +188,7 @@ def test_calendar_offer_is_not_replaced_by_call_offer():
 def test_call_ended_after_sixty_seconds_free():
     c = coord("meeting_recording")
     observe(c, True, at(0))
+    observe(c, True, at(0, 10))
     observe(c, False, at(1))
     observe(c, False, at(1, 59))
     assert c.banner is None
@@ -205,6 +206,7 @@ def test_no_call_ended_without_a_call():
 def test_mic_resuming_hides_call_ended():
     c = coord("meeting_recording")
     observe(c, True, at(0))
+    observe(c, True, at(0, 10))
     observe(c, False, at(1))
     observe(c, False, at(2))
     observe(c, True, at(2, 5))
@@ -214,20 +216,23 @@ def test_mic_resuming_hides_call_ended():
 def test_keep_recording_waits_for_the_next_call_end():
     c = coord("meeting_recording")
     observe(c, True, at(0))
+    observe(c, True, at(0, 10))
     observe(c, False, at(1))
     observe(c, False, at(2))
     c.keep()
     observe(c, False, at(3))
     assert c.banner is None
     observe(c, True, at(4))
-    observe(c, False, at(4, 1))
-    observe(c, False, at(5, 1))
+    observe(c, True, at(4, 10))
+    observe(c, False, at(4, 11))
+    observe(c, False, at(5, 11))
     assert isinstance(c.banner, rp.CallEnded)
 
 
 def test_stop_clears_call_ended():
     c = coord("meeting_recording")
     observe(c, True, at(0))
+    observe(c, True, at(0, 10))
     observe(c, False, at(1))
     observe(c, False, at(2))
     c.stop()
@@ -245,6 +250,7 @@ def test_call_ended_needs_call_detection_on():
 def test_leaving_recording_resets_call_tracking():
     c = coord("meeting_recording")
     observe(c, True, at(0))
+    observe(c, True, at(0, 10))
     observe(c, False, at(1))
     observe(c, False, at(2))
     c.engine_state("meeting_processing")
@@ -257,6 +263,7 @@ def test_leaving_recording_resets_call_tracking():
 def test_a_recorded_call_is_not_offered_after_recording():
     c = coord("meeting_recording")
     observe(c, True, at(0))
+    observe(c, True, at(0, 10))
     c.engine_state("meeting_processing")
     c.engine_state("ready")
     observe(c, True, at(1))
@@ -264,13 +271,51 @@ def test_a_recorded_call_is_not_offered_after_recording():
     assert c.banner is None
 
 
+def test_short_mic_blip_while_recording_is_not_a_call():
+    c = coord("meeting_recording")
+    observe(c, True, at(0))
+    observe(c, False, at(0, 5))
+    observe(c, False, at(1, 10))
+    assert c.banner is None
+
+
+def test_ten_seconds_of_mic_use_while_recording_is_a_call():
+    c = coord("meeting_recording")
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    observe(c, False, at(1))
+    observe(c, False, at(2))
+    assert isinstance(c.banner, rp.CallEnded)
+
+
+def test_calls_disabled_drops_call_banners_only():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    assert c.banner.kind == "call"
+    c.calls_disabled()
+    assert c.banner is None and c.prompted == set()
+    c = coord()
+    c.calendar_tick([ev("a", T0)], T0, offer_enabled=True)
+    c.calls_disabled()
+    assert c.banner.kind == "calendar"
+    c = coord("meeting_recording")
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    observe(c, False, at(1))
+    observe(c, False, at(2))
+    assert isinstance(c.banner, rp.CallEnded)
+    c.calls_disabled()
+    assert c.banner is None
+
+
 # -- text -------------------------------------------------------------------
 
 def test_banner_text():
-    cal = rp.Offer("calendar", (ev("a", at(1), people=2, title="VFA Leads Sync Up"),
+    cal = rp.Offer("calendar", (ev("a", at(1), people=3, title="VFA Leads Sync Up"),
                                ev("b", title="Weekly Tactical")), at(0))
     text = rp.banner_text(cal, at(0))
-    assert (text.title, text.subtitle) == ("VFA Leads Sync Up", "Starts in 1 min · 2 invited")
+    assert (text.title, text.subtitle) == ("VFA Leads Sync Up", "Starts in 1 min · 3 invited")
     assert (text.primary, text.secondary, text.more) == ("Record", "Not Now", ("Weekly Tactical",))
     assert rp.banner_text(cal, at(1)).subtitle.startswith("Starting now")
     assert rp.banner_text(cal, at(4)).subtitle.startswith("Started 3 min ago")

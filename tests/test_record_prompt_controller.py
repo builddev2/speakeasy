@@ -20,8 +20,10 @@ def ev(key, start=NOW, people=1, title="VFA Leads Sync Up"):
 class FakePanel:
     def __init__(self):
         self.calls = []
+        self.subtitles = []
 
     def show(self, title, subtitle, primary, secondary, more):
+        self.subtitles.append(subtitle)
         self.calls.append(("show", title, primary, secondary, tuple(more)))
 
     def show_confirmation(self, text):
@@ -131,6 +133,8 @@ def test_call_ended_stop_ends_meeting(monkeypatch):
     engine = FakeEngine(state="meeting_recording")
     c, panel, _, times = make(monkeypatch, engine)
     c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=10)
+    c.callObserved_(True)
     times[0] = NOW + timedelta(seconds=30)
     c.callObserved_(False)
     times[0] = NOW + timedelta(seconds=90)
@@ -172,3 +176,85 @@ def test_library_error_means_no_events(monkeypatch):
 
 def test_tick_interval_is_thirty_seconds():
     assert rpc.TICK_SECONDS == 30.0
+
+
+def test_countdown_text_is_refreshed_on_tick(monkeypatch):
+    engine = FakeEngine(events=[ev("k1", NOW + timedelta(minutes=2))])
+    c, panel, _, times = make(monkeypatch, engine)
+    c.tick_(None)
+    assert panel.subtitles[-1].startswith("Starts in 2 min")
+    times[0] = NOW + timedelta(minutes=3)
+    c.tick_(None)
+    assert panel.subtitles[-1].startswith("Started 1 min ago")
+    c.shutdown()
+
+
+def _call_offer(c, times):
+    c.callObserved_(True)
+    times[0] = times[0] + timedelta(seconds=10)
+    c.callObserved_(True)
+
+
+def test_turning_call_detection_off_hides_call_offer(monkeypatch):
+    c, panel, _, times = make(monkeypatch, FakeEngine())
+    _call_offer(c, times)
+    assert panel.calls[-1][:2] == ("show", "Record this call?")
+    settings.set_meeting_settings(detect_calls=False)
+    c.tick_(None)
+    assert panel.calls[-1] == ("hide",)
+    c.shutdown()
+
+
+def test_turning_call_detection_off_hides_call_ended(monkeypatch):
+    c, panel, _, times = make(monkeypatch, FakeEngine(state="meeting_recording"))
+    _call_offer(c, times)
+    for s in (60, 60):
+        times[0] = times[0] + timedelta(seconds=s)
+        c.callObserved_(False)
+    assert panel.calls[-1][:2] == ("show", "Call ended")
+    settings.set_meeting_settings(detect_calls=False)
+    c.tick_(None)
+    assert panel.calls[-1] == ("hide",)
+    c.shutdown()
+
+
+def test_call_observed_respects_detection_setting(monkeypatch):
+    settings.set_meeting_settings(detect_calls=False)
+    c, panel, _, times = make(monkeypatch, FakeEngine())
+    _call_offer(c, times)
+    assert [x for x in panel.calls if x[0] == "show"] == []
+    c.shutdown()
+
+
+def test_record_click_while_engine_not_ready_does_nothing(monkeypatch):
+    engine = FakeEngine(events=[ev("k1")])
+    c, panel, _, _ = make(monkeypatch, engine)
+    c.tick_(None)
+    engine.state = type("S", (), {"value": "paused"})()
+    n = len(panel.calls)
+    c.bannerPrimary_(None)
+    c.bannerMore_(Item(0))
+    assert engine.begun == [] and len(panel.calls) == n
+    assert settings.get_prompted_events("2026-10-02") == set()
+    c.shutdown()
+
+
+def test_keep_recording_leaves_the_meeting_running(monkeypatch):
+    c, panel, _, times = make(monkeypatch, FakeEngine(state="meeting_recording"))
+    _call_offer(c, times)
+    for s in (60, 60):
+        times[0] = times[0] + timedelta(seconds=s)
+        c.callObserved_(False)
+    c.bannerSecondary_(None)
+    assert panel.calls[-1] == ("hide",) and c.engine.ended == 0
+    c.shutdown()
+
+
+def test_more_menu_ignores_out_of_range_tags(monkeypatch):
+    engine = FakeEngine(events=[ev("k1"), ev("k2", NOW + timedelta(minutes=1))])
+    c, panel, _, _ = make(monkeypatch, engine)
+    c.tick_(None)
+    for tag in (0, 2, 99, -1):
+        c.bannerMore_(Item(tag))
+    assert engine.begun == []
+    c.shutdown()

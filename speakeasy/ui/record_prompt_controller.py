@@ -53,6 +53,7 @@ class RecordPromptController(NSObject):
         self.coordinator = RecordPromptCoordinator(settings.get_prompted_events(_today()))
         self._saved_prompted = set(self.coordinator.prompted)
         self._shown = None
+        self._shown_text = None
         self.probe_wanted = False
         self.panel = _make_panel(self)
         self.probe = _make_probe(self)
@@ -75,6 +76,8 @@ class RecordPromptController(NSObject):
         prefs = settings.get_meeting_settings()
         self.coordinator.calendar_tick(self._events_near(now), now,
                                        offer_enabled=prefs["offer_to_record"])
+        if not prefs["detect_calls"]:
+            self.coordinator.calls_disabled()
         self._update_probe(self.engine.state.value, prefs)
         self._render()
 
@@ -90,7 +93,8 @@ class RecordPromptController(NSObject):
     def bannerPrimary_(self, sender):
         banner = self.coordinator.banner
         if isinstance(banner, Offer):
-            self._record(0)
+            if self._engine_ready():
+                self._record(0)
         elif isinstance(banner, CallEnded):
             self.coordinator.stop()
             self.engine.end_meeting()
@@ -105,8 +109,10 @@ class RecordPromptController(NSObject):
         self._render()
 
     def bannerMore_(self, item):
-        if isinstance(self.coordinator.banner, Offer):
-            self._record(int(item.tag()))
+        banner = self.coordinator.banner
+        if isinstance(banner, Offer) and 0 < int(item.tag()) < len(banner.events):
+            if self._engine_ready():
+                self._record(int(item.tag()))
 
     @objc.python_method
     def shutdown(self):
@@ -117,12 +123,18 @@ class RecordPromptController(NSObject):
     # -- internals ---------------------------------------------------------------
 
     @objc.python_method
+    def _engine_ready(self):
+        # begin_meeting does nothing unless READY; don't claim "Recording".
+        return self.engine.state.value == "ready"
+
+    @objc.python_method
     def _record(self, index):
         key = self.coordinator.record(index)
         self.engine.begin_meeting(MeetingOptions(calendar_event_key=key))
         self._persist()
         # The panel hides itself after the confirmation; nothing to re-draw.
         self._shown = None
+        self._shown_text = None
         self.panel.show_confirmation("Recording")
 
     @objc.python_method
@@ -147,11 +159,15 @@ class RecordPromptController(NSObject):
     def _render(self):
         self._persist()
         banner = self.coordinator.banner
-        if banner is self._shown:
-            return
-        self._shown = banner
         if banner is None:
-            self.panel.hide()
+            if self._shown is not None:
+                self.panel.hide()
+            self._shown = None
+            self._shown_text = None
             return
         text = banner_text(banner, _now())
+        if banner is self._shown and text == self._shown_text:
+            return
+        self._shown = banner
+        self._shown_text = text
         self.panel.show(text.title, text.subtitle, text.primary, text.secondary, list(text.more))

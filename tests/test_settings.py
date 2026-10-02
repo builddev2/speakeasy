@@ -101,6 +101,13 @@ def test_prompted_events_are_kept_for_the_day_only(tmp_path, monkeypatch):
     assert settings.get_meeting_settings()["offer_to_record"] is True
 
 
+def test_set_prompted_events_keeps_other_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
+    settings.set_meeting_settings(offer_to_record=False)
+    settings.set_prompted_events("2026-10-02", {"a"})
+    assert settings.get_meeting_settings()["offer_to_record"] is False
+
+
 def test_prompted_events_keep_the_latest_500(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "app_support_dir", lambda: tmp_path)
     keys = {f"e{i}@2026-10-02T{i // 60:02d}:{i % 60:02d}:00Z" for i in range(600)}

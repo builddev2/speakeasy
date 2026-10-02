@@ -120,13 +120,11 @@ class RecordPromptCoordinator:
         if call_over:
             self._call_offered = False
         if not detect_enabled:
-            if isinstance(self.banner, CallEnded) or (
-                    isinstance(self.banner, Offer) and self.banner.kind == "call"):
-                self.banner = None
+            self.calls_disabled()
             return
         self._expire(now)
         if self._state == RECORDING:
-            self._watch_recording(using, call_over)
+            self._watch_recording(using, now, call_over)
             return
         if isinstance(self.banner, Offer) and self.banner.kind == "call" and call_over:
             self.banner = None   # the call ended before anyone answered
@@ -139,6 +137,12 @@ class RecordPromptCoordinator:
         if event is not None and event.event_key in self.prompted:
             return   # the calendar banner already asked about this meeting
         self.banner = Offer("call", (event,) if event is not None else (), now)
+
+    def calls_disabled(self) -> None:
+        """Call detection was turned off: drop call banners (nothing is marked)."""
+        if isinstance(self.banner, CallEnded) or (
+                isinstance(self.banner, Offer) and self.banner.kind == "call"):
+            self.banner = None
 
     # -- clicks ---------------------------------------------------------------
 
@@ -166,10 +170,11 @@ class RecordPromptCoordinator:
 
     # -- internals --------------------------------------------------------------
 
-    def _watch_recording(self, using: bool, call_over: bool) -> None:
+    def _watch_recording(self, using: bool, now: datetime, call_over: bool) -> None:
         if using:
-            self._heard_call = True
-            self._call_offered = True    # recorded, so not offered again after
+            if now - self._using_since >= CALL_START:   # a blip is not a call
+                self._heard_call = True
+                self._call_offered = True    # recorded, so not offered again after
             self._ended_dismissed = False
             if isinstance(self.banner, CallEnded):
                 self.banner = None

@@ -859,5 +859,32 @@ Using the Speakeasy Meetings connector (local, on this Mac):
 
 ## Status
 
-- [ ] Task 1 — [ ] Task 2 — [ ] Task 3 — [ ] Task 4 — [ ] Task 5 — [ ] Task 6 — [ ] Task 7
-- Blocked until the meeting-tags plan (bc50812) is merged.
+- [x] Task 1 — [x] Task 2 — [x] Task 3 — [x] Task 4 — [x] Task 5 — [~] Task 6 — [ ] Task 7
+- 1 Oct 2026: Tasks 1–5 were executed on branch `worktree-auto-summaries`
+  (worktree `.claude/worktrees/auto-summaries`), commits 480d113..da1b423.
+  Each task got an Opus review with mutation checks. The final whole-branch
+  review killed all 9 plan mutations. Full suite: 927 passed.
+- Task 6 status:
+  - Done: real library backed up (v3, integrity ok, 100 meetings) to
+    `~/Library/Application Support/Speakeasy/library.v3-backup-2026-10-01.sqlite`.
+  - Done: app installed and launched; the real library migrated to v4 with 100 meetings.
+  - Done: the installed `--mcp` server (temp HOME) lists `pending_summaries`
+    and answers it.
+  - Done: layout looked at only in the dev build with mock data. It shows
+    the TL;DR card, spaced headings and bullets, "No summary yet." with
+    **Summarise**, and **Redo summary** in the `···` menu.
+  - NOT done: looking at the installed app (the user declined screen
+    control). The user still needs to check f167's legacy layout and the
+    Summarise → Queued state in the real app.
+  - NOT done: toggling the Claude Desktop connector off and on (user-side).
+- Changes made while executing:
+  - The parser checks bullets before ALL-CAPS headings.
+  - An ALL-CAPS heading only counts at the start of a block (after a blank line).
+  - `_int` clamps `limit` (11 becomes 10) rather than raising.
+  - `pending_summaries` skips a meeting that is deleted mid-run.
+- Loose ends:
+  - `tests/test_meeting_recorder.py::test_gap_fill_queue_full_is_retried_on_the_next_block`
+    failed once in a full run (flaky, unrelated).
+  - Numbered lists in old summaries collapse into one paragraph.
+- Task 7 (scheduled task + real run) and the merge are still to do, and they
+  need the user's go-ahead.

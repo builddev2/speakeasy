@@ -1918,3 +1918,9 @@ Also in `f0e3c93`:
   - (4) "Call ended" → Stop / Keep Recording;
   - (6) dictation paste in TextEdit, Codex and Teams;
   - the banner's text and look.
+- **After GeForce NOW was quit (same day):**
+  - **Synthetic call** (a throwaway `sounddevice` recorder held the mic for 30 s after 65 s idle): the banner appeared **11.4 s** after mic start. Microsoft Teams stayed frontmost. The banner linked to the user's calendar event that started at 12:00 and was still in progress.
+  - **The user clicked Not Now** about 46 s after the mic was released. That event was then saved as prompted for the day (`record_prompted`, 1 key).
+  - **Check 3 passed:** the call was detected, linked to the right event, the banner took no focus, and Not Now was remembered.
+  - **Not verified live:** the call offer hiding by itself about 60 s after the call ends, because the click came first. Unit tests cover it (`test_call_offer_hides_when_the_call_ends`).
+  - **Still for the user:** checks 1, 2, 4 and 6.

@@ -36,6 +36,10 @@ class FakePanel:
 class FakeProbe:
     started = stopped = False
     ignored = 0
+    forgiven = 0
+
+    def forgive_waved(self):
+        self.forgiven += 1
 
     def ignore_current(self):
         self.ignored += 1
@@ -279,4 +283,14 @@ def test_not_now_on_a_calendar_offer_ignores_nothing(monkeypatch):
     c.tick_(None)
     c.bannerSecondary_(None)
     assert probe.ignored == 0
+    c.shutdown()
+
+
+def test_starting_a_recording_forgives_waved_off_apps(monkeypatch):
+    c, panel, probe, _ = make(monkeypatch, FakeEngine())
+    before = probe.forgiven
+    c.engineStateChanged_("ready")
+    assert probe.forgiven == before
+    c.engineStateChanged_("meeting_recording")
+    assert probe.forgiven == before + 1
     c.shutdown()

@@ -68,6 +68,8 @@ class RecordPromptController(NSObject):
     def engineStateChanged_(self, state_name):
         state = str(state_name)
         self.coordinator.engine_state(state)
+        if state == "meeting_recording":
+            self.probe.forgive_waved()
         self._update_probe(state, settings.get_meeting_settings())
         self._render()
 

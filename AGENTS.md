@@ -156,7 +156,8 @@ contexts are intentionally bounded and single-purpose:
   never touches the model, executors or UI. `call_detect.MicWatch` keeps the
   ignored PIDs (apps already on the mic at the first answer, or behind a
   waved-off offer) inside `call_detect.py`; the controller only sends
-  `ignore_current()`.
+  `ignore_current()` (waved-off offer) and `forgive_waved()` (recording starts;
+  waved-off apps count again, the first-answer baseline stays ignored).
 - **`ax-warmup`** (1 thread, `ax_warmup.AccessibilityWarmer`) — on every app
   activation, one focus query; if the app answers NoValue and
   `AXEnhancedUserInterface` is settable and off, writes it once (Chromium

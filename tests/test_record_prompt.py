@@ -360,3 +360,11 @@ def test_recording_or_calendar_dismissal_is_not_waving_off_a_call():
     c.calendar_tick([ev("a")], at(0), offer_enabled=True)
     c.not_now()
     assert c.take_call_waved_off() is False
+
+
+def test_calls_disabled_is_not_waving_off_a_call():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.calls_disabled()
+    assert c.banner is None and c.take_call_waved_off() is False

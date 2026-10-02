@@ -31,15 +31,27 @@ def test_waved_off_apps_are_ignored_until_they_release_the_mic():
     assert [w(), w(), w(), w()] == [False, True, False, True]
 
 
-def test_probe_ignore_current_reaches_its_watch():
+def test_recording_forgives_waved_off_apps_but_not_the_baseline():
+    w = _watch([{20}, {20, 30}, {20, 30}, {20, 30}, {20}])
+    assert [w(), w()] == [False, True]
+    w.ignore_current()
+    assert w() is False
+    w.forgive_waved()
+    assert w() is True
+    assert w() is False
+
+
+def test_probe_ignore_and_forgive_reach_its_watch():
     p = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False)
-    assert isinstance(p.watch, call_detect.MicWatch)
+    assert isinstance(p._watch, call_detect.MicWatch)
     p.ignore_current()
-    assert p.watch._ignore_requested
+    p.forgive_waved()
+    assert p._watch._ignore_requests == 1 and p._watch._forgive_requests == 1
     q = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False,
                               probe=lambda: True)
-    assert q.watch is None
+    assert q._watch is None
     q.ignore_current()        # no watch: nothing to do, no error
+    q.forgive_waved()
 
 
 def test_own_process_ids_include_children(monkeypatch):

@@ -45,24 +45,39 @@ class MicWatch:
     def __init__(self, input_ids=None, own_ids=None) -> None:
         self._input_ids = input_ids or system_audio.input_process_ids
         self._own_ids = own_ids or own_process_ids
-        self._ignored: set[int] | None = None   # None until the first known answer
-        self._ignore_requested = False
+        self._baseline: set[int] | None = None   # None until the first known answer
+        self._waved: set[int] = set()
+        # Main thread increments; the probe thread compares with what it applied.
+        self._ignore_requests = 0
+        self._forgive_requests = 0
+        self._ignores_applied = 0
+        self._forgives_applied = 0
 
     def ignore_current(self) -> None:
-        """Main thread: ignore the apps using the mic now. A plain flag that
-        the probe thread applies on its next answer."""
-        self._ignore_requested = True
+        """Main thread: ignore the apps using the mic now (a waved-off offer)."""
+        self._ignore_requests += 1
+
+    def forgive_waved(self) -> None:
+        """Main thread: waved-off apps count again (a recording started).
+        Apps already on the mic at the first answer stay ignored."""
+        self._forgive_requests += 1
 
     def __call__(self) -> bool | None:
         active = self._input_ids()
         if active is None:
             return None
         others = active - self._own_ids()
-        requested, self._ignore_requested = self._ignore_requested, False
-        if self._ignored is None or requested:
-            self._ignored = (self._ignored or set()) | others
-        self._ignored &= others   # released the mic: its next use counts
-        return bool(others - self._ignored)
+        if self._baseline is None:
+            self._baseline = set(others)
+        if self._forgive_requests != self._forgives_applied:
+            self._forgives_applied = self._forgive_requests
+            self._waved = set()
+        if self._ignore_requests != self._ignores_applied:
+            self._ignores_applied = self._ignore_requests
+            self._waved |= others
+        self._baseline &= others   # released the mic: its next use counts
+        self._waved &= others
+        return bool(others - self._baseline - self._waved)
 
 
 class CallProbe:
@@ -75,15 +90,19 @@ class CallProbe:
                  interval: float = POLL_SECONDS) -> None:
         self._on_result = on_result
         self._wanted = wanted
-        self.watch = MicWatch() if probe is None else None
-        self._probe = probe or self.watch
+        self._watch = MicWatch() if probe is None else None
+        self._probe = probe or self._watch
         self._interval = interval
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="call-probe", daemon=True)
 
     def ignore_current(self) -> None:
-        if self.watch is not None:
-            self.watch.ignore_current()
+        if self._watch is not None:
+            self._watch.ignore_current()
+
+    def forgive_waved(self) -> None:
+        if self._watch is not None:
+            self._watch.forgive_waved()
 
     def start(self) -> None:
         self._thread.start()

@@ -350,15 +350,17 @@ stopped from a banner follows a click on that banner's button.
 - **Calls in other apps:** if another app starts using the microphone and keeps
   using it for 10 seconds, "Record this call?" appears, once per call. Not Now
   means it is not offered again during that call. Only an app that *starts*
-  using the microphone counts: apps already using it when Speakeasy starts are
+  using the microphone counts: apps already using it when Speakeasy first checks (Ready, with call offers on) are
   ignored until they release it, as is an app whose call offer you dismissed
   (or that timed out). So a game launcher or voice app that keeps the
-  microphone open only asks once. A call already running when Speakeasy
-  launches isn't offered; Begin Meeting still works.
+  microphone open only asks once. A call already running then, or when call offers
+  are switched on, isn't offered; Begin Meeting still works.
 - **Call ended:** while you record a call, 60 seconds without that other
   app's microphone use shows "Call ended — Stop recording?". Stop ends the
   meeting; Keep Recording hides it, and it hides itself if the microphone use
-  resumes. Nothing ever stops automatically.
+  resumes. It works for a call you recorded after dismissing its offer, but
+  not for an app that was already holding the microphone when Speakeasy first
+  checked. Nothing ever stops automatically.
 - **The banner:** it does not take keyboard focus, so you can keep typing in
   the app you are using.
 - **Settings:** two toggles in **Meetings › Settings**, "Offer to record

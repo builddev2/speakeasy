@@ -120,7 +120,7 @@ button.row:hover {
 
 .row:focus-visible,
 .recordButton:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -208,7 +208,7 @@ button.row:hover {
 }
 
 .disclosureRow:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 

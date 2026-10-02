@@ -26,32 +26,6 @@
 .iconButton:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .iconButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 
-.searchWrap {
-  margin-left: 8px;
-  width: 220px;
-}
-
-.searchInput {
-  width: 100%;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 7px;
-  border: 0.5px solid var(--hairline);
-  background: var(--glass-fill-2);
-  color: var(--text);
-  font: 400 12.5px/1 var(--sans);
-  outline: none;
-}
-
-.searchInput::placeholder {
-  color: var(--text-lo);
-}
-
-.searchInput:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 .empty {
   flex: 1;
   display: flex;
@@ -96,15 +70,19 @@
 }
 
 .titleInput {
-  font: 600 22px/1.2 var(--sans);
+  font: 600 26px/1.2 var(--serif);
   letter-spacing: -0.3px;
   color: var(--text-hi);
   background: var(--glass-fill-2);
-  border: 1.5px solid var(--coral-1);
+  border: 1.5px solid var(--hairline);
   border-radius: 8px;
   padding: 2px 8px;
   outline: none;
   width: 100%;
+}
+
+.titleInput:focus {
+  border-color: var(--accent);
 }
 
 .metaLine {
@@ -549,7 +527,6 @@
   .transcriptPane,
   .findBar,
   .eventChip,
-  .searchInput,
   .findInput,
   .findNav,
   .findDone,
@@ -564,7 +541,6 @@
   .summaryPane,
   .transcriptPane,
   .findBar,
-  .searchInput,
   .findInput {
     background: var(--surface-opaque);
     backdrop-filter: none;

@@ -86,7 +86,7 @@
 
 .exportButton:focus-visible,
 .calendarRow input:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 

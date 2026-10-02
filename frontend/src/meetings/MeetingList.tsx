@@ -113,17 +113,13 @@ export function MeetingList({ metas, selectedId, onSelect, onRequestSearchFocus,
                 onClick={() => onSelect(meta.id)}
               >
                 <div className={styles.rowTop}>
-                  <span className={styles.rowTitleLine}>
-                    <span className={styles.time}>{meta.time}</span>
-                    <span className={styles.dot}>·</span>
-                    <span className={styles.title}>{meta.title}</span>
-                  </span>
-                  <span className={styles.rowMeta}>
-                    <span className={styles.duration}>{meta.duration}</span>
-                    {meta.hasSummary && <span className={styles.summaryDot} aria-hidden="true" />}
-                  </span>
+                  <span className={styles.title}>{meta.title}</span>
+                  <span className={styles.time}>{meta.time}</span>
                 </div>
-                <div className={styles.sub}>{meta.subtitle}</div>
+                <div className={styles.rowBottom}>
+                  <span className={styles.sub}>{meta.subtitle}</span>
+                  {meta.hasSummary && <span className={styles.summaryDot} aria-hidden="true" />}
+                </div>
               </button>
             );
           })}

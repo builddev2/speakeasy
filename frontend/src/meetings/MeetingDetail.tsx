@@ -26,8 +26,6 @@ export interface JumpTarget {
 interface MeetingDetailProps {
   detail: MeetingDetailType | null;
   colorCodeSpeakers: boolean;
-  searchValue: string;
-  onSearchChange: (value: string) => void;
   forcedTab?: Tab;
   autoOpenPopover?: boolean;
   onRenameTitle: (title: string) => void;
@@ -37,7 +35,6 @@ interface MeetingDetailProps {
   onExport: () => void;
   onRequestSummary: () => void;
   jumpTarget?: JumpTarget | null;
-  searchFocusToken?: number;
   /** Same-day events the meeting can be linked to; the chip menu fetches on open. */
   onLoadEvents?: () => Promise<EventChip[]>;
   /** key null unlinks. Absent when Calendar isn't available: no chip controls. */
@@ -119,8 +116,6 @@ function splitHighlights(text: string, query: string): { text: string; hit: bool
 export function MeetingDetail({
   detail,
   colorCodeSpeakers,
-  searchValue,
-  onSearchChange,
   forcedTab,
   autoOpenPopover,
   onRenameTitle,
@@ -130,7 +125,6 @@ export function MeetingDetail({
   onExport,
   onRequestSummary,
   jumpTarget,
-  searchFocusToken,
   onLoadEvents,
   onLinkEvent,
 }: MeetingDetailProps) {
@@ -144,14 +138,11 @@ export function MeetingDetail({
   const [findQuery, setFindQuery] = useState('');
   const [findIndex, setFindIndex] = useState(0);
   const [highlightSegment, setHighlightSegment] = useState<number | null>(null);
-  const [searchDraft, setSearchDraft] = useState(searchValue);
-  const searchTimer = useRef<number | null>(null);
   const highlightTimer = useRef<number | null>(null);
   const autoOpenedRef = useRef(false);
   const consumedJumpNonceRef = useRef<number | null>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const eventListRef = useRef<HTMLDivElement>(null);
   const [eventListMax, setEventListMax] = useState<number | undefined>(undefined);
@@ -169,13 +160,6 @@ export function MeetingDetail({
   }, [turns]);
 
   useEffect(() => {
-    if (searchFocusToken === undefined) return;
-    searchInputRef.current?.focus();
-    // Only react to the token changing, not the initial render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchFocusToken]);
-
-  useEffect(() => {
     if (!detail) return;
     setTab(forcedTab ?? (detail.summary ? 'summary' : 'transcript'));
     setRenaming(false);
@@ -191,10 +175,6 @@ export function MeetingDetail({
       highlightTimer.current = null;
     }
   }, [detail?.id, forcedTab]);
-
-  useEffect(() => {
-    setSearchDraft(searchValue);
-  }, [searchValue]);
 
   // Search → Transcript jump: switch tab (Summary for notes hits), scroll the
   // matching line into view (or the nearest by `start` when there's no exact
@@ -325,21 +305,6 @@ export function MeetingDetail({
   useOverlayEscape(renaming, () => setRenaming(false));
   useOverlayEscape(findOpen, closeFindBar);
 
-  function onSearchInput(value: string) {
-    setSearchDraft(value);
-    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
-    searchTimer.current = window.setTimeout(() => onSearchChange(value), 250);
-  }
-
-  function clearSearch() {
-    if (searchTimer.current !== null) {
-      window.clearTimeout(searchTimer.current);
-      searchTimer.current = null;
-    }
-    setSearchDraft('');
-    onSearchChange('');
-  }
-
   function commitRename() {
     const title = renameText.trim();
     setRenaming(false);
@@ -348,9 +313,16 @@ export function MeetingDetail({
 
   // ⌘F opens find-in-transcript from anywhere in the detail column (title,
   // toolbar, summary, transcript...). MeetingList handles its own ⌘F to focus
-  // the toolbar search field instead, since the two components never share a
-  // keydown target.
+  // the sidebar search field instead, since the two components never share a
+  // keydown target. ⌘⌫ asks to delete the open meeting from anywhere here too.
   function onDetailKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+      if (isEditableTarget(e.target)) return;
+      if (!detail) return;
+      e.preventDefault();
+      onRequestDelete();
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
       if (!detail) return;
       e.preventDefault();
@@ -475,38 +447,12 @@ export function MeetingDetail({
             </div>
           </>
         )}
-        <div className={styles.searchWrap}>
-          <input
-            ref={searchInputRef}
-            {...NO_AUTOCORRECT}
-            className={styles.searchInput}
-            placeholder="Search meetings"
-            aria-label="Search meetings"
-            value={searchDraft}
-            onChange={(e) => onSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                clearSearch();
-              }
-            }}
-          />
-        </div>
       </div>
 
       {!detail ? (
         <div className={styles.empty}>Select a meeting to see its summary and transcript.</div>
       ) : (
-        <div
-          className={styles.body}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
-              if (isEditableTarget(e.target)) return;
-              e.preventDefault();
-              onRequestDelete();
-            }
-          }}
-        >
+        <div className={styles.body}>
           <div className={styles.bodyInner}>
             <div className={styles.header}>
               {renaming ? (

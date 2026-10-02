@@ -54,7 +54,7 @@
 
 .details:focus-visible,
 .detailsInline:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

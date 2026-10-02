@@ -158,6 +158,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
   const filterRef = useRef<SidebarFilter>(filter);
+  // Today is the home view, but only if the user hasn't picked anything before the calendar loads.
+  const userNavigatedRef = useRef(false);
+  const homeAppliedRef = useRef(false);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -166,6 +169,25 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   useEffect(() => {
     filterRef.current = filter;
   }, [filter]);
+
+  useEffect(() => {
+    if (!embedded || homeAppliedRef.current) return;
+    if (!filters.features.calendar || calendar.access !== 'connected') return;
+    homeAppliedRef.current = true;
+    if (!userNavigatedRef.current) setToday(true);
+  }, [embedded, filters.features.calendar, calendar.access]);
+
+  // Cmd/Ctrl+K focuses the sidebar search from anywhere in the window.
+  useEffect(() => {
+    function onWindowKeyDown(e: globalThis.KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchFocusToken((t) => (t ?? 0) + 1);
+      }
+    }
+    window.addEventListener('keydown', onWindowKeyDown);
+    return () => window.removeEventListener('keydown', onWindowKeyDown);
+  }, []);
 
   const mockLibraryStatus: LibraryStatus =
     mockState === 'empty'
@@ -393,16 +415,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       return;
     }
     let cancelled = false;
-    bridge
-      .call<SearchResult[]>('meetings.search', { query: searchQuery })
-      .then((results) => {
-        if (!cancelled) setSearchResults(results);
-      })
-      .catch(() => {
-        if (!cancelled) setSearchResults([]);
-      });
+    // The sidebar field updates on every keystroke; settle for 250 ms before asking the bridge.
+    const timer = window.setTimeout(() => {
+      bridge
+        .call<SearchResult[]>('meetings.search', { query: searchQuery })
+        .then((results) => {
+          if (!cancelled) setSearchResults(results);
+        })
+        .catch(() => {
+          if (!cancelled) setSearchResults([]);
+        });
+    }, 250);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [embedded, searching, searchQuery]);
 
@@ -430,6 +456,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   function onSelectFilter(next: SidebarFilter) {
+    userNavigatedRef.current = true;
     setFilter(next);
     setSearching(false);
     setToday(false);
@@ -445,6 +472,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   function onSelectToday() {
+    userNavigatedRef.current = true;
     setToday(true);
     setSearching(false);
     setPopover(null);
@@ -493,11 +521,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   function onSearchChange(value: string) {
+    userNavigatedRef.current = true;
     setSearchQuery(value);
     setSearching(value.trim() !== '');
   }
 
   function onSelectResult(result: SearchResult) {
+    userNavigatedRef.current = true;
     setSearching(false);
     setSearchQuery('');
     select(result.meetingId);
@@ -650,37 +680,39 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           }
           onSelectFilter={onSelectFilter}
           onSelectToday={onSelectToday}
+          searchValue={searchQuery}
+          onSearchChange={onSearchChange}
+          searchFocusToken={searchFocusToken}
           onConnectClaude={() => setConnectClaudeOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           connectClaudeRef={connectClaudeButtonRef}
           settingsRef={settingsButtonRef}
-        />
-
-        {!today &&
-          (searching ? (
+        >
+          <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
+          {searching ? (
             <SearchResults
               results={embedded ? searchResults : mockState === 'search' ? MOCK_RESULTS : []}
               onSelect={onSelectResult}
             />
           ) : visibleMetas.length === 0 ? (
-            <div className={styles.listColumn}>
-              <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
-              {libraryStatus.state !== 'upgrading' && (
-                <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
-              )}
-            </div>
+            libraryStatus.state !== 'upgrading' ? (
+              <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+            ) : (
+              <div />
+            )
           ) : (
-            <div className={styles.listColumn}>
-              <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
-              <MeetingList
-                metas={visibleMetas}
-                selectedId={selectedId}
-                onSelect={select}
-                onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
-                onRequestDelete={() => setConfirmOpen(true)}
-              />
-            </div>
-          ))}
+            <MeetingList
+              metas={visibleMetas}
+              selectedId={selectedId}
+              onSelect={(id) => {
+                userNavigatedRef.current = true;
+                select(id);
+              }}
+              onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+              onRequestDelete={() => setConfirmOpen(true)}
+            />
+          )}
+        </Sidebar>
 
         {today ? (
           <TodayView
@@ -714,8 +746,6 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           <MeetingDetail
             detail={selectedDetail}
             colorCodeSpeakers={colorCodeSpeakers}
-            searchValue={searchQuery}
-            onSearchChange={onSearchChange}
             forcedTab={forcedTab}
             autoOpenPopover={mockState === 'popover'}
             onRenameTitle={onRenameTitle}
@@ -758,7 +788,6 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               }
             }}
             jumpTarget={jumpTarget}
-            searchFocusToken={searchFocusToken}
             onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
             onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
           />

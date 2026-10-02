@@ -600,6 +600,34 @@ Executed 2026-09-30, subagent-driven, on branch `claude/remote-segment-splitting
   so the split start is ~1.26 s late, the echo exceeds the 0.25 s lead limit and
   is kept in the transcript. Likely a split-boundary placement error in remote
   segment splitting, not capture; check how split start times are chosen.
+  - **Investigated 2026-10-01: not a splitting error; it is the ASR chunk seam.**
+    - The split itself is correct: both pieces are Speaker 1 (cluster 0, overlap
+      0), and the "You" start 1169.68 s lies in (1162.14, 1170.94], so `break_at`
+      split where it should. `align_speakers` uses `tokens[0].start` unchanged.
+    - 1170.0 s is exactly a chunk end (120 s chunks, 15 s overlap, so chunks
+      end at 120 + 105k s). Chunk 10 covers 1050–1170 and chunk 11 covers
+      1155–1275. Both tracks are chunked from frame 0, so the mic has the
+      same seam.
+    - The stored segments run backwards: the earlier piece ends at 1171.86 s,
+      after the next piece starts at 1170.94 s. This cannot happen within one
+      chunk's output. It comes from the stitch, `parakeet_mlx.alignment`
+      `merge_longest_contiguous` / LCS. Each keeps chunk a's timestamps for
+      matched tokens and fills the gaps between matches from whichever chunk
+      has more tokens. It matches token ids up to 7.5 s apart and does not
+      enforce monotonic times. Chunk a's final token can also run past the
+      cut, because end = start + duration.
+    - Across all stored meetings, 181 consecutive remote segments overlap by
+      more than 0.3 s, and 163 of them start within 3 s of a chunk end.
+      f167 has three such cases, at the 225, 960 and 1170 s seams.
+    - Not yet known: which track's time is wrong at 1170 s (system late, or
+      mic early). Both cross the same seam, and the meeting audio is gone. To
+      settle it, re-run both tracks over the source recording if it is still
+      available, or log content-free seam data: the number of non-monotonic
+      tokens and the maximum backward step per seam.
+    - Fix direction (not started): replace or post-process the library merge
+      so the output is monotonic. One option is a hard cut at the middle of
+      the overlap (chunk a up to 105k + 7.5 s, chunk b after). Optionally
+      widen the echo lead limit only near seams.
 - Remote diarization over-splits: 5 labels for 3 attendees in 7cbb.
 - Optional: a test pinning that an exactly-1.5 s remote pause merges (same `<=`
   rule as the mic track); currently unpinned.

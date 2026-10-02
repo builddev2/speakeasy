@@ -27,7 +27,7 @@ from pathlib import Path
 from . import settings
 from .tag_names import tag_slug
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -254,7 +254,20 @@ def _backfill_tag_slugs(conn: sqlite3.Connection) -> None:
 # An entry may be a callable taking the connection, for a migration that needs
 # Python (v3); it must take the write lock itself and detect 'already applied'
 # inside it.
-_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3)]
+# v4: meetings waiting for Claude to (re)write their summary. Requests are
+# explicit (the app's Summarise / Redo summary); recent unsummarised
+# meetings are pending without a row (see MeetingLibrary.pending_summaries).
+_SCHEMA_V4 = """
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS summary_requests (
+    meeting_id TEXT PRIMARY KEY REFERENCES meetings(id) ON DELETE CASCADE,
+    requested_at TEXT NOT NULL
+);
+PRAGMA user_version = 4;
+COMMIT;
+"""
+
+_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3), (4, _SCHEMA_V4)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05

@@ -431,3 +431,68 @@ def test_list_meetings_blank_title_is_no_filter(library_path):
     lib = MeetingLibrary()
     _titled(lib, "One", "Two")
     assert len(lib.list_meetings(title="   ")) == 2
+
+
+# -- summary queue ---------------------------------------------------------
+
+NOW = datetime(2026, 10, 1, 20, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def lib(library_path):
+    return MeetingLibrary()
+
+
+def _at(lib, days_ago, seconds=600, title="M"):
+    return lib.save_meeting(_new(started=NOW - timedelta(days=days_ago),
+                                 duration_seconds=seconds, title=title))
+
+
+def test_pending_window_length_and_summary(lib):
+    recent = _at(lib, 1)
+    _at(lib, 8)                       # older than 7 days
+    _at(lib, 1, seconds=119)          # shorter than 2 minutes
+    done = _at(lib, 2)
+    lib.save_notes(done, summary="TL;DR: x")
+    blank = _at(lib, 3)
+    lib.save_notes(blank, action_items=["a"])   # notes but empty summary: pending
+    assert lib.pending_summaries(now=NOW) == [(blank, False), (recent, False)]
+
+
+def test_explicit_request_beats_window_and_orders_first(lib):
+    old = _at(lib, 30)
+    short = _at(lib, 1, seconds=30)
+    recent = _at(lib, 1)
+    lib.save_notes(recent, summary="TL;DR: x")
+    lib.request_summary(old)
+    lib.request_summary(recent)      # redo despite having a summary
+    lib.request_summary(short)
+    assert lib.pending_summaries(now=NOW) == [(old, True), (recent, True), (short, True)]
+    assert lib.pending_summaries(limit=1, now=NOW) == [(old, True)]
+
+
+def test_saving_a_summary_clears_the_request(lib):
+    mid = _at(lib, 30)
+    lib.request_summary(mid)
+    lib.save_notes(mid, action_items=["a"])          # no summary: still queued
+    assert lib.summary_pending(mid, now=NOW)
+    lib.save_notes(mid, summary="TL;DR: done")
+    assert not lib.summary_pending(mid, now=NOW)
+    assert lib.pending_summaries(now=NOW) == []
+
+
+def test_request_twice_keeps_one_row_and_unknown_id_raises(lib, library_path):
+    mid = _at(lib, 30)
+    lib.request_summary(mid)
+    lib.request_summary(mid)
+    assert lib.pending_summaries(now=NOW) == [(mid, True)]
+    with pytest.raises(MeetingNotFound):
+        lib.request_summary("20990101-000000-dead")
+
+
+def test_delete_cascades_request(lib, library_path):
+    mid = _at(lib, 30)
+    lib.request_summary(mid)
+    lib.delete(mid)
+    conn = meeting_store.connect(library_path)
+    assert conn.execute("SELECT COUNT(*) FROM summary_requests").fetchone()[0] == 0

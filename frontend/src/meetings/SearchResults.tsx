@@ -3,11 +3,14 @@ import styles from './SearchResults.module.css';
 
 interface SearchResultsProps {
   results: SearchResult[];
+  /** True until the first response for the current query; hides "No results." meanwhile. */
+  pending?: boolean;
   onSelect: (result: SearchResult) => void;
 }
 
-export function SearchResults({ results, onSelect }: SearchResultsProps) {
+export function SearchResults({ results, pending = false, onSelect }: SearchResultsProps) {
   if (results.length === 0) {
+    if (pending) return <div className={styles.empty} aria-busy="true" />;
     return (
       <div className={styles.empty}>No results.</div>
     );

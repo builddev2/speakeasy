@@ -61,7 +61,7 @@
 }
 
 .mark {
-  background: color-mix(in srgb, var(--coral-1) 30%, transparent);
+  background: color-mix(in srgb, var(--amber) 28%, transparent);
   color: inherit;
   border-radius: 2px;
 }

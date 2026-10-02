@@ -68,8 +68,8 @@
 }
 
 .rename {
-  border: none;
-  background: var(--coral-1);
+  border: 0.5px solid var(--hairline);
+  background: var(--glass-fill);
   color: var(--text-hi);
 }
 

@@ -12,15 +12,9 @@
 }
 
 .dayHeader {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   padding: 8px 18px 4px;
   font: 600 11px/1.4 var(--sans);
   color: var(--text-lo);
-  background: var(--surface-sticky);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 .row {
@@ -33,9 +27,6 @@
   border-radius: 7px;
   background: transparent;
   cursor: pointer;
-  /* Matches the sticky .dayHeader's rendered height, so up-arrow never scrolls
-     a row up under the header before it comes to rest. */
-  scroll-margin-top: 30px;
 }
 
 .row:hover {
@@ -106,13 +97,5 @@
 @media (prefers-reduced-motion: reduce) {
   .row {
     transition: none;
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .dayHeader {
-    background: var(--surface-opaque);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 }

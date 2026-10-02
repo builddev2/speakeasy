@@ -87,10 +87,10 @@
 .installButton {
   height: 30px;
   padding: 0 16px;
-  border: none;
+  border: 0.5px solid var(--hairline);
   border-radius: 8px;
-  background: var(--coral-1);
-  color: var(--on-accent);
+  background: var(--glass-fill);
+  color: var(--text-hi);
   font: 600 13px/1 var(--sans);
   cursor: pointer;
 }
@@ -99,7 +99,7 @@
   border: none;
   background: transparent;
   padding: 0;
-  color: var(--coral-1);
+  color: var(--text-hi);
   font: 600 12px/1 var(--sans);
   cursor: pointer;
 }

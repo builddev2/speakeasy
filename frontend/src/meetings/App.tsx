@@ -131,6 +131,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [searching, setSearching] = useState(mockState === 'search');
   const [searchQuery, setSearchQuery] = useState(mockState === 'search' ? 'sync' : '');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  // The query whose results have arrived; "No results." waits until it matches the current query.
+  const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
   const [today, setToday] = useState(TODAY_STATES.includes(mockState));
@@ -412,6 +414,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     if (!embedded) return;
     if (!searching || searchQuery.trim() === '') {
       setSearchResults([]);
+      setSettledQuery(null);
       return;
     }
     let cancelled = false;
@@ -420,10 +423,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       bridge
         .call<SearchResult[]>('meetings.search', { query: searchQuery })
         .then((results) => {
-          if (!cancelled) setSearchResults(results);
+          if (cancelled) return;
+          setSearchResults(results);
+          setSettledQuery(searchQuery);
         })
         .catch(() => {
-          if (!cancelled) setSearchResults([]);
+          if (cancelled) return;
+          setSearchResults([]);
+          setSettledQuery(searchQuery);
         });
     }, 250);
     return () => {
@@ -528,6 +535,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
   function onSelectResult(result: SearchResult) {
     userNavigatedRef.current = true;
+    setToday(false);
     setSearching(false);
     setSearchQuery('');
     select(result.meetingId);
@@ -692,6 +700,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           {searching ? (
             <SearchResults
               results={embedded ? searchResults : mockState === 'search' ? MOCK_RESULTS : []}
+              pending={embedded && settledQuery !== searchQuery}
               onSelect={onSelectResult}
             />
           ) : visibleMetas.length === 0 ? (
@@ -703,9 +712,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           ) : (
             <MeetingList
               metas={visibleMetas}
-              selectedId={selectedId}
+              selectedId={today ? null : selectedId}
               onSelect={(id) => {
                 userNavigatedRef.current = true;
+                setToday(false);
                 select(id);
               }}
               onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}

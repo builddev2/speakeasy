@@ -34,7 +34,7 @@ def _meeting(lib, start=datetime(2026, 9, 29, 17, 2, tzinfo=UTC), **kw):
 def test_schema_v2_adds_other_attendees(library_path):
     conn = meeting_store.connect(library_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
         cols = [r[1] for r in conn.execute("PRAGMA table_info(calendar_events)")]
         assert "other_attendees" in cols
     finally:
@@ -57,7 +57,7 @@ def test_v1_library_upgrades_in_place(library_path):
     assert MeetingLibrary(library_path).get_meeting("20260901-100000-abcd").title == "Old"
     conn = meeting_store.connect(library_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     finally:
         conn.close()
 

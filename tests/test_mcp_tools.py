@@ -297,11 +297,14 @@ def test_tag_tools_reject_wrong_shapes(lib, tools):
                  {"ids": [mid], "add": "x"}, {"ids": [5], "add": ["x"]}]:
         with pytest.raises(ToolError):
             tools["tag_meetings"].run(args)
+    tools["tag_meetings"].run({"ids": [mid], "add": ["x"]})
     for args in [{"action": "explode", "tag": "x"}, {"action": "rename", "tag": "x"},
-                 {"action": "merge", "tag": "x"}, {"action": "describe", "tag": "x"},
+                 {"action": "merge", "tag": "x"},
                  {"action": "delete"}, {"tag": "x"}]:
         with pytest.raises(ToolError):
             tools["manage_tags"].run(args)
+    with pytest.raises(ToolError, match="describe needs description"):
+        tools["manage_tags"].run({"action": "describe", "tag": "x"})
 
 
 def test_tag_descriptions_steer_reuse(tools):

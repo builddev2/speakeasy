@@ -681,8 +681,9 @@ class MeetingLibrary:
         """Make `names` this meeting's Claude-suggested tags. User tags are
         never removed (and a requested user tag stays 'user'); tags the
         user removed here are skipped; at most MAX_NEW_TAGS_PER_SAVE tags
-        are created. Raises before any write if the cap or the per-meeting
-        limit would be broken; the caller's transaction rolls back.
+        are created. The new-tag cap raises before any write; the 20-per-meeting
+        limit raises after the writes and relies on the caller's transaction
+        rolling back.
         Returns (created names, suppressed names)."""
         found, new = [], []
         for name in names:

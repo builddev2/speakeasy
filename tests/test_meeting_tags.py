@@ -70,14 +70,14 @@ def test_tag_meetings_add_clears_suppression(lib, library_path):
     assert _sql(library_path, "SELECT COUNT(*) FROM tag_suppressions") == [(0,)]
 
 
-def test_tag_meetings_validates_before_writing(lib):
+def test_tag_meetings_validates_before_writing(lib, library_path):
     a = _meeting(lib)
     with pytest.raises(ValueError, match="No meeting with id 20200101-000000-abcd"):
         lib.tag_meetings([a, "20200101-000000-abcd"], add=["Ops"])
     assert lib.meeting_tags(a) == [] and lib.list_tags() == []
     with pytest.raises(ValueError, match="both add and remove"):
         lib.tag_meetings([a], add=["Ops"], remove=["ops"])
-    assert lib.list_tags() == []
+    assert _sql(library_path, "SELECT COUNT(*) FROM tags") == [(0,)]
     with pytest.raises(ValueError, match="between 1 and 100"):
         lib.tag_meetings([], add=["Ops"])
     with pytest.raises(ValueError, match="between 1 and 100"):

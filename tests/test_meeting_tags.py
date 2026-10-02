@@ -150,3 +150,64 @@ def test_writers_resolve_through_aliases(lib, library_path):
     assert lib.meeting_tags(a) == []
     assert _sql(library_path, "SELECT COUNT(*) FROM tag_suppressions ts JOIN tags t"
                               " ON t.id = ts.tag_id WHERE t.slug = 'ops'") == [(1,)]
+
+
+def test_save_notes_reuses_existing_tag_for_any_spelling(lib):
+    a, b = _meeting(lib, 0), _meeting(lib, 1)
+    assert lib.save_notes(a, tags=["Project X", "Budget"]).created_tags == ["Project X", "Budget"]
+    notes = lib.save_notes(b, tags=["project-x"])
+    assert notes.created_tags == [] and notes.suppressed_tags == []
+    assert lib.meeting_tags(b) == ["Project X"]
+    assert lib.list_tags() == [("Project X", 2), ("Budget", 1)]
+
+
+def test_resaving_claude_tags_never_removes_user_tags(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Mine"])
+    lib.save_notes(a, tags=["Theirs"])
+    assert lib.meeting_tag_details(a) == [("Mine", "user"), ("Theirs", "claude")]
+    lib.save_notes(a, tags=["Other"])
+    assert lib.meeting_tag_details(a) == [("Mine", "user"), ("Other", "claude")]
+    lib.save_notes(a, tags=[])
+    assert lib.meeting_tag_details(a) == [("Mine", "user")]
+
+
+def test_claude_naming_a_user_tag_keeps_it_user(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Project X"])
+    notes = lib.save_notes(a, tags=["project x"])
+    assert notes.created_tags == []
+    assert lib.meeting_tag_details(a) == [("Project X", "user")]
+    lib.save_notes(a, tags=[])
+    assert lib.meeting_tag_details(a) == [("Project X", "user")]
+
+
+def test_save_notes_skips_suppressed_tags_per_meeting(lib):
+    a, b = _meeting(lib, 0), _meeting(lib, 1)
+    lib.save_notes(a, tags=["Ops"])
+    lib.tag_meetings([a], remove=["Ops"])
+    notes = lib.save_notes(a, tags=["OPS", "Budget"])
+    assert notes.suppressed_tags == ["Ops"]
+    assert lib.meeting_tags(a) == ["Budget"]
+    assert lib.save_notes(b, tags=["Ops"]).suppressed_tags == []
+    assert lib.meeting_tags(b) == ["Ops"]
+
+
+def test_new_tag_cap_allows_three_and_rejects_four_atomically(lib):
+    a, b = _meeting(lib, 0), _meeting(lib, 1)
+    assert lib.save_notes(a, tags=["a1", "a2", "a3"]).created_tags == ["a1", "a2", "a3"]
+    with pytest.raises(ValueError, match=r"Would create 4 new tags \(n1, n2, n3, n4\); at most 3 per call"):
+        lib.save_notes(b, summary="S", tags=["a1", "n1", "n2", "n3", "n4"])
+    assert lib.get_meeting(b).notes is None          # the summary was not saved either
+    assert lib.meeting_tags(b) == []
+    assert {n for n, _ in lib.list_tags()} == {"a1", "a2", "a3"}
+
+
+def test_twenty_tag_limit_counts_user_and_claude_tags(lib):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=[f"u{i}" for i in range(18)])
+    with pytest.raises(ValueError, match="At most 20 tags per meeting"):
+        lib.save_notes(a, tags=["n1", "n2", "n3"])
+    assert len(lib.meeting_tags(a)) == 18
+    lib.save_notes(a, tags=["n1", "n2"])
+    assert len(lib.meeting_tags(a)) == 20

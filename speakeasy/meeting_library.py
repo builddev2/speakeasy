@@ -138,6 +138,9 @@ class Notes:
     action_items: list[str]
     updated_at: str
     updated_by: str
+    # Filled only on the Notes that save_notes returns: what its tags did.
+    created_tags: list[str] = field(default_factory=list)
+    suppressed_tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -652,6 +655,8 @@ class MeetingLibrary:
                 raise ValueError(f"At most {MAX_TAGS_PER_MEETING} tags per meeting.")
         with self._transaction() as conn:
             self._touch(conn, meeting_id)
+            created, suppressed = ([], []) if tags is None else \
+                self._set_claude_tags(conn, meeting_id, tags)
             current = self._notes(conn, meeting_id) or Notes("", [], "", updated_by)
             summary = current.summary if summary is None else summary
             action_items = current.action_items if action_items is None else action_items
@@ -668,17 +673,47 @@ class MeetingLibrary:
                 (meeting_id, summary, json.dumps(action_items),
                  "\n".join(action_items), now, updated_by),
             )
-            if tags is not None:
-                conn.execute("DELETE FROM meeting_tags WHERE meeting_id = ?", (meeting_id,))
-                for name in tags:
-                    tag_id = self._find_tag(conn, name)
-                    if tag_id is None:
-                        tag_id = self._create_tag(conn, name)
-                    conn.execute(
-                        "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_id, added_at)"
-                        " VALUES (?, ?, ?)", (meeting_id, tag_id, now))
-                self._drop_orphan_tags(conn)
-            return self._notes(conn, meeting_id)
+            notes = self._notes(conn, meeting_id)
+            notes.created_tags, notes.suppressed_tags = created, suppressed
+            return notes
+
+    def _set_claude_tags(self, conn, meeting_id, names) -> tuple[list[str], list[str]]:
+        """Make `names` this meeting's Claude-suggested tags. User tags are
+        never removed (and a requested user tag stays 'user'); tags the
+        user removed here are skipped; at most MAX_NEW_TAGS_PER_SAVE tags
+        are created. Raises before any write if the cap or the per-meeting
+        limit would be broken; the caller's transaction rolls back.
+        Returns (created names, suppressed names)."""
+        found, new = [], []
+        for name in names:
+            tag_id = self._find_tag(conn, name)
+            if tag_id is None:
+                new.append(name)
+            elif tag_id not in found:
+                found.append(tag_id)
+        if len(new) > MAX_NEW_TAGS_PER_SAVE:
+            raise ValueError(
+                f"Would create {len(new)} new tags ({', '.join(new)}); at most "
+                f"{MAX_NEW_TAGS_PER_SAVE} per call. Reuse tags from list_tags or drop some.")
+        blocked = {r[0] for r in conn.execute(
+            "SELECT tag_id FROM tag_suppressions WHERE meeting_id = ?", (meeting_id,))}
+        suppressed = [self._tag_name(conn, t) for t in found if t in blocked]
+        wanted = [t for t in found if t not in blocked]
+        wanted += [self._create_tag(conn, name) for name in new]
+        keep = f" AND tag_id NOT IN ({','.join('?' * len(wanted))})" if wanted else ""
+        conn.execute(
+            f"DELETE FROM meeting_tags WHERE meeting_id = ? AND source = 'claude'{keep}",
+            (meeting_id, *wanted))
+        now = _now_iso()
+        for tag_id in wanted:
+            # OR IGNORE: an existing link keeps its source and added_at.
+            conn.execute(
+                "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_id, source, added_at)"
+                " VALUES (?, ?, 'claude', ?)", (meeting_id, tag_id, now))
+        if self._tag_count(conn, meeting_id) > MAX_TAGS_PER_MEETING:
+            raise ValueError(f"At most {MAX_TAGS_PER_MEETING} tags per meeting.")
+        self._drop_orphan_tags(conn)
+        return new, suppressed
 
     def _person_id(self, conn, name: str, email: str | None) -> int:
         # Controller ruling: normalise the email once, here, and use the

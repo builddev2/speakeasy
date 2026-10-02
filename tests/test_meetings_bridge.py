@@ -80,9 +80,33 @@ def test_list_and_get_shapes(library_path):
              "overlap": False, "start": 6.0},
         ],
         "summary": "Invest in VFA.",
+        "summaryBlocks": [{"kind": "para", "text": "Invest in VFA."}],
+        "summaryQueued": False,
         "actionItems": [],
         "event": None,
     }
+
+
+def test_request_summary_queues_and_returns_detail(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    assert "meetings.requestSummary" in d._methods
+    detail = bridge.request_summary_payload({"id": mid})
+    assert detail["summaryQueued"] is True and detail["id"] == mid
+    assert lib.pending_summaries(now=NOW()) == [(mid, True)]
+
+
+def test_recent_unsummarised_meeting_shows_queued(library_path):
+    lib, mid, bridge = _meeting(
+        library_path, segments=[MeetingSegment("You", 0, 5, "hi")],
+        started_at=datetime(2026, 9, 24, 10, 0, tzinfo=TZ), duration=600)
+    assert bridge.get_payload({"id": mid})["summaryQueued"] is True
+    assert bridge.get_payload({"id": mid})["summaryBlocks"] == []
+
+
+def test_request_summary_unknown_id_is_not_found(library_path):
+    _, _, _, d = _setup(library_path)
+    js = _call(d, "meetings.requestSummary", {"id": "20990101-000000-dead"})
+    assert "_reject" in js and "not_found" in js
 
 
 def test_filters_and_search(library_path):

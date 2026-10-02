@@ -168,3 +168,7 @@ def test_library_error_means_no_events(monkeypatch):
     c.tick_(None)
     assert [x for x in panel.calls if x[0] == "show"] == []
     c.shutdown()
+
+
+def test_tick_interval_is_thirty_seconds():
+    assert rpc.TICK_SECONDS == 30.0

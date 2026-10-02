@@ -134,3 +134,19 @@ def test_new_tags_get_slug_and_created_at(lib, library_path):
     lib.save_notes(a, tags=["Q3 Planning"])
     [(slug, created_at)] = _sql(library_path, "SELECT slug, created_at FROM tags")
     assert slug == "q3planning" and created_at.endswith("Z")
+
+
+def test_writers_resolve_through_aliases(lib, library_path):
+    a = _meeting(lib)
+    lib.tag_meetings([a], add=["Ops"])
+    _sql(library_path, "INSERT INTO tag_aliases (slug, name, tag_id)"
+                       " SELECT 'operations', 'Operations', id FROM tags WHERE slug = 'ops'")
+    update = lib.tag_meetings([a], add=["Operations"])
+    assert update.created_tags == []
+    assert lib.meeting_tag_details(a) == [("Ops", "user")]
+    assert _sql(library_path, "SELECT COUNT(*) FROM tags WHERE slug = 'operations'") == [(0,)]
+    update = lib.tag_meetings([a], remove=["operations"])
+    assert update.not_found == []
+    assert lib.meeting_tags(a) == []
+    assert _sql(library_path, "SELECT COUNT(*) FROM tag_suppressions ts JOIN tags t"
+                              " ON t.id = ts.tag_id WHERE t.slug = 'ops'") == [(1,)]

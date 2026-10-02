@@ -34,6 +34,29 @@ Settings.
 | Banner colours | Record uses dynamic coral (#B8551F light, #E8955A dark) and Stop (call ended) uses dynamic recording red (#D33A2F light, #FF5A4E dark), with label colour white in light and #1D1F1E in dark. |
 | Settings sheet | A "Record prompts" group holds the existing two switches ("Offer to record calendar meetings", "Offer to record calls in other apps"); an "Appearance" group holds the System / Light / Dark control. |
 
+## Resizable windows (user, 2 Oct 2026)
+
+Every window can be resized and remembers its frame; each layout adapts to the
+size instead of clipping. Defaults stay as today; minimums are the smallest size
+at which nothing clips:
+
+| Window | Default | Minimum | Frame autosave name |
+|---|---|---|---|
+| Meetings | 90 % of the screen (unchanged) | 820 × 520 (unchanged) | unchanged |
+| Dock | 360 × 430 | 340 × 400 | `SpeakeasyDockFrame` |
+| Training | 640 × 440 | 560 × 400 | `SpeakeasyTrainingFrame` |
+| Microphone Check | 660 × 600 | 560 × 520 | `SpeakeasyDiagnosticFrame` |
+
+Layout rules: the Meetings sidebar is `clamp(220px, 24vw, 300px)` wide; the
+detail column is centred with a 640 px reading width (720 px when the window is
+at least 1400 px wide); Today is centred at up to 760 px; sheets are at most
+`calc(100vw - 48px)` wide and `calc(100vh - 48px)` tall and scroll inside. The
+Dock's controls stretch to the window width and its buttons wrap; Training's
+session list is `clamp(180px, 30%, 260px)`; Microphone Check's content stretches.
+No text or button may clip at any size from the minimum up to 2560 × 1440, in
+light or dark. The record banner is a notification, not a window: it stays
+360 × 92 pt, and every button title must fit its button.
+
 ## Conflicts checked (record-prompts work, merged 8d55a13)
 
 - The banner is native AppKit; `frontend/prompt.html` was deleted. The refresh is
@@ -69,5 +92,6 @@ change is planned for it.
 ## Out of scope
 
 Recording pill, menu-bar popover replacing the Dock, meeting notepad, Claude
-provenance on summaries, Dock and Training layout changes (they only get tokens
-so they work in light mode).
+provenance on summaries, Dock and Training redesigns (they get tokens for light
+mode and fluid layouts for resizing, nothing more). Page zoom (⌘+ / ⌘−) is not
+included.

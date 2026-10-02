@@ -35,6 +35,7 @@
 - Call detection privacy: the banner never names the calling app; no per-app mute.
 - Turning prompts off never calls `begin_meeting` or `end_meeting`.
 - Do not edit `speakeasy/ui/menubar.py`, `speakeasy/engine.py` or any dictation/insertion code (an uncommitted Codex worktree edits menubar/engine).
+- Every window is resizable with the minimums in the spec's *Resizable windows* table; nothing clips from the minimum up to 2560 × 1440 in either appearance. The banner stays fixed-size and every button title fits.
 - Copy strings, verbatim: "Turn off calendar prompts", "Turn off call prompts", "Calendar prompts are off", "Call prompts are off", "Turn back on in Meetings › Settings", "Undo", "Record prompts", "Appearance", "System", "Light", "Dark".
 
 ## Review Focus
@@ -1059,6 +1060,17 @@ def test_more_button_notice_and_title_never_overlap():
     p.show("Call ended", "Stop recording?", "Stop", "Keep Recording", [], tone="stop", off_title="")
     assert p._off.isHidden()
     p.hide()
+
+
+def test_every_banner_button_title_fits_its_button():
+    p = RecordPromptPanel.alloc().initWithTarget_(Target())
+    for primary, secondary in (("Record", "Not Now"), ("Stop", "Keep Recording")):
+        p.show("T", "S", primary, secondary, ["One", "Two"], off_title="Turn off call prompts")
+        for button in (p._primary, p._secondary, p._more):
+            assert button.fittingSize().width <= button.frame().size.width + 0.5, button.title()
+    p.show_notice("Call prompts are off", "Turn back on in Meetings › Settings", "Undo")
+    assert p._secondary.fittingSize().width <= p._secondary.frame().size.width + 0.5
+    p.hide()
 ```
 
 - [ ] **Step 4: Run all three to see them fail**
@@ -1209,10 +1221,156 @@ git commit -m "Record banner: turn prompts off from the banner, Undo, light/dark
 
 ---
 
-### Task 9: Docs, full suite, launch and look
+### Task 9: Every window resizes; layouts adapt
 
 **Files:**
-- Modify: `README.md` (Record prompts section: the ⋯ menu and Undo; a new "Appearance" line under Meetings › Settings), `AGENTS.md` (appearance applied app-level in `speakeasy/ui/appearance.py`; tokens-only CSS rule and `node --test`; `npm --prefix frontend test` added to the Build/run/test block)
+- Create: `speakeasy/ui/window_sizes.py`, `tests/test_window_sizes.py`, `frontend/scripts/overflow-check.js`
+- Modify: `speakeasy/ui/main_window.py:50`, `speakeasy/ui/training_window.py:19,86`, `speakeasy/ui/diagnostic_window.py:32` (construct resizable windows with a min size and autosave name)
+- Modify: `frontend/src/components/GlassPanel.tsx` (`?fit` preview mode)
+- Modify (fixed pixel widths → fluid): `meetings/Sidebar.module.css`, `meetings/MeetingDetail.module.css`, `meetings/TodayView.module.css`, `meetings/Sheet.module.css`, `meetings/SettingsSheet.module.css`, `meetings/ConnectClaudeSheet.module.css`, `meetings/ConfirmSheet.module.css`, `meetings/SearchResults.module.css`, `meetings/MeetingList.module.css`, `dock/App.module.css`, `training/App.module.css`, `diagnostic/App.module.css`
+
+**Interfaces:**
+- Produces `window_sizes.SIZES: dict[str, WindowSize]` with `WindowSize(default: tuple[float, float], minimum: tuple[float, float], autosave: str)` for `"dock"`, `"training"`, `"diagnostic"`. Meetings keeps its own `_MIN_SIZE`/autosave in `meetings_window.py` (unchanged).
+- `WebWindow(..., resizable=True, min_size=...)` already exists; callers pass `resizable=True, min_size=size.minimum` and then `self._web.window.setFrameAutosaveName_(size.autosave)`, as `meetings_window.py:62-67` does.
+
+- [ ] **Step 1: Failing test** — `tests/test_window_sizes.py`:
+
+```python
+from pathlib import Path
+
+from speakeasy.ui.window_sizes import SIZES
+
+UI = Path(__file__).resolve().parents[1] / "speakeasy" / "ui"
+
+
+def test_pinned_defaults_minimums_and_autosave_names():
+    assert {k: (v.default, v.minimum, v.autosave) for k, v in SIZES.items()} == {
+        "dock": ((360, 430), (340, 400), "SpeakeasyDockFrame"),
+        "training": ((640, 440), (560, 400), "SpeakeasyTrainingFrame"),
+        "diagnostic": ((660, 600), (560, 520), "SpeakeasyDiagnosticFrame"),
+    }
+    for v in SIZES.values():
+        assert v.minimum[0] <= v.default[0] and v.minimum[1] <= v.default[1]
+
+
+def test_every_web_window_is_resizable_and_remembers_its_frame():
+    for module, key in (("main_window.py", "dock"), ("training_window.py", "training"),
+                        ("diagnostic_window.py", "diagnostic"), ("meetings_window.py", None)):
+        text = (UI / module).read_text()
+        assert "resizable=True" in text, module
+        assert "setFrameAutosaveName_" in text, module
+        if key:
+            assert f'SIZES["{key}"]' in text, module
+```
+
+- [ ] **Step 2: Run** — `.venv/bin/python -m pytest tests/test_window_sizes.py -q` → FAIL (`ModuleNotFoundError: speakeasy.ui.window_sizes`).
+
+- [ ] **Step 3: Implement** — `speakeasy/ui/window_sizes.py`:
+
+```python
+"""Default size, minimum size and frame-autosave name of each small web
+window. The minimum is the smallest size at which the page does not clip
+(checked with frontend/scripts/overflow-check.js). Meetings sizes itself
+from the screen in meetings_window.py."""
+
+from typing import NamedTuple
+
+
+class WindowSize(NamedTuple):
+    default: tuple[float, float]
+    minimum: tuple[float, float]
+    autosave: str
+
+
+SIZES = {
+    "dock": WindowSize((360, 430), (340, 400), "SpeakeasyDockFrame"),
+    "training": WindowSize((640, 440), (560, 400), "SpeakeasyTrainingFrame"),
+    "diagnostic": WindowSize((660, 600), (560, 520), "SpeakeasyDiagnosticFrame"),
+}
+```
+
+In each window module, for example `main_window.py`:
+
+```python
+        size = SIZES["dock"]
+        self._web = WebWindow("Speakeasy", *size.default, "dock", dispatcher,
+                              resizable=True, min_size=size.minimum)
+        # Overrides the centred default frame when a saved one exists.
+        self._web.window.setFrameAutosaveName_(size.autosave)
+```
+
+with `from .window_sizes import SIZES`. Same for Training (`SIZES["training"]`, delete `_W, _H`; grep the module for other uses of `_W`/`_H` and switch them to `size.default`) and Microphone Check (`SIZES["diagnostic"]`). Run the test → PASS.
+
+- [ ] **Step 4: Preview at any size.** `GlassPanel.tsx`: in the non-embedded branch, if `new URLSearchParams(window.location.search).has('fit')`, use `{ width: '100vw', height: '100vh' }` (like embedded) so the browser preview can be resized like the real window. Mock state and `fit` combine: `meetings.html?state=today&fit`.
+
+- [ ] **Step 5: Overflow checker** — `frontend/scripts/overflow-check.js` (run in the preview page with the browser tool's JavaScript runner; it returns a list, empty when nothing clips):
+
+```js
+// Lists elements whose content is cut off: horizontal page scroll, text or
+// buttons wider than their box without an ellipsis, and boxes poking out of
+// the window. Paste into the page console or run via the browser tool.
+(() => {
+  const out = [];
+  const W = document.documentElement.clientWidth;
+  if (document.documentElement.scrollWidth > W + 1) out.push(`page scrolls sideways: ${document.documentElement.scrollWidth} > ${W}`);
+  for (const el of document.querySelectorAll('body *')) {
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    const clipsX = el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible'
+      && cs.overflowX !== 'auto' && cs.overflowX !== 'scroll' && cs.textOverflow !== 'ellipsis';
+    const isControl = el.matches('button, [role="button"], [role="tab"], [role="radio"], input, label');
+    if (clipsX && (isControl || el.children.length === 0)) out.push(`clipped: ${el.tagName.toLowerCase()}.${el.getAttribute('class')} "${(el.textContent || '').trim().slice(0, 40)}"`);
+    if (isControl && el.scrollWidth > Math.ceil(r.width) + 1) out.push(`control narrower than its text: "${(el.textContent || '').trim().slice(0, 40)}"`);
+    if (r.right > W + 1 && cs.position !== 'fixed') out.push(`outside the window: ${el.tagName.toLowerCase()}.${el.getAttribute('class')}`);
+  }
+  return [...new Set(out)];
+})();
+```
+
+- [ ] **Step 6: Make layouts fluid.** Apply exactly:
+
+  - Meetings sidebar (`Sidebar.module.css .sidebar`, and the widths of `SearchResults`/`MeetingList` containers that Task 7 moved into it): `width: clamp(220px, 24vw, 300px); flex-shrink: 0;` — delete the fixed `280px`/`200px` widths; children use `width: 100%`.
+  - Detail column (`MeetingDetail.module.css .bodyInner` from Task 5): `max-width: 640px;` plus
+    ```css
+    @media (min-width: 1400px) { .bodyInner { max-width: 720px; } }
+    ```
+    The toolbar search width rule (`width: 220px`, line ~23) is removed with the search move in Task 7; the event menu (`min-width: 240px; max-width: 340px`) becomes `min-width: min(240px, 80vw); max-width: min(340px, 90vw)`; `max-width: 320px` (line ~380) becomes `max-width: min(320px, 100%)`.
+  - Today (`TodayView.module.css`): the outer content gets `width: 100%; max-width: 760px; margin: 0 auto;`; the fixed time column `width: 116px` becomes `width: 9.5em; flex-shrink: 0`.
+  - Sheets: `Sheet.module.css` panel gets `max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow-y: auto;`; `SettingsSheet` `width: 380px` → `width: min(380px, calc(100vw - 48px))`; `ConnectClaudeSheet` `width: 560px` → `width: min(560px, calc(100vw - 48px))`; `ConfirmSheet` `width: 320px` → `width: min(320px, calc(100vw - 48px))`; the two `width: 104px` buttons → `min-width: 104px` (they may grow to fit their label).
+  - `SpeakerPopover` `width: 260px` → `width: min(260px, calc(100vw - 24px))`.
+  - Dock (`dock/App.module.css`): the action-button grid becomes `display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;`; the capture select (`min-width: 190px; max-width: 240px`) becomes `min-width: 0; flex: 1 1 190px; max-width: none`; the menu at line ~232 `width: 230px` → `width: min(230px, calc(100vw - 24px))`; the waveform stretches (`width: 100%`).
+  - Training (`training/App.module.css`): sessions column `width: 222px` → `width: clamp(180px, 30%, 260px); flex-shrink: 0`; `max-width: 340px`/`360px` text blocks keep their measure but add `min-width: 0`.
+  - Microphone Check (`diagnostic/App.module.css`): content `width: 100%`; `.prompt` keeps `max-height` but uses `max-height: min(255px, 40vh)`.
+  - Every flex/grid child that holds text gets `min-width: 0` so long text ellipsizes instead of pushing the layout wider.
+
+- [ ] **Step 7: Check every page at four sizes, both appearances.** Dev server on 5199. For each page and each size, set the browser pane with `resize_window` (`colorScheme` dark, then light), load the page with `&fit` (or `?fit`), run `overflow-check.js`, and screenshot once per page per appearance at the minimum size:
+
+  | Page (preview URL) | Sizes |
+  |---|---|
+  | `meetings.html?fit`, `?state=today&fit`, `?state=settings&fit`, `?state=search&fit`, Transcript tab | 820×520, 1100×700, 1440×900, 2560×1440 |
+  | `dock.html?fit`, `dock.html?state=recording-linked&fit` | 340×400, 360×430, 520×600, 800×900 |
+  | `training.html?fit` | 560×400, 640×440, 1000×700, 1600×1000 |
+  | `diagnostic.html?fit` | 560×520, 660×600, 1000×800, 1600×1000 |
+
+  Expected: `overflow-check.js` returns `[]` everywhere. (Trial on 2 Oct 2026 against today's mock: `[]` at 1100×720, where the list's ellipsis truncation is correctly not flagged; at 820×520 it flags the fixed 1040 px preview panel as outside the window, which `?fit` resolves. It would also have caught the review page's clipped Stop button as "control narrower than its text".) If a page clips at its minimum, fix the CSS; raise the minimum in `window_sizes.py` (and its test) only when the content genuinely cannot fit, and write why in Execution notes. Record the table of results in Execution notes.
+
+- [ ] **Step 8: Run tests and build** — `.venv/bin/python -m pytest tests/test_window_sizes.py tests/test_meetings_window_size.py tests/test_frontend_tokens.py -q`; `npm --prefix frontend test`; `npm --prefix frontend run build`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add speakeasy/ui/window_sizes.py speakeasy/ui/main_window.py speakeasy/ui/training_window.py speakeasy/ui/diagnostic_window.py tests/test_window_sizes.py frontend
+git commit -m "Windows: all resizable with remembered frames; layouts adapt without clipping"
+```
+
+---
+
+### Task 10: Docs, full suite, launch and look
+
+**Files:**
+- Modify: `README.md` (Record prompts section: the ⋯ menu and Undo; a new "Appearance" line under Meetings › Settings; every window resizes and remembers its size), `AGENTS.md` (appearance applied app-level in `speakeasy/ui/appearance.py`; tokens-only CSS rule and `node --test`; `npm --prefix frontend test` added to the Build/run/test block)
 - Modify: this plan's Execution notes
 
 - [ ] **Step 1: Docs** — add the lines above; in AGENTS.md's Build / run / test block add `npm --prefix frontend test   # frontend pure-helper tests (node --test, no deps)`.
@@ -1221,7 +1379,7 @@ git commit -m "Record banner: turn prompts off from the banner, Undo, light/dark
 
 - [ ] **Step 3: Mock look, both modes** — dev server on 5199; screenshots of `meetings.html`, Transcript tab, `?state=today`, `?state=settings`, `?state=search`, `dock.html`, `training.html`, `diagnostic.html` with `colorScheme` dark and light. Keep the screenshots in the scratchpad, not the repo.
 
-- [ ] **Step 4: Real app launch (temp HOME)** — `scripts/build_app.sh` (not `--install`; installing stops Claude Desktop's Speakeasy MCP connector — memory: install-kills-mcp-connector). Launch `dist/Speakeasy.app/Contents/MacOS/Speakeasy` through Python `subprocess.Popen(..., env={**os.environ, "HOME": tmp})` with a temp HOME holding a few copied JSON meetings (memory: installed-app-ui-checks). Open Meetings; switch Appearance Light → Dark → System in Settings and confirm the Meetings window and Dock repaint without reopening. Screen control may be declined; if so, hand this check to the user with exact steps and record that it was not done by the agent.
+- [ ] **Step 4: Real app launch (temp HOME)** — `scripts/build_app.sh` (not `--install`; installing stops Claude Desktop's Speakeasy MCP connector — memory: install-kills-mcp-connector). Launch `dist/Speakeasy.app/Contents/MacOS/Speakeasy` through Python `subprocess.Popen(..., env={**os.environ, "HOME": tmp})` with a temp HOME holding a few copied JSON meetings (memory: installed-app-ui-checks). Open Meetings; switch Appearance Light → Dark → System in Settings and confirm the Meetings window and Dock repaint without reopening. Drag-resize Meetings, the Dock, Training and Microphone Check to their minimums and to large sizes; nothing clips. Quit and relaunch: each window reopens at the size it was left. Screen control may be declined; if so, hand this check to the user with exact steps and record that it was not done by the agent.
 
 - [ ] **Step 5: Banner check (user, live)** — the banner needs a real calendar event or call; ask the user to: open a call app (synthetic call is fine), wait for "Record this call?", click ⋯ → "Turn off call prompts", see "Call prompts are off" with Undo, click Undo, confirm Settings shows the switch on again. Also look at the banner in light and dark. Record the result in Execution notes. This also re-runs record-prompts open check 4's surface; checks 2, 4 and 6 from that plan remain the user's.
 

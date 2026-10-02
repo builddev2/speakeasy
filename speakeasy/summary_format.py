@@ -82,10 +82,10 @@ def parse_summary(text: str | None) -> list[dict]:
             prev = "tldr"
             continue
         heading = _MD_HEADING.match(line)
-        if heading or _caps_heading(line):
+        if heading:
             flush()
-            name = heading.group(1) if heading else line
-            blocks.append({"kind": "heading", "text": name.strip().rstrip(":").strip()})
+            blocks.append({"kind": "heading",
+                           "text": heading.group(1).strip().rstrip(":").strip()})
             prev = None
             continue
         bullet = _BULLET.match(line)
@@ -98,10 +98,15 @@ def parse_summary(text: str | None) -> list[dict]:
                 blocks.append({"kind": "bullets", "items": [item]})
             prev = "bullet"
             continue
+        # ALL-CAPS section lines only start a block; mid-paragraph or
+        # mid-bullet they are just a wrapped line ("... wraps to\nERB.").
+        if prev is None and not para and _caps_heading(line):
+            blocks.append({"kind": "heading", "text": line.rstrip(":").strip()})
+            continue
         if prev == "bullet":
-            blocks[-1]["items"][-1] += " " + line
+            blocks[-1]["items"][-1] = f'{blocks[-1]["items"][-1]} {line}'.strip()
         elif prev == "tldr":
-            blocks[-1]["text"] += " " + line
+            blocks[-1]["text"] = f'{blocks[-1]["text"]} {line}'.strip()
         else:
             para.append(line)
     flush()

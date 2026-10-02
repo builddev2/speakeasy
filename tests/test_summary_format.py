@@ -65,6 +65,25 @@ def test_tldr_only_counts_first():
         {"kind": "para", "text": "Intro."}, {"kind": "para", "text": "TL;DR: late"}]
 
 
+def test_bullets_win_over_caps_headings():
+    assert parse_summary("## Decisions\n- TBD\n- ERB SIGN-OFF") == [
+        {"kind": "heading", "text": "Decisions"},
+        {"kind": "bullets", "items": ["TBD", "ERB SIGN-OFF"]},
+    ]
+
+
+def test_caps_line_mid_paragraph_or_bullet_is_a_continuation():
+    assert parse_summary("Intro line wraps to\nERB.") == [
+        {"kind": "para", "text": "Intro line wraps to ERB."}]
+    assert parse_summary("- ship it\nASAP") == [
+        {"kind": "bullets", "items": ["ship it ASAP"]}]
+
+
+def test_tldr_with_text_on_next_line_has_no_leading_space():
+    assert parse_summary("TL;DR:\nScoped it.") == [
+        {"kind": "tldr", "text": "Scoped it."}]
+
+
 def test_empty():
     assert parse_summary("") == [] and parse_summary(None) == []
 

@@ -916,8 +916,10 @@ Using the Speakeasy Meetings connector (local, on this Mac):
     questions; ≤15 words a line) with a word count before saving, requires
     3–8 tags (broader existing tags before new ones), and reports
     "(N words, T tags, P transcript pages)" per meeting so the next run is
-    checkable. Not yet run with the revised prompt. The 5 earlier summaries
-    were not redone.
+    checkable. The 5 earlier summaries were not redone.
+  - 2 Oct 05:43 UTC: first run with the revised prompt took 39 s and saved
+    only Part 1 (2230): 145 words, 6 tags, 2 transcript pages. No other
+    meeting's notes changed; `pending_summaries` is now empty.
   - 2 Oct: worktree `.claude/worktrees/auto-summaries` and branch removed
     (lock from the old session 67330 overridden at the user's request).
   - Earlier note: the first run. `run_scheduled_task` was refused by the

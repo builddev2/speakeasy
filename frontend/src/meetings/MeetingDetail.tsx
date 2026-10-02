@@ -589,7 +589,7 @@ export function MeetingDetail({
                   <p>No summary yet. Ask Claude to summarise this meeting.</p>
                   <ActionButton
                     onClick={() => {
-                      const prompt = `Summarise and tag my Speakeasy meeting "${detail.title}" (${detail.id}) and save the notes.`;
+                      const prompt = `Summarise and tag my Speakeasy meeting "${detail.title}" (${detail.id}) and save the notes. Reuse my existing tags where they fit.`;
                       const fallback = () => {
                         if (bridge.embedded) {
                           void bridge

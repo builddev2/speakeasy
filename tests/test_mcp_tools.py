@@ -34,12 +34,13 @@ def tools(lib):
 def test_tool_names_order_and_definitions(tools):
     assert list(tools) == ["list_meetings", "get_meeting", "search_meetings",
                            "get_transcript", "get_calendar", "list_tags",
-                           "list_people", "save_notes"]
+                           "list_people", "save_notes", "tag_meetings", "manage_tags"]
+    writers = {"save_notes", "tag_meetings", "manage_tags"}
     for t in tools.values():
         d = t.definition()
         assert d["name"] == t.name and d["description"]
         assert d["inputSchema"]["type"] == "object"
-        assert d["annotations"]["readOnlyHint"] is (t.name != "save_notes")
+        assert d["annotations"]["readOnlyHint"] is (t.name not in writers)
 
 
 def test_list_meetings_shape_and_paging(lib, tools):
@@ -200,7 +201,9 @@ def test_save_notes_replaces_only_given_fields(lib, tools):
     second = tools["save_notes"].run({"id": mid, "action_items": ["A"]})
     assert second["summary"] == "S1" and second["action_items"] == ["A"]
     assert second["tags"] == ["budget"]
-    assert tools["list_tags"].run({}) == {"tags": [{"name": "budget", "count": 1}]}
+    assert tools["list_tags"].run({}) == {"tags": [
+        {"name": "budget", "count": 1, "description": "", "aliases": []}]}
+    assert first["created_tags"] == ["budget"] and first["suppressed"] == []
 
 
 def test_save_notes_rejects_wrong_shapes(lib, tools):
@@ -260,3 +263,51 @@ def test_transcript_and_meeting_tools_avoid_full_loads(library_path):
     assert page["title"] == "Budget review" and page["timestamps_approximate"] is False
     meta = tools["get_meeting"].run({"id": mid})
     assert meta["segment_count"] == 2 and meta["speakers"] == ["You", "Speaker 1"]
+
+
+def test_tag_tools_round_trip(lib, tools):
+    a, b = _seed(lib, day=24), _seed(lib, day=25)
+    out = tools["tag_meetings"].run({"ids": [a, b], "add": ["Project X"]})
+    assert out == {"meetings": [{"id": a, "tags": ["Project X"]},
+                                {"id": b, "tags": ["Project X"]}],
+                   "created_tags": ["Project X"], "not_found": []}
+    saved = tools["save_notes"].run({"id": a, "tags": ["project-x", "Ops"]})
+    assert saved["tags"] == ["Ops", "Project X"]
+    assert saved["created_tags"] == ["Ops"] and saved["suppressed"] == []
+    assert tools["get_meeting"].run({"id": a})["tags_detail"] == [
+        {"name": "Ops", "source": "claude"}, {"name": "Project X", "source": "user"}]
+    assert tools["manage_tags"].run({"action": "merge", "tag": "Ops", "into": "project x"}) == {
+        "name": "Project X", "description": "", "aliases": ["Ops"], "count": 2}
+    described = tools["manage_tags"].run(
+        {"action": "describe", "tag": "Project X", "description": "Phoenix rebuild"})
+    assert described["description"] == "Phoenix rebuild"
+    assert tools["manage_tags"].run({"action": "rename", "tag": "ops", "name": "Phoenix"})["aliases"] == [
+        "Ops", "Project X"]
+    assert tools["list_tags"].run({}) == {"tags": [
+        {"name": "Phoenix", "count": 2, "description": "Phoenix rebuild",
+         "aliases": ["Ops", "Project X"]}]}
+    removed = tools["tag_meetings"].run({"ids": [b], "remove": ["phoenix", "nope"]})
+    assert removed["meetings"] == [{"id": b, "tags": []}] and removed["not_found"] == ["nope"]
+    assert tools["manage_tags"].run({"action": "delete", "tag": "Ops"}) == {"deleted": "Phoenix"}
+
+
+def test_tag_tools_reject_wrong_shapes(lib, tools):
+    mid = _seed(lib)
+    for args in [{"ids": []}, {"ids": [mid]}, {"ids": mid, "add": ["x"]},
+                 {"ids": [mid], "add": "x"}, {"ids": [5], "add": ["x"]}]:
+        with pytest.raises(ToolError):
+            tools["tag_meetings"].run(args)
+    for args in [{"action": "explode", "tag": "x"}, {"action": "rename", "tag": "x"},
+                 {"action": "merge", "tag": "x"}, {"action": "describe", "tag": "x"},
+                 {"action": "delete"}, {"tag": "x"}]:
+        with pytest.raises(ToolError):
+            tools["manage_tags"].run(args)
+
+
+def test_tag_descriptions_steer_reuse(tools):
+    save = tools["save_notes"].description
+    assert "call list_tags first" in save and "at most 3" in save
+    assert "never removes tags the user added" in save
+    assert "the user asked" in tools["tag_meetings"].description
+    assert "alias" in tools["manage_tags"].description
+    assert "aliases" in tools["list_tags"].description

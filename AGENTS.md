@@ -72,8 +72,12 @@ visibly to the original mic-only diarization mode. See README's
   corrupts the stream); `test_stray_output_in_a_tool_never_reaches_stdout`
   guards it.
 - **MCP tools never return capture fields** (capture health, device or app
-  names, PIDs): they describe the user's machine, not the meeting. Only
-  `save_notes` writes, only the fields given, with `updated_by` "claude".
+  names, PIDs): they describe the user's machine, not the meeting. Writes
+  are `save_notes` (only the fields given, `updated_by` "claude"; its tags are
+  source `claude` and never displace `user` tags or re-add suppressed ones),
+  `tag_meetings` (source `user`) and `manage_tags`. Every tag name resolves
+  through `tag_names.tag_slug` then `tag_aliases`; never insert into `tags`
+  directly.
 - **`--mcp` stays import-light** (no AppKit, MLX, sherpa-onnx or UI modules);
   `test_mcp_mode_imports_nothing_heavy` in `tests/test_mcp_server.py` enforces it.
 - **Calendar privacy.** EventKit is used only on the `calendar` thread

@@ -38,7 +38,7 @@
     },
     {
       "name": "list_tags",
-      "description": "All meeting tags with how many meetings use each."
+      "description": "All meeting tags with how many meetings use each, plus each tag's description and aliases (other spellings that resolve to it)."
     },
     {
       "name": "list_people",
@@ -46,7 +46,15 @@
     },
     {
       "name": "save_notes",
-      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced; tags replace the meeting's whole tag list."
+      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced. Tags are your own suggestions: call list_tags first and reuse existing tags (any spelling of a tag or its aliases matches it); create a new tag only for a genuinely new topic, at most 3 per call. Replacing tags never removes tags the user added, and tags the user removed from this meeting are skipped."
+    },
+    {
+      "name": "tag_meetings",
+      "description": "Add or remove tags on one or more meetings because the user asked you to. These tags are kept when notes are saved again, and tags removed here won't be re-added by save_notes."
+    },
+    {
+      "name": "manage_tags",
+      "description": "Rename, merge, delete or describe a tag across all meetings, when the user asks to tidy their tags. Renaming or merging keeps the old name as an alias, so it still finds the tag."
     }
   ],
   "compatibility": {

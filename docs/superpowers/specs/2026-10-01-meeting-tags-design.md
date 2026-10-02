@@ -29,14 +29,13 @@ another's tags. Success means:
 
 ## 1. Canonical form
 
-`tag_slug(name: str) -> str`, in `meeting_library.py` and registered as a
-deterministic SQLite function in `meeting_store.connect()` (like
-`casefold`):
+`tag_slug(name: str) -> str`, in a new `speakeasy/tag_names.py` shared by
+`meeting_store` (the v3 backfill) and `meeting_library`. Slugs are computed
+in Python and bound as parameters; no SQLite function is registered:
 
-1. `unicodedata.normalize("NFKD", name)`, drop combining marks
-   (diacritics), then `casefold()`.
-2. Keep only characters where `str.isalnum()` is true; drop everything else
-   (spaces, hyphens, underscores, punctuation, emoji).
+1. `casefold()`, then `unicodedata.normalize("NFKD", …)`.
+2. Keep only characters where `str.isalnum()` is true. This drops combining
+   marks (diacritics), spaces, hyphens, underscores, punctuation and emoji.
 3. No stemming: "plan" and "plans" are different slugs.
 
 An empty slug (e.g. "!!!", "—") is rejected with
@@ -103,8 +102,10 @@ existing guard). The app and MCP server ship in one bundle, but installing
 stops the Claude Desktop MCP connector, so it must be toggled afterwards.
 
 **Orphan cleanup** (it currently runs after `save_notes` and meeting
-delete) deletes a tag no meeting uses only if it has no description and no
-aliases. `list_tags` still hides tags no meeting uses.
+delete, and now also after `tag_meetings`) deletes a tag no meeting uses
+only if it has no description, no aliases and no suppressions. Deleting a
+suppressed tag would cascade the suppression away and let Claude re-add it.
+`list_tags` still hides tags no meeting uses.
 
 ## 3. Writes
 
@@ -124,8 +125,9 @@ every writer.
 - **New-tag cap:** if a call would create more than 3 new tags, nothing is
   written and the call raises
   `ValueError("Would create N new tags (a, b, c, d); at most 3 per call. Reuse tags from list_tags or drop some.")`.
-- MCP response adds `created_tags: [names]` and `suppressed: [names]` to
-  today's fields.
+- The returned `Notes` carries `created_tags` and `suppressed_tags`
+  (defaulted fields, filled only by `save_notes`). The MCP response adds
+  them as `created_tags` and `suppressed`.
 - `summary` and `action_items` behave exactly as today.
 
 ### New `tag_meetings(ids, add=[], remove=[])`: the user's explicit request (source `user`)
@@ -135,10 +137,11 @@ every writer.
 - `add`: resolve, creating the tag if needed (no new-tag cap). Upsert the
   link as `source = 'user'`, upgrading a `claude` link, and delete any
   suppression for that meeting and tag.
+- At least one name in `add` or `remove` is required.
 - `remove`: resolve without creating. Delete the link whatever its source,
   and insert a suppression, even if the meeting had no such link, so Claude
   cannot add it later. A name that resolves to no tag is reported in
-  `not_found` and otherwise ignored.
+  `not_found` and otherwise ignored (no suppression is recorded for it).
 - A name in both `add` and `remove` (after resolving) is a `ValueError`.
 - Returns `{"meetings": [{"id", "tags"}], "created_tags", "not_found"}`.
 
@@ -151,8 +154,10 @@ every writer.
   update `name` and `slug`. If the slug changed, add the old slug as an
   alias, and remove any alias that equals the new slug.
 - `merge` (`into`): move meeting links to the target, with `user` winning
-  if both tags were on a meeting. Move suppressions (`INSERT OR IGNORE`),
-  repoint the source tag's aliases, add the source's slug as an alias of
+  if both tags were on a meeting. Move suppressions (`INSERT OR IGNORE`).
+  Then delete the target's suppressions on meetings where the target is
+  linked, because a link beats a suppression. Repoint the source tag's
+  aliases, add the source's slug as an alias of
   the target, and delete the source. Merging a tag into itself is an error.
 - `delete`: delete the tag; links, aliases and suppressions cascade. It
   adds no suppression.

@@ -338,6 +338,21 @@ def test_pending_summaries_returns_meetings_and_instructions(lib, tools):
         tools["pending_summaries"].run({"limit": "many"})
 
 
+def test_pending_summaries_default_and_max_limit(lib, tools):
+    for i in range(12):
+        lib.request_summary(_seed(lib, day=1, title=f"P{i}"))
+    assert len(tools["pending_summaries"].run({})["meetings"]) == 5
+    assert len(tools["pending_summaries"].run({"limit": 11})["meetings"]) == 10
+
+
+def test_pending_summaries_redo_of_summarised_meeting(lib, tools):
+    mid = _seed(lib, day=1)
+    tools["save_notes"].run({"id": mid, "summary": "TL;DR: done"})
+    lib.request_summary(mid)
+    [m] = tools["pending_summaries"].run({})["meetings"]
+    assert m["id"] == mid and m["has_summary"] is True and m["requested"] is True
+
+
 def test_save_notes_clears_pending(lib, tools):
     old = _seed(lib, day=1)
     lib.request_summary(old)

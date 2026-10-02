@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { AgendaEvent, CalendarAccess, UpcomingDay } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
 import { EmptyState } from './EmptyState';
+import { formatTimeRange } from './timeRange';
 import styles from './TodayView.module.css';
 
 export type TodayConnection = CalendarAccess;
@@ -46,7 +47,7 @@ function nowLineIndex(agenda: AgendaEvent[], nowMinutes: number): number {
 }
 
 function timeRange(event: AgendaEvent): string {
-  return event.endTime ? `${event.time}–${event.endTime}` : event.time;
+  return formatTimeRange(event.time, event.endTime);
 }
 
 function statusCell(event: AgendaEvent, onRecord: (key: string) => void): ReactNode {

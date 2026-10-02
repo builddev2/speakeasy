@@ -387,350 +387,35 @@ export function MeetingDetail({
   return (
     <div className={styles.detail} onKeyDown={onDetailKeyDown}>
       <div className={styles.toolbar}>
-        <div className={styles.toolbarSpacer} />
-        <div className={styles.searchWrap}>
-          <input
-            ref={searchInputRef}
-            {...NO_AUTOCORRECT}
-            className={styles.searchInput}
-            placeholder="Search meetings"
-            aria-label="Search meetings"
-            value={searchDraft}
-            onChange={(e) => onSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                clearSearch();
-              }
-            }}
-          />
+        {detail && (
+        <div className={styles.segmented} role="tablist" aria-label="Summary or transcript">
+          <button
+            role="tab"
+            aria-selected={tab === 'summary'}
+            className={tab === 'summary' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+            onClick={() => setTab('summary')}
+          >
+            Summary
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === 'transcript'}
+            className={tab === 'transcript' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+            onClick={() => setTab('transcript')}
+          >
+            Transcript
+          </button>
         </div>
-      </div>
-
-      {!detail ? (
-        <div className={styles.empty}>Select a meeting to see its summary and transcript.</div>
-      ) : (
-        <div
-          className={styles.body}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
-              if (isEditableTarget(e.target)) return;
-              e.preventDefault();
-              onRequestDelete();
-            }
-          }}
-        >
-          <div className={styles.header}>
-            {renaming ? (
-              <input
-                className={styles.titleInput}
-                {...NO_AUTOCORRECT}
-                value={renameText}
-                autoFocus
-                onChange={(e) => setRenameText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitRename();
-                }}
-                onBlur={() => setRenaming(false)}
-              />
-            ) : (
-              <div
-                ref={titleRef}
-                className={styles.title}
-                tabIndex={0}
-                role="button"
-                aria-label={`Rename meeting ${detail.title}`}
-                onDoubleClick={() => {
-                  setRenameText(detail.title);
-                  setRenaming(true);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    setRenameText(detail.title);
-                    setRenaming(true);
-                  }
-                }}
-              >
-                {detail.title}
-              </div>
-            )}
-
-            <div className={styles.metaLine}>
-              <span>{detail.date}</span>
-              <span className={styles.sep}>·</span>
-              <span>{detail.time}</span>
-              <span className={styles.sep}>·</span>
-              <span>{detail.duration}</span>
-              {(detail.event || onLinkEvent) && (
-                <>
-                  <span className={styles.sep}>·</span>
-                  <span className={styles.eventWrap} ref={eventWrapRef}>
-                    {detail.event ? (
-                      <button
-                        ref={eventButtonRef}
-                        className={styles.eventChip}
-                        title={`Linked to ${detail.event.title}`}
-                        aria-haspopup={onLinkEvent ? 'menu' : undefined}
-                        aria-expanded={onLinkEvent ? eventMenuOpen : undefined}
-                        onClick={() => onLinkEvent && setEventMenuOpen((v) => !v)}
-                      >
-                        <span className={styles.eventIcon} aria-hidden="true">
-                          📅
-                        </span>
-                        <span className={styles.eventTitle}>{detail.event.title}</span>
-                        <span className={styles.eventChevron} aria-hidden="true">
-                          ⌄
-                        </span>
-                      </button>
-                    ) : (
-                      <button
-                        ref={eventButtonRef}
-                        className={styles.linkEventButton}
-                        aria-haspopup="menu"
-                        aria-expanded={eventMenuOpen}
-                        onClick={() => setEventMenuOpen((v) => !v)}
-                      >
-                        Link to Event…
-                      </button>
-                    )}
-                    {eventMenuOpen && onLinkEvent && (
-                      <div className={styles.eventMenu} role="menu">
-                        {detail.event && (
-                          <>
-                            <button
-                              role="menuitem"
-                              className={styles.menuItem}
-                              onClick={() => {
-                                setEventMenuOpen(false);
-                                onLinkEvent(null);
-                              }}
-                            >
-                              Unlink
-                            </button>
-                            <div className={styles.eventMenuDivider} role="separator" />
-                            <div className={styles.eventMenuHeader}>{detail.event.time}</div>
-                          </>
-                        )}
-                        <div
-                          className={styles.eventMenuList}
-                          ref={eventListRef}
-                          style={eventListMax ? { maxHeight: eventListMax } : undefined}
-                        >
-                          {eventChoices.map((choice) => {
-                            const current = detail.event?.key === choice.key;
-                            return (
-                              <button
-                                key={choice.key}
-                                role="menuitemradio"
-                                aria-checked={current}
-                                className={styles.menuItem}
-                                onClick={() => {
-                                  setEventMenuOpen(false);
-                                  if (!current) onLinkEvent(choice.key);
-                                }}
-                              >
-                                <span className={styles.eventCheck} aria-hidden="true">
-                                  {current ? '✓' : ''}
-                                </span>
-                                {choice.time} · {choice.title}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </span>
-                </>
-              )}
-            </div>
-
-            <div className={styles.peopleTagsRow}>
-              <div className={styles.people} title={detail.people.join(', ')}>
-                {detail.people.slice(0, 4).map((person) => (
-                  <span key={person} className={styles.avatar}>
-                    {initials(person)}
-                  </span>
-                ))}
-                {detail.people.length > 4 && (
-                  <span className={styles.avatarMore}>+{detail.people.length - 4}</span>
-                )}
-              </div>
-              {detail.tags.length > 0 && (
-                <div className={styles.tags}>
-                  {detail.tags.map((tag) => (
-                    <span key={tag} className={styles.tag}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {detail.approximate && (
-              <div
-                className={styles.approxNote}
-                title="Imported from an older version; times are estimated from when processing finished."
-              >
-                ≈ approximate times
-              </div>
-            )}
-          </div>
-
-          <div className={styles.segmented} role="tablist" aria-label="Summary or transcript">
-            <button
-              role="tab"
-              aria-selected={tab === 'summary'}
-              className={tab === 'summary' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
-              onClick={() => setTab('summary')}
-            >
-              Summary
+        )}
+        <div className={styles.toolbarSpacer} />
+        {detail && (
+          <>
+            <button className={styles.iconButton} aria-label="Copy" title="Copy" onClick={onCopy}>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5A1 1 0 0 1 4 2.5h6.5"/></svg>
             </button>
-            <button
-              role="tab"
-              aria-selected={tab === 'transcript'}
-              className={tab === 'transcript' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
-              onClick={() => setTab('transcript')}
-            >
-              Transcript
+            <button className={styles.iconButton} aria-label="Export" title="Export" onClick={onExport}>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2.5M5 5.2 8 2.3l3 2.9M3 9v4.5h10V9"/></svg>
             </button>
-          </div>
-
-          {tab === 'summary' ? (
-            <div className={styles.summaryPane}>
-              {detail.summary ? (
-                <>
-                  {detail.summaryQueued && (
-                    <div className={styles.queuedNote}>Queued for a new summary. Claude checks every 30 minutes while the Claude app is open.</div>
-                  )}
-                  <SummaryBlocks blocks={detail.summaryBlocks} />
-                  {detail.actionItems.length > 0 && (
-                    <>
-                      <div className={styles.actionItemsHeading}>Action items</div>
-                      <ul className={styles.actionItems}>
-                        {detail.actionItems.map((item, i) => (
-                          <li key={i}>
-                            <span className={styles.actionDot} aria-hidden="true" />
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className={styles.noSummary}>
-                  <p>{detail.summaryQueued
-                        ? 'Queued — Claude will summarise this the next time it checks (every 30 minutes while the Claude app is open).'
-                        : 'No summary yet.'}</p>
-                  <ActionButton disabled={detail.summaryQueued} onClick={onRequestSummary}>
-                    Summarise
-                  </ActionButton>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div ref={transcriptRef} className={styles.transcriptPane} tabIndex={0}>
-              {findOpen && (
-                <div className={styles.findBar}>
-                  <input
-                    className={styles.findInput}
-                    {...NO_AUTOCORRECT}
-                    autoFocus
-                    placeholder="Find in transcript"
-                    aria-label="Find in transcript"
-                    value={findQuery}
-                    onChange={(e) => {
-                      setFindQuery(e.target.value);
-                      setFindIndex(0);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        goToMatch(e.shiftKey ? -1 : 1);
-                      }
-                    }}
-                  />
-                  <span className={styles.findCount}>
-                    {findMatches.length > 0 ? `${findIndex + 1} of ${findMatches.length}` : '0 of 0'}
-                  </span>
-                  <button className={styles.findNav} aria-label="Previous match" onClick={() => goToMatch(-1)}>
-                    ‹
-                  </button>
-                  <button className={styles.findNav} aria-label="Next match" onClick={() => goToMatch(1)}>
-                    ›
-                  </button>
-                  <button className={styles.findDone} onClick={closeFindBar}>
-                    Done
-                  </button>
-                </div>
-              )}
-              <div className={styles.lines}>
-                {detail.lines.map((line) => {
-                  const isJumpHighlight = highlightSegment === line.segmentIndex;
-                  const parts = lineParts.get(line.segmentIndex);
-                  const lineClass = isJumpHighlight ? `${styles.line} ${styles.lineHighlight}` : styles.line;
-                  return (
-                    <div
-                      key={line.segmentIndex}
-                      ref={(el) => {
-                        if (el) lineRefs.current.set(line.segmentIndex, el);
-                        else lineRefs.current.delete(line.segmentIndex);
-                      }}
-                      className={lineClass}
-                    >
-                      <span className={styles.lineHead}>
-                        <span className={styles.time}>
-                          {detail.approximate ? '≈' : ''}
-                          {line.time}
-                        </span>
-                        <button
-                          ref={(el) => {
-                            if (el) speakerRefs.current.set(line.segmentIndex, el);
-                            else speakerRefs.current.delete(line.segmentIndex);
-                          }}
-                          className={styles.speaker}
-                          style={{ color: speakerColor(line.speakerNumber, colorCodeSpeakers) }}
-                          onClick={(e) => {
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            onSpeakerClick(line, { top: rect.bottom, left: rect.left });
-                          }}
-                        >
-                          {line.speakerLabel}:
-                        </button>
-                      </span>
-                      <span className={styles.lineText}>
-                        {line.overlap ? '[overlap] ' : ''}
-                        {parts
-                          ? parts.map((part, partIndex) =>
-                              part.hit ? (
-                                <mark
-                                  key={partIndex}
-                                  className={
-                                    currentMatch?.segmentIndex === line.segmentIndex && currentMatch.partIndex === partIndex
-                                      ? `${styles.mark} ${styles.markCurrent}`
-                                      : styles.mark
-                                  }
-                                >
-                                  {part.text}
-                                </mark>
-                              ) : (
-                                <span key={partIndex}>{part.text}</span>
-                              ),
-                            )
-                          : line.text}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className={styles.actionsRow}>
-            <ActionButton variant="strong" onClick={onCopy}>
-              Copy
-            </ActionButton>
-            <ActionButton onClick={onExport}>Export</ActionButton>
             <div className={styles.menuWrap} ref={menuWrapRef}>
               <button
                 ref={moreButtonRef}
@@ -780,6 +465,330 @@ export function MeetingDetail({
                 </div>
               )}
             </div>
+          </>
+        )}
+        <div className={styles.searchWrap}>
+          <input
+            ref={searchInputRef}
+            {...NO_AUTOCORRECT}
+            className={styles.searchInput}
+            placeholder="Search meetings"
+            aria-label="Search meetings"
+            value={searchDraft}
+            onChange={(e) => onSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                clearSearch();
+              }
+            }}
+          />
+        </div>
+      </div>
+
+      {!detail ? (
+        <div className={styles.empty}>Select a meeting to see its summary and transcript.</div>
+      ) : (
+        <div
+          className={styles.body}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+              if (isEditableTarget(e.target)) return;
+              e.preventDefault();
+              onRequestDelete();
+            }
+          }}
+        >
+          <div className={styles.bodyInner}>
+            <div className={styles.header}>
+              {renaming ? (
+                <input
+                  className={styles.titleInput}
+                  {...NO_AUTOCORRECT}
+                  value={renameText}
+                  autoFocus
+                  onChange={(e) => setRenameText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename();
+                  }}
+                  onBlur={() => setRenaming(false)}
+                />
+              ) : (
+                <div
+                  ref={titleRef}
+                  className={styles.title}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Rename meeting ${detail.title}`}
+                  onDoubleClick={() => {
+                    setRenameText(detail.title);
+                    setRenaming(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setRenameText(detail.title);
+                      setRenaming(true);
+                    }
+                  }}
+                >
+                  {detail.title}
+                </div>
+              )}
+
+              <div className={styles.metaLine}>
+                <span>{detail.date}</span>
+                <span className={styles.sep}>·</span>
+                <span>{detail.time}</span>
+                <span className={styles.sep}>·</span>
+                <span>{detail.duration}</span>
+                {(detail.event || onLinkEvent) && (
+                  <>
+                    <span className={styles.sep}>·</span>
+                    <span className={styles.eventWrap} ref={eventWrapRef}>
+                      {detail.event ? (
+                        <button
+                          ref={eventButtonRef}
+                          className={styles.eventChip}
+                          title={`Linked to ${detail.event.title}`}
+                          aria-haspopup={onLinkEvent ? 'menu' : undefined}
+                          aria-expanded={onLinkEvent ? eventMenuOpen : undefined}
+                          onClick={() => onLinkEvent && setEventMenuOpen((v) => !v)}
+                        >
+                          <span className={styles.eventIcon} aria-hidden="true">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="2.5" y="3.5" width="11" height="10" rx="2" />
+                            <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+                          </svg>
+                          </span>
+                          <span className={styles.eventTitle}>{detail.event.title}</span>
+                          <span className={styles.eventChevron} aria-hidden="true">
+                            ⌄
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          ref={eventButtonRef}
+                          className={styles.linkEventButton}
+                          aria-haspopup="menu"
+                          aria-expanded={eventMenuOpen}
+                          onClick={() => setEventMenuOpen((v) => !v)}
+                        >
+                          Link to Event…
+                        </button>
+                      )}
+                      {eventMenuOpen && onLinkEvent && (
+                        <div className={styles.eventMenu} role="menu">
+                          {detail.event && (
+                            <>
+                              <button
+                                role="menuitem"
+                                className={styles.menuItem}
+                                onClick={() => {
+                                  setEventMenuOpen(false);
+                                  onLinkEvent(null);
+                                }}
+                              >
+                                Unlink
+                              </button>
+                              <div className={styles.eventMenuDivider} role="separator" />
+                              <div className={styles.eventMenuHeader}>{detail.event.time}</div>
+                            </>
+                          )}
+                          <div
+                            className={styles.eventMenuList}
+                            ref={eventListRef}
+                            style={eventListMax ? { maxHeight: eventListMax } : undefined}
+                          >
+                            {eventChoices.map((choice) => {
+                              const current = detail.event?.key === choice.key;
+                              return (
+                                <button
+                                  key={choice.key}
+                                  role="menuitemradio"
+                                  aria-checked={current}
+                                  className={styles.menuItem}
+                                  onClick={() => {
+                                    setEventMenuOpen(false);
+                                    if (!current) onLinkEvent(choice.key);
+                                  }}
+                                >
+                                  <span className={styles.eventCheck} aria-hidden="true">
+                                    {current ? '✓' : ''}
+                                  </span>
+                                  {choice.time} · {choice.title}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <div className={styles.peopleTagsRow}>
+                <div className={styles.people} title={detail.people.join(', ')}>
+                  {detail.people.slice(0, 4).map((person) => (
+                    <span key={person} className={styles.avatar}>
+                      {initials(person)}
+                    </span>
+                  ))}
+                  {detail.people.length > 4 && (
+                    <span className={styles.avatarMore}>+{detail.people.length - 4}</span>
+                  )}
+                </div>
+                {detail.tags.length > 0 && (
+                  <div className={styles.tags}>
+                    {detail.tags.map((tag) => (
+                      <span key={tag} className={styles.tag}>
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {detail.approximate && (
+                <div
+                  className={styles.approxNote}
+                  title="Imported from an older version; times are estimated from when processing finished."
+                >
+                  ≈ approximate times
+                </div>
+              )}
+            </div>
+
+            {tab === 'summary' ? (
+              <div className={styles.summaryPane}>
+                {detail.summary ? (
+                  <>
+                    {detail.summaryQueued && (
+                      <div className={styles.queuedNote}>Queued for a new summary. Claude checks every 30 minutes while the Claude app is open.</div>
+                    )}
+                    <SummaryBlocks blocks={detail.summaryBlocks} />
+                    {detail.actionItems.length > 0 && (
+                      <>
+                        <div className={styles.actionItemsHeading}>Action items</div>
+                        <ul className={styles.actionItems}>
+                          {detail.actionItems.map((item, i) => (
+                            <li key={i}>
+                              <span className={styles.actionDot} aria-hidden="true" />
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className={styles.noSummary}>
+                    <p>{detail.summaryQueued
+                          ? 'Queued — Claude will summarise this the next time it checks (every 30 minutes while the Claude app is open).'
+                          : 'No summary yet.'}</p>
+                    <ActionButton disabled={detail.summaryQueued} onClick={onRequestSummary}>
+                      Summarise
+                    </ActionButton>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div ref={transcriptRef} className={styles.transcriptPane} tabIndex={0}>
+                {findOpen && (
+                  <div className={styles.findBar}>
+                    <input
+                      className={styles.findInput}
+                      {...NO_AUTOCORRECT}
+                      autoFocus
+                      placeholder="Find in transcript"
+                      aria-label="Find in transcript"
+                      value={findQuery}
+                      onChange={(e) => {
+                        setFindQuery(e.target.value);
+                        setFindIndex(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          goToMatch(e.shiftKey ? -1 : 1);
+                        }
+                      }}
+                    />
+                    <span className={styles.findCount}>
+                      {findMatches.length > 0 ? `${findIndex + 1} of ${findMatches.length}` : '0 of 0'}
+                    </span>
+                    <button className={styles.findNav} aria-label="Previous match" onClick={() => goToMatch(-1)}>
+                      ‹
+                    </button>
+                    <button className={styles.findNav} aria-label="Next match" onClick={() => goToMatch(1)}>
+                      ›
+                    </button>
+                    <button className={styles.findDone} onClick={closeFindBar}>
+                      Done
+                    </button>
+                  </div>
+                )}
+                <div className={styles.lines}>
+                  {detail.lines.map((line) => {
+                    const isJumpHighlight = highlightSegment === line.segmentIndex;
+                    const parts = lineParts.get(line.segmentIndex);
+                    const lineClass = isJumpHighlight ? `${styles.line} ${styles.lineHighlight}` : styles.line;
+                    return (
+                      <div
+                        key={line.segmentIndex}
+                        ref={(el) => {
+                          if (el) lineRefs.current.set(line.segmentIndex, el);
+                          else lineRefs.current.delete(line.segmentIndex);
+                        }}
+                        className={lineClass}
+                      >
+                        <span className={styles.lineHead}>
+                          <span className={styles.time}>
+                            {detail.approximate ? '≈' : ''}
+                            {line.time}
+                          </span>
+                          <button
+                            ref={(el) => {
+                              if (el) speakerRefs.current.set(line.segmentIndex, el);
+                              else speakerRefs.current.delete(line.segmentIndex);
+                            }}
+                            className={styles.speaker}
+                            style={{ color: speakerColor(line.speakerNumber, colorCodeSpeakers) }}
+                            onClick={(e) => {
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              onSpeakerClick(line, { top: rect.bottom, left: rect.left });
+                            }}
+                          >
+                            {line.speakerLabel}:
+                          </button>
+                        </span>
+                        <span className={styles.lineText}>
+                          {line.overlap ? '[overlap] ' : ''}
+                          {parts
+                            ? parts.map((part, partIndex) =>
+                                part.hit ? (
+                                  <mark
+                                    key={partIndex}
+                                    className={
+                                      currentMatch?.segmentIndex === line.segmentIndex && currentMatch.partIndex === partIndex
+                                        ? `${styles.mark} ${styles.markCurrent}`
+                                        : styles.mark
+                                    }
+                                  >
+                                    {part.text}
+                                  </mark>
+                                ) : (
+                                  <span key={partIndex}>{part.text}</span>
+                                ),
+                              )
+                            : line.text}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

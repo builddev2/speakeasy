@@ -48,7 +48,11 @@
 }
 
 .rowActive {
-  background: var(--coral-1);
+  background: var(--selection);
+}
+
+.rowActive .title {
+  font-weight: 600;
 }
 
 .rowTop {
@@ -67,17 +71,9 @@
   color: var(--text-hi);
 }
 
-.rowActive .rowTitleLine {
-  color: var(--text-hi);
-}
-
 .time {
   color: var(--text-mid);
   flex-shrink: 0;
-}
-
-.rowActive .time {
-  color: var(--on-accent);
 }
 
 .dot {
@@ -104,20 +100,12 @@
   color: var(--text-lo);
 }
 
-.rowActive .duration {
-  color: var(--on-accent);
-}
-
 .summaryDot {
   flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--coral-1);
-}
-
-.rowActive .summaryDot {
-  background: var(--text-hi);
 }
 
 .sub {
@@ -129,12 +117,8 @@
   white-space: nowrap;
 }
 
-.rowActive .sub {
-  color: var(--on-accent);
-}
-
 .row:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 

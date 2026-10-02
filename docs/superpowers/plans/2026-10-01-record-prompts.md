@@ -1880,7 +1880,7 @@ PIDs stay inside `call_detect.py` (Global Constraints). The controller only send
 - Modify: `speakeasy/call_detect.py`, `speakeasy/record_prompt.py`, `speakeasy/ui/record_prompt_controller.py`, `README.md` (Record prompts), `AGENTS.md` (call-probe thread)
 - Test: `tests/test_call_detect.py`, `tests/test_record_prompt.py`, `tests/test_record_prompt_controller.py`
 
-- [ ] **Step 1: Failing tests.**
+- [x] **Step 1: Failing tests.**
 
   `tests/test_call_detect.py` replaces `test_other_app_using_mic_ignores_speakeasy_processes` (keep that name for Review Focus 4) and adds the rest:
 
@@ -1981,9 +1981,9 @@ def test_not_now_on_a_calendar_offer_ignores_nothing(monkeypatch):
     c.shutdown()
 ```
 
-- [ ] **Step 2: Run them to verify they fail.** `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_call_detect.py tests/test_record_prompt.py tests/test_record_prompt_controller.py`
+- [x] **Step 2: Run them to verify they fail.** `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_call_detect.py tests/test_record_prompt.py tests/test_record_prompt_controller.py`
 
-- [ ] **Step 3: `speakeasy/call_detect.py`.** Replace `other_app_using_mic` with `MicWatch`. Keep `own_process_ids` unchanged. Update the module docstring's first paragraph to say an app counts only from when it starts using the mic.
+- [x] **Step 3: `speakeasy/call_detect.py`.** Replace `other_app_using_mic` with `MicWatch`. Keep `own_process_ids` unchanged. Update the module docstring's first paragraph to say an app counts only from when it starts using the mic.
 
 ```python
 class MicWatch:
@@ -2031,7 +2031,7 @@ class MicWatch:
             self.watch.ignore_current()
 ```
 
-- [ ] **Step 4: `speakeasy/record_prompt.py`.**
+- [x] **Step 4: `speakeasy/record_prompt.py`.**
   - In `__init__`, add `self._call_waved_off = False   # a call offer got Not Now or timed out`.
   - In `not_now`, and in `_expire` before `_close_offer()`, set `self._call_waved_off = True` when `self.banner.kind == "call"`.
   - Add this method:
@@ -2044,18 +2044,18 @@ class MicWatch:
         return waved
 ```
 
-- [ ] **Step 5: `speakeasy/ui/record_prompt_controller.py`.** At the start of `_render` (after `_persist()`), add:
+- [x] **Step 5: `speakeasy/ui/record_prompt_controller.py`.** At the start of `_render` (after `_persist()`), add:
 
 ```python
         if self.coordinator.take_call_waved_off():
             self.probe.ignore_current()
 ```
 
-- [ ] **Step 6: Docs.**
+- [x] **Step 6: Docs.**
   - README Record prompts, call banner: only an app that *starts* using the mic counts. Apps already using it when Speakeasy starts are ignored until they release it, as is an app whose call offer you dismissed (or that timed out). So a game launcher or voice app that keeps the mic open only asks once. A call already running when Speakeasy launches isn't offered.
   - AGENTS.md call-probe bullet: `MicWatch` keeps the ignored PIDs inside `call_detect.py`, and the controller only sends `ignore_current()`.
 
-- [ ] **Step 7: Tests, full suite (timeout 300000), commit** `Call detect: only apps that start using the mic count; waved-off calls ignored`.
+- [x] **Step 7: Tests, full suite (timeout 300000), commit** `Call detect: only apps that start using the mic count; waved-off calls ignored`.
 
 **Review mutations (Opus):**
 - baseline not taken on the first answer;
@@ -2066,7 +2066,7 @@ class MicWatch:
 - the expiry path not marking a waved-off call;
 - own PIDs not excluded.
 
-- [ ] **Step 8: Reinstall (needs the user's go-ahead) and live check.**
+- [x] **Step 8: Reinstall (needs the user's go-ahead) and live check.**
   1. Start GeForce NOW, then relaunch Speakeasy: no call banner.
   2. A synthetic or real call while GeForce NOW stays open: a banner within about 15 s.
   3. Open GeForce NOW while Speakeasy is already running: one banner. Not Now, then a synthetic call within the next minute or two: a banner.
@@ -2135,3 +2135,14 @@ Also in `f0e3c93`:
   - **Not verified live:** the call offer hiding by itself about 60 s after the call ends, because the click came first. Unit tests cover it (`test_call_offer_hides_when_the_call_ends`).
   - **Still for the user:** checks 1, 2, 4 and 6.
 - **User, 2 Oct:** toggled the call-offer setting in Meetings › Settings (persistence after relaunch not yet confirmed). Chose the follow-up "only apps that start using the mic count" → Task 6.
+
+**Task 6, 2 Oct 2026:**
+- Commits: `112cc19` onset rule, `4402fb4` recording forgives waved-off apps (two sets: launch baseline + waved; counters for requests), `e06a000` an ignore then a forgive in one poll lets the forgive win. Full suite 1004 passed.
+- Opus review: 7/7 mutations caught. It found that waved-off apps stayed ignored during a recording, so "Call ended" never fired; that was fixed. The re-review found that my fix spec had the ignore/forgive order wrong; that was fixed and pinned.
+- Reinstalled. Live checks, all passed (banner seen through CGWindowList, no clicks):
+  1. GeForce NOW holding the mic before Speakeasy launched: no banner for 45 s.
+  2. A 30 s synthetic call while GeForce NOW held the mic, at 14:01 with no meeting in progress: the banner appeared at **13.3 s** and hid itself **65.5 s** after the call ended. This also confirms the call-offer auto-hide live.
+  3. GeForce NOW force-quit (it ignores a normal quit) and reopened while Speakeasy was running: one banner, **63 s** after opening (GeForce takes that long to take the mic). It timed out after **303 s**. No banner for the next 70 s. A synthetic call then got a banner at **16.3 s**, which hid **63.5 s** after the call ended.
+- First attempt at 13:07: no banner. That was correct, not a bug: both meetings in progress (12–2 pm and 1–2 pm) were already marked offered, and a call linked to an offered meeting is not offered again.
+- Loose end: a stale ignore request is applied after a probe pause (detection off, or not ready), so it may ignore a new call. An ignored app that takes the mic again during a pause stays ignored.
+- Loose end: README.md:353 is an unwrapped long line.

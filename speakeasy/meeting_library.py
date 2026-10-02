@@ -18,6 +18,8 @@ from pathlib import Path
 
 from . import meeting_store
 from .meetings import MeetingSegment, _ID_RE, filter_capture_health
+from .tag_names import (MAX_DESCRIPTION_CHARS, MAX_NEW_TAGS_PER_SAVE,
+                        MAX_TAGS_PER_MEETING, clean_tag_name, clean_tag_names, tag_slug)
 
 _MAX_PAGE_CHARS = 60_000
 _MIN_PAGE_CHARS = 1_000
@@ -89,21 +91,6 @@ def _check_id(meeting_id: str) -> None:
         raise ValueError(f"Invalid meeting id: {meeting_id!r}")
 
 
-def _normalise_tags(tags) -> list[str]:
-    seen, result = set(), []
-    for raw in tags:
-        name = " ".join(str(raw).split())
-        if not name or name.lower() in seen:
-            continue
-        if len(name) > 40:
-            raise ValueError("Tags are at most 40 characters.")
-        seen.add(name.lower())
-        result.append(name)
-    if len(result) > 20:
-        raise ValueError("At most 20 tags per meeting.")
-    return result
-
-
 @dataclass(frozen=True)
 class EventPerson:
     name: str
@@ -151,6 +138,9 @@ class Notes:
     action_items: list[str]
     updated_at: str
     updated_by: str
+    # Filled only on the Notes that save_notes returns: what its tags did.
+    created_tags: list[str] = field(default_factory=list)
+    suppressed_tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -246,6 +236,21 @@ class CalendarEvent:
     people: list[EventPerson] = field(default_factory=list)
 
 
+@dataclass
+class TagInfo:
+    name: str
+    description: str
+    aliases: list[str]   # other spellings that resolve to this tag
+    count: int           # meetings using it
+
+
+@dataclass
+class TagUpdate:
+    meetings: list[tuple[str, list[str]]]  # (meeting id, its tags afterwards)
+    created_tags: list[str]
+    not_found: list[str]                   # remove names that matched no tag
+
+
 def _plain(snippet: str) -> str:
     return snippet.replace(HIT_OPEN, "").replace(HIT_CLOSE, "").lower()
 
@@ -298,11 +303,14 @@ def meeting_filters(from_date=None, to_date=None, tag=None, person=None, title=N
         clauses.append("m.started_at < ?")
         params.append(upper)
     if tag:
+        # Any spelling of the tag, or an alias left by a rename/merge.
+        slug = tag_slug(tag)
         clauses.append(
             "EXISTS (SELECT 1 FROM meeting_tags mt JOIN tags t ON t.id = mt.tag_id"
-            " WHERE mt.meeting_id = m.id AND t.name = ?)"
+            " WHERE mt.meeting_id = m.id AND (t.slug = ? OR t.id IN"
+            " (SELECT tag_id FROM tag_aliases WHERE slug = ?)))"
         )
-        params.append(tag.strip())
+        params += [slug, slug]
     if person:
         clauses.append(
             "EXISTS (SELECT 1 FROM meeting_people mp JOIN people p"
@@ -482,11 +490,10 @@ class MeetingLibrary:
         with self._transaction() as conn:
             if conn.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,)).rowcount == 0:
                 raise MeetingNotFound(meeting_id)
-            # Orphaned tags would linger in list_tags(); people stay (shared
+            # Orphaned tags would linger in list_tags() (unless they still
+            # carry a description, alias or suppression); people stay (shared
             # with calendar events).
-            conn.execute(
-                "DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM meeting_tags)"
-            )
+            self._drop_orphan_tags(conn)
 
     # -- reads ------------------------------------------------------------
 
@@ -643,9 +650,13 @@ class MeetingLibrary:
             if len(action_items) > 50 or any(len(a) > 500 for a in action_items):
                 raise ValueError("At most 50 action items of 500 characters each.")
         if tags is not None:
-            tags = _normalise_tags(tags)
+            tags = clean_tag_names(tags)
+            if len(tags) > MAX_TAGS_PER_MEETING:
+                raise ValueError(f"At most {MAX_TAGS_PER_MEETING} tags per meeting.")
         with self._transaction() as conn:
             self._touch(conn, meeting_id)
+            created, suppressed = ([], []) if tags is None else \
+                self._set_claude_tags(conn, meeting_id, tags)
             current = self._notes(conn, meeting_id) or Notes("", [], "", updated_by)
             summary = current.summary if summary is None else summary
             action_items = current.action_items if action_items is None else action_items
@@ -662,16 +673,48 @@ class MeetingLibrary:
                 (meeting_id, summary, json.dumps(action_items),
                  "\n".join(action_items), now, updated_by),
             )
-            if tags is not None:
-                conn.execute("DELETE FROM meeting_tags WHERE meeting_id = ?", (meeting_id,))
-                for name in tags:
-                    conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
-                    conn.execute(
-                        "INSERT INTO meeting_tags (meeting_id, tag_id)"
-                        " SELECT ?, id FROM tags WHERE name = ?", (meeting_id, name))
-                conn.execute(
-                    "DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM meeting_tags)")
-            return self._notes(conn, meeting_id)
+            notes = self._notes(conn, meeting_id)
+            notes.created_tags, notes.suppressed_tags = created, suppressed
+            return notes
+
+    def _set_claude_tags(self, conn, meeting_id, names) -> tuple[list[str], list[str]]:
+        """Make `names` this meeting's Claude-suggested tags. User tags are
+        never removed (and a requested user tag stays 'user'); tags the
+        user removed here are skipped; at most MAX_NEW_TAGS_PER_SAVE tags
+        are created. The new-tag cap raises before any write; the 20-per-meeting
+        limit raises after the writes and relies on the caller's transaction
+        rolling back.
+        Returns (created names, suppressed names)."""
+        found, new = [], []
+        for name in names:
+            tag_id = self._find_tag(conn, name)
+            if tag_id is None:
+                new.append(name)
+            elif tag_id not in found:
+                found.append(tag_id)
+        if len(new) > MAX_NEW_TAGS_PER_SAVE:
+            raise ValueError(
+                f"Would create {len(new)} new tags ({', '.join(new)}); at most "
+                f"{MAX_NEW_TAGS_PER_SAVE} per call. Reuse tags from list_tags or drop some.")
+        blocked = {r[0] for r in conn.execute(
+            "SELECT tag_id FROM tag_suppressions WHERE meeting_id = ?", (meeting_id,))}
+        suppressed = [self._tag_name(conn, t) for t in found if t in blocked]
+        wanted = [t for t in found if t not in blocked]
+        wanted += [self._create_tag(conn, name) for name in new]
+        keep = f" AND tag_id NOT IN ({','.join('?' * len(wanted))})" if wanted else ""
+        conn.execute(
+            f"DELETE FROM meeting_tags WHERE meeting_id = ? AND source = 'claude'{keep}",
+            (meeting_id, *wanted))
+        now = _now_iso()
+        for tag_id in wanted:
+            # OR IGNORE: an existing link keeps its source and added_at.
+            conn.execute(
+                "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_id, source, added_at)"
+                " VALUES (?, ?, 'claude', ?)", (meeting_id, tag_id, now))
+        if self._tag_count(conn, meeting_id) > MAX_TAGS_PER_MEETING:
+            raise ValueError(f"At most {MAX_TAGS_PER_MEETING} tags per meeting.")
+        self._drop_orphan_tags(conn)
+        return new, suppressed
 
     def _person_id(self, conn, name: str, email: str | None) -> int:
         # Controller ruling: normalise the email once, here, and use the
@@ -717,6 +760,208 @@ class MeetingLibrary:
                 "SELECT t.name, COUNT(*) FROM tags t JOIN meeting_tags mt"
                 " ON mt.tag_id = t.id GROUP BY t.id"
                 " ORDER BY COUNT(*) DESC, t.name COLLATE NOCASE")]
+
+    # -- tags -----------------------------------------------------------------
+
+    @staticmethod
+    def _find_tag(conn, name) -> int | None:
+        """The tag a name means: by slug, then by alias. Never creates."""
+        slug = tag_slug(name)
+        row = conn.execute("SELECT id FROM tags WHERE slug = ?", (slug,)).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT tag_id FROM tag_aliases WHERE slug = ?", (slug,)).fetchone()
+        return row[0] if row else None
+
+    @staticmethod
+    def _create_tag(conn, name) -> int:
+        return conn.execute(
+            "INSERT INTO tags (name, slug, created_at) VALUES (?, ?, ?)",
+            (name, tag_slug(name), _now_iso())).lastrowid
+
+    def _require_tag(self, conn, name) -> int:
+        tag_id = self._find_tag(conn, clean_tag_name(name))
+        if tag_id is None:
+            raise ValueError(f"No tag named {name!r}.")
+        return tag_id
+
+    @staticmethod
+    def _tag_name(conn, tag_id) -> str:
+        return conn.execute("SELECT name FROM tags WHERE id = ?", (tag_id,)).fetchone()[0]
+
+    @staticmethod
+    def _tag_count(conn, meeting_id) -> int:
+        return conn.execute(
+            "SELECT COUNT(*) FROM meeting_tags WHERE meeting_id = ?", (meeting_id,)).fetchone()[0]
+
+    @staticmethod
+    def _tag_info(conn, tag_id) -> TagInfo:
+        name, description = conn.execute(
+            "SELECT name, description FROM tags WHERE id = ?", (tag_id,)).fetchone()
+        aliases = [r[0] for r in conn.execute(
+            "SELECT name FROM tag_aliases WHERE tag_id = ? ORDER BY name COLLATE NOCASE",
+            (tag_id,))]
+        count = conn.execute(
+            "SELECT COUNT(*) FROM meeting_tags WHERE tag_id = ?", (tag_id,)).fetchone()[0]
+        return TagInfo(name, description, aliases, count)
+
+    @staticmethod
+    def _drop_orphan_tags(conn) -> None:
+        # A tag no meeting uses is clutter, unless it still means something:
+        # a description, an alias, or a user's "not this tag on this meeting"
+        # (deleting the tag would cascade that suppression away).
+        conn.execute(
+            "DELETE FROM tags WHERE description = ''"
+            " AND id NOT IN (SELECT tag_id FROM meeting_tags)"
+            " AND id NOT IN (SELECT tag_id FROM tag_aliases)"
+            " AND id NOT IN (SELECT tag_id FROM tag_suppressions)")
+
+    def tag_catalog(self) -> list[TagInfo]:
+        """Tags in use, most used first, with descriptions and aliases."""
+        with self._transaction() as conn:
+            ids = [r[0] for r in conn.execute(
+                "SELECT t.id FROM tags t JOIN meeting_tags mt ON mt.tag_id = t.id"
+                " GROUP BY t.id ORDER BY COUNT(*) DESC, t.name COLLATE NOCASE")]
+            return [self._tag_info(conn, tag_id) for tag_id in ids]
+
+    def meeting_tag_details(self, meeting_id: str) -> list[tuple[str, str]]:
+        """[(tag name, 'user' | 'claude')] for one meeting."""
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+                raise MeetingNotFound(meeting_id)
+            return [(r[0], r[1]) for r in conn.execute(
+                "SELECT t.name, mt.source FROM meeting_tags mt JOIN tags t ON t.id = mt.tag_id"
+                " WHERE mt.meeting_id = ? ORDER BY t.name COLLATE NOCASE", (meeting_id,))]
+
+    def tag_meetings(self, meeting_ids, *, add=(), remove=()) -> TagUpdate:
+        """The user's explicit tagging. Added tags become source 'user'
+        (kept when Claude re-saves notes); removed tags are unlinked and
+        suppressed so save_notes will not add them back. Everything is
+        checked before the first write; one transaction for all meetings."""
+        ids = list(dict.fromkeys(str(i) for i in meeting_ids))
+        if not 1 <= len(ids) <= 100:
+            raise ValueError("Give between 1 and 100 meeting ids.")
+        for meeting_id in ids:
+            _check_id(meeting_id)
+        add_names, remove_names = clean_tag_names(add), clean_tag_names(remove)
+        if not add_names and not remove_names:
+            raise ValueError("Give at least one tag to add or remove.")
+        with self._transaction() as conn:
+            missing = [i for i in ids if conn.execute(
+                "SELECT 1 FROM meetings WHERE id = ?", (i,)).fetchone() is None]
+            if missing:
+                raise ValueError(f"No meeting with id {', '.join(missing)}.")
+            add_ids, created = [], []
+            for name in add_names:
+                tag_id = self._find_tag(conn, name)
+                if tag_id is None:
+                    tag_id = self._create_tag(conn, name)
+                    created.append(name)
+                if tag_id not in add_ids:
+                    add_ids.append(tag_id)
+            remove_ids, not_found = [], []
+            for name in remove_names:
+                tag_id = self._find_tag(conn, name)
+                if tag_id is None:
+                    not_found.append(name)
+                elif tag_id not in remove_ids:
+                    remove_ids.append(tag_id)
+            both = sorted(self._tag_name(conn, t) for t in set(add_ids) & set(remove_ids))
+            if both:
+                raise ValueError(f"{', '.join(both)} is in both add and remove.")
+            now = _now_iso()
+            for meeting_id in ids:
+                self._touch(conn, meeting_id)
+                for tag_id in add_ids:
+                    conn.execute(
+                        "INSERT INTO meeting_tags (meeting_id, tag_id, source, added_at)"
+                        " VALUES (?, ?, 'user', ?) ON CONFLICT(meeting_id, tag_id)"
+                        " DO UPDATE SET source = 'user'", (meeting_id, tag_id, now))
+                    conn.execute(
+                        "DELETE FROM tag_suppressions WHERE meeting_id = ? AND tag_id = ?",
+                        (meeting_id, tag_id))
+                for tag_id in remove_ids:
+                    conn.execute(
+                        "DELETE FROM meeting_tags WHERE meeting_id = ? AND tag_id = ?",
+                        (meeting_id, tag_id))
+                    conn.execute(
+                        "INSERT OR IGNORE INTO tag_suppressions (meeting_id, tag_id, created_at)"
+                        " VALUES (?, ?, ?)", (meeting_id, tag_id, now))
+                if self._tag_count(conn, meeting_id) > MAX_TAGS_PER_MEETING:
+                    raise ValueError(f"At most {MAX_TAGS_PER_MEETING} tags per meeting.")
+            self._drop_orphan_tags(conn)
+            return TagUpdate([(i, self._tags(conn, i)) for i in ids], created, not_found)
+
+    def rename_tag(self, tag: str, name: str) -> TagInfo:
+        """Change a tag's display name everywhere; the old spelling stays
+        as an alias so it keeps resolving. Refuses a name another tag (or
+        another tag's alias) already has: that is a merge."""
+        new = clean_tag_name(name)
+        slug = tag_slug(new)
+        with self._transaction() as conn:
+            tag_id = self._require_tag(conn, tag)
+            owner = self._find_tag(conn, new)
+            if owner is not None and owner != tag_id:
+                raise ValueError(f"A tag named {new!r} already exists; use merge.")
+            old_name, old_slug = conn.execute(
+                "SELECT name, slug FROM tags WHERE id = ?", (tag_id,)).fetchone()
+            # Renaming back to one of its own aliases: the alias becomes the name.
+            conn.execute("DELETE FROM tag_aliases WHERE slug = ?", (slug,))
+            conn.execute("UPDATE tags SET name = ?, slug = ? WHERE id = ?", (new, slug, tag_id))
+            if slug != old_slug:
+                conn.execute("INSERT INTO tag_aliases (slug, name, tag_id) VALUES (?, ?, ?)",
+                             (old_slug, old_name, tag_id))
+            return self._tag_info(conn, tag_id)
+
+    def merge_tags(self, tag: str, into: str) -> TagInfo:
+        """Fold `tag` into `into`: links (a 'user' link wins), suppressions
+        and aliases move; the merged name becomes an alias of the target."""
+        with self._transaction() as conn:
+            source, target = self._require_tag(conn, tag), self._require_tag(conn, into)
+            if source == target:
+                raise ValueError("A tag cannot be merged into itself.")
+            conn.execute(
+                "UPDATE meeting_tags SET source = 'user' WHERE tag_id = ? AND meeting_id IN"
+                " (SELECT meeting_id FROM meeting_tags WHERE tag_id = ? AND source = 'user')",
+                (target, source))
+            conn.execute(
+                "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_id, source, added_at)"
+                " SELECT meeting_id, ?, source, added_at FROM meeting_tags WHERE tag_id = ?",
+                (target, source))
+            conn.execute(
+                "INSERT OR IGNORE INTO tag_suppressions (meeting_id, tag_id, created_at)"
+                " SELECT meeting_id, ?, created_at FROM tag_suppressions WHERE tag_id = ?",
+                (target, source))
+            # Where the merged tag is on a meeting, the link beats a suppression.
+            conn.execute(
+                "DELETE FROM tag_suppressions WHERE tag_id = ? AND meeting_id IN"
+                " (SELECT meeting_id FROM meeting_tags WHERE tag_id = ?)", (target, target))
+            conn.execute("UPDATE tag_aliases SET tag_id = ? WHERE tag_id = ?", (target, source))
+            name, slug = conn.execute(
+                "SELECT name, slug FROM tags WHERE id = ?", (source,)).fetchone()
+            conn.execute("DELETE FROM tags WHERE id = ?", (source,))  # cascades its links
+            conn.execute("INSERT INTO tag_aliases (slug, name, tag_id) VALUES (?, ?, ?)",
+                         (slug, name, target))
+            return self._tag_info(conn, target)
+
+    def delete_tag(self, tag: str) -> str:
+        """Remove a tag from every meeting, with its aliases and
+        suppressions (all cascade). Returns the deleted display name."""
+        with self._transaction() as conn:
+            tag_id = self._require_tag(conn, tag)
+            name = self._tag_name(conn, tag_id)
+            conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+            return name
+
+    def describe_tag(self, tag: str, description: str) -> TagInfo:
+        text = " ".join(str(description).split())
+        if len(text) > MAX_DESCRIPTION_CHARS:
+            raise ValueError(f"Tag descriptions are at most {MAX_DESCRIPTION_CHARS} characters.")
+        with self._transaction() as conn:
+            tag_id = self._require_tag(conn, tag)
+            conn.execute("UPDATE tags SET description = ? WHERE id = ?", (text, tag_id))
+            return self._tag_info(conn, tag_id)
 
     # -- search -------------------------------------------------------------
 

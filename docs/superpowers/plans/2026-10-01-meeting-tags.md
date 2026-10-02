@@ -1400,7 +1400,37 @@ Confirm the real path with `settings.library_path()` first. Copy the `-wal` file
 
 ## Progress
 
-- [ ] Task 1 · [ ] Task 2 · [ ] Task 3 · [ ] Task 4 · [ ] Task 5 · [ ] Task 6 · [ ] Task 7
+- [x] Task 1 · [x] Task 2 · [x] Task 3 · [x] Task 4 · [x] Task 5 · [x] Task 6 · [x] Task 7 (live check passed; Meetings sidebar not looked at)
+
+**Live check (Step 5), 1 Oct 2026:** after the user re-enabled the connector, MCP `list_tags` returned all 8 real tags in the v3 shape (count 1, empty description, no aliases). `list_meetings(tag="Project Black")` found the project-black meeting (f167), so variant spelling works on real data. Not done: looking at the Meetings sidebar in the app.
+
+**Executed 1 October 2026** on branch `worktree-meeting-tags` (527fa6c..f12ab32), subagent-driven. Each task got an opus review that checked by mutation. The whole-branch review triggered one fix wave:
+- The calendar tests asserted schema 2.
+- The v3 fallback slug `tag<id>` could collide with a real tag's slug and merge it away. Pass 2 now assigns `tag<id>`, `tag<id>v2`, …, never merging.
+- A failed v3 migration now has a test showing it leaves the file at v2, and `connect()` closes its connection when `migrate()` raises.
+- Two vacuous tests were tightened and one docstring corrected.
+
+Task 7 Step 2: all 6 listed mutations were caught. Full suite: **895 passed**.
+
+**Tested vs looked at:**
+- **Done:**
+  - **Backup:** the real library (100 meetings, 8 tags) was backed up with the SQLite backup API to `library.v2-backup-2026-10-01.sqlite`. Integrity ok.
+  - **Dry run:** a scratch copy migrated cleanly to v3, keeping all 8 tags with no slug collisions.
+  - **Install:** `build_app.sh --install` succeeded.
+  - **Installed server:** checked with `--mcp` against a temp HOME. It lists the 10 tools and creates a v3 library.
+- **Not yet done:**
+  - Looking at the Meetings sidebar in the running app.
+  - The live connector `list_tags` call, which waits on the user turning the connector back on.
+  - The real library stays at v2 until the Meetings window or the MCP server first opens it.
+
+**Plan drift:** the real library now has 8 tags (project-black, tagstar, asset-capture, computer-vision, drones, mvp-scoping, cost-data, voc), not `test`. Step 5 should therefore expect those 8 tags, each with count 1, an empty description and no aliases.
+
+**Parked (not fixed):**
+- Legacy empty-slug tags (e.g. "!!!") show in the sidebar but can't be reached by their visible name, only by `tag<id>`. No such tag exists in the real library.
+- Minor test-precision items:
+  - `test_meeting_tags.py:76` still uses a `list_tags()==[]` check.
+  - Some wrong-shape cases have no `match=`.
+  - The rename-collision test should be split.
 
 ## Phase 2 (not this plan)
 

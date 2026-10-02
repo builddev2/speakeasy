@@ -223,6 +223,8 @@ def build_tools(library) -> dict[str, Tool]:
             "duration_minutes": _minutes(m.duration_seconds),
             "speakers": m.speakers,
             "segment_count": m.segment_count, "people": m.people, "tags": m.tags,
+            "tags_detail": [{"name": n, "source": src}
+                            for n, src in library.meeting_tag_details(m.meeting_id)],
             "calendar_event": _event(event) if event else None, "notes": notes,
             "timestamps_approximate": m.timestamps_approximate, "source": m.source,
         }
@@ -263,7 +265,8 @@ def build_tools(library) -> dict[str, Tool]:
         return {"events": [_event(e) for e in library.calendar_events_between(start, end)]}
 
     def list_tags(args):
-        return {"tags": [{"name": n, "count": c} for n, c in library.list_tags()]}
+        return {"tags": [{"name": t.name, "count": t.count, "description": t.description,
+                          "aliases": t.aliases} for t in library.tag_catalog()]}
 
     def list_people(args):
         return {"people": [{"name": n, "count": c}
@@ -282,7 +285,38 @@ def build_tools(library) -> dict[str, Tool]:
         return {"id": meeting_id, "summary": notes.summary,
                 "action_items": notes.action_items,
                 "tags": library.meeting_tags(meeting_id),
+                "created_tags": notes.created_tags, "suppressed": notes.suppressed_tags,
                 "updated_at": notes.updated_at, "updated_by": notes.updated_by}
+
+    def tag_meetings(args):
+        ids = _str_list(args, "ids")
+        if not ids:
+            raise ToolError("ids must list at least one meeting id.")
+        add, remove = _str_list(args, "add") or [], _str_list(args, "remove") or []
+        if not add and not remove:
+            raise ToolError("Give tags to add and/or remove.")
+        update = library.tag_meetings(ids, add=add, remove=remove)
+        return {"meetings": [{"id": i, "tags": t} for i, t in update.meetings],
+                "created_tags": update.created_tags, "not_found": update.not_found}
+
+    def manage_tags(args):
+        action = _text(args, "action", required=True, max_len=20)
+        tag = _text(args, "tag", required=True)
+        if action == "rename":
+            info = library.rename_tag(tag, _text(args, "name", required=True))
+        elif action == "merge":
+            info = library.merge_tags(tag, _text(args, "into", required=True))
+        elif action == "describe":
+            description = args.get("description")
+            if not isinstance(description, str):
+                raise ToolError("describe needs description (text; empty clears it).")
+            info = library.describe_tag(tag, description)
+        elif action == "delete":
+            return {"deleted": library.delete_tag(tag)}
+        else:
+            raise ToolError("action must be rename, merge, delete or describe.")
+        return {"name": info.name, "description": info.description,
+                "aliases": info.aliases, "count": info.count}
 
     specs = [
         ("list_meetings",
@@ -318,18 +352,45 @@ def build_tools(library) -> dict[str, Tool]:
          "Calendar events (from the Mac's Calendar app, cached by Speakeasy) between "
          "two local days, with the ids of meetings recorded for them.",
          {"from": _FILTERS["from"], "to": _FILTERS["to"]}, ["from", "to"], get_calendar, True),
-        ("list_tags", "All meeting tags with how many meetings use each.",
+        ("list_tags",
+         "All meeting tags with how many meetings use each, plus each tag's "
+         "description and aliases (other spellings that resolve to it).",
          {}, [], list_tags, True),
         ("list_people", "People linked to meetings, with meeting counts.",
          {"query": {"type": "string", "description": "Part of a name or email."}},
          [], list_people, True),
         ("save_notes",
          "Save a meeting's summary, action items and/or tags. Only the fields you "
-         "give are replaced; tags replace the meeting's whole tag list.",
+         "give are replaced. Tags are your own suggestions: call list_tags first and "
+         "reuse existing tags (any spelling of a tag or its aliases matches it); "
+         "create a new tag only for a genuinely new topic, at most 3 per call. "
+         "Replacing tags never removes tags the user added, and tags the user "
+         "removed from this meeting are skipped.",
          {**_ID, "summary": {"type": "string", "maxLength": 20000},
           "action_items": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
           "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 20}},
          ["id"], save_notes, False),
+        ("tag_meetings",
+         "Add or remove tags on one or more meetings because the user asked you to. "
+         "These tags are kept when notes are saved again, and tags removed here "
+         "won't be re-added by save_notes.",
+         {"ids": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                  "maxItems": 100,
+                  "description": "Meeting ids from list_meetings or search_meetings."},
+          "add": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+          "remove": {"type": "array", "items": {"type": "string"}, "maxItems": 20}},
+         ["ids"], tag_meetings, False),
+        ("manage_tags",
+         "Rename, merge, delete or describe a tag across all meetings, when the user "
+         "asks to tidy their tags. Renaming or merging keeps the old name as an alias, "
+         "so it still finds the tag.",
+         {"action": {"type": "string", "enum": ["rename", "merge", "delete", "describe"]},
+          "tag": {"type": "string", "description": "The tag to change (any spelling or alias)."},
+          "name": {"type": "string", "description": "rename: the new name."},
+          "into": {"type": "string", "description": "merge: the tag to merge into."},
+          "description": {"type": "string", "maxLength": 200,
+                          "description": "describe: what the tag is for; empty clears it."}},
+         ["action", "tag"], manage_tags, False),
     ]
     return {
         name: Tool(name, description,

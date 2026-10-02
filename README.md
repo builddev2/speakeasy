@@ -367,11 +367,16 @@ What Claude can do:
 - `search_meetings` — full-text search of transcripts and notes, with snippets.
 - `get_transcript` — a transcript in pages, optionally limited to a time range.
 - `get_calendar` — cached calendar events between two days, linked to meetings.
-- `list_tags` — every tag with its meeting count.
+- `list_tags` — every tag with its meeting count, description and aliases.
 - `list_people` — people linked to meetings, with counts.
-- `save_notes` — the only tool that writes: replaces just the summary, action
-  items and/or tags you give it, and records that Claude made the change. The
-  Meetings window notices within about 10 seconds.
+- `save_notes` — the summary, action items and/or Claude's suggested tags;
+  replaces only the fields given, never removes tags you added, and records
+  that Claude made the change. The Meetings window notices within about 10
+  seconds.
+- `tag_meetings` — add or remove tags on meetings when you ask; your tags are
+  kept, and ones you remove are not re-added.
+- `manage_tags` — rename, merge, delete or describe a tag everywhere; old names
+  stay as aliases.
 
 Claude never sees capture health, device names or audio. The sheet also shows
 when Claude last used the library.

@@ -25,8 +25,9 @@ import time
 from pathlib import Path
 
 from . import settings
+from .tag_names import tag_slug
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -168,6 +169,81 @@ PRAGMA user_version = 2;
 COMMIT;
 """
 
+# v3: canonical tag slugs, aliases, per-link provenance and suppressions.
+# Python rather than a script: the backfill needs tag_slug() and merges tags
+# whose names collide on slug. It takes the write lock first and only then
+# checks whether another connection already applied it (slug column
+# present), so concurrent first opens and the slower-v1 version reset
+# (see below) both converge without a duplicate-column error.
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(tags)")}
+        if "slug" not in columns:
+            conn.execute("ALTER TABLE tags ADD COLUMN slug TEXT")
+            conn.execute("ALTER TABLE tags ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE tags ADD COLUMN created_at TEXT")
+            conn.execute(
+                "ALTER TABLE meeting_tags ADD COLUMN source TEXT NOT NULL"
+                " DEFAULT 'claude' CHECK (source IN ('user', 'claude'))")
+            conn.execute("ALTER TABLE meeting_tags ADD COLUMN added_at TEXT")
+            conn.execute(
+                "CREATE TABLE tag_aliases ("
+                " slug TEXT PRIMARY KEY,"
+                " name TEXT NOT NULL,"
+                " tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE)")
+            conn.execute(
+                "CREATE TABLE tag_suppressions ("
+                " meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,"
+                " tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,"
+                " created_at TEXT NOT NULL,"
+                " PRIMARY KEY (meeting_id, tag_id))")
+            _backfill_tag_slugs(conn)
+            conn.execute("CREATE UNIQUE INDEX tags_slug ON tags(slug)")
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _backfill_tag_slugs(conn: sqlite3.Connection) -> None:
+    """Give every tag its slug. Pass 1: tags with a real slug; those sharing
+    one fold into the tag with the most meetings (ties: lowest id). Pass 2:
+    tags whose name has no letter or digit get `tag<id>` (or `tag<id>v2`,
+    `v3`, ... if that slug is taken); they are never merged with anything.
+    Indexed access, not names: migrate() may run on a plain connection
+    without the Row factory, and with foreign keys off, so links are
+    deleted explicitly."""
+    survivors = {}
+    empty = []
+    rows = conn.execute(
+        "SELECT t.id, t.name, (SELECT COUNT(*) FROM meeting_tags mt"
+        " WHERE mt.tag_id = t.id) AS n FROM tags t ORDER BY n DESC, t.id").fetchall()
+    for tag_id, name, _ in rows:
+        slug = tag_slug(name)
+        if not slug:
+            empty.append(tag_id)
+            continue
+        survivor = survivors.setdefault(slug, tag_id)
+        if survivor == tag_id:
+            conn.execute("UPDATE tags SET slug = ? WHERE id = ?", (slug, tag_id))
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_id)"
+            " SELECT meeting_id, ? FROM meeting_tags WHERE tag_id = ?", (survivor, tag_id))
+        conn.execute("DELETE FROM meeting_tags WHERE tag_id = ?", (tag_id,))
+        conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+    taken = set(survivors)
+    for tag_id in sorted(empty):
+        slug, n = f"tag{tag_id}", 1
+        while slug in taken:
+            n += 1
+            slug = f"tag{tag_id}v{n}"
+        taken.add(slug)
+        conn.execute("UPDATE tags SET slug = ? WHERE id = ?", (slug, tag_id))
+
+
 # (target version, script). Append; never edit a shipped entry. migrate()
 # reads the starting version before it takes the write lock, so two fresh
 # connections can both start from 0 and both run v1 (idempotent: IF NOT
@@ -175,7 +251,10 @@ COMMIT;
 # ALTER fails with "duplicate column name" and migrate() repairs the version
 # itself (see below). A later non-idempotent migration needs the same
 # treatment: detect "already applied" from the error and set the version.
-_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2)]
+# An entry may be a callable taking the connection, for a migration that needs
+# Python (v3); it must take the write lock itself and detect 'already applied'
+# inside it.
+_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05
@@ -197,9 +276,13 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     # SQLite's lower()/LIKE fold ASCII only; title filters need "Ë" == "ë".
     conn.create_function("casefold", 1, _casefold, deterministic=True)
     conn.execute("PRAGMA busy_timeout = 5000")
-    _set_wal_mode(conn)
-    conn.execute("PRAGMA foreign_keys = ON")
-    migrate(conn)
+    try:
+        _set_wal_mode(conn)
+        conn.execute("PRAGMA foreign_keys = ON")
+        migrate(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
@@ -237,6 +320,10 @@ def migrate(conn: sqlite3.Connection) -> None:
         )
     for target, script in _MIGRATIONS:
         if version < target:
+            if callable(script):
+                script(conn)
+                version = target
+                continue
             try:
                 conn.executescript(script)
             except sqlite3.OperationalError as exc:

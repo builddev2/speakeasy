@@ -13,7 +13,19 @@
 
 ## Execution roles (user requirement)
 
-- Opus plans and reviews; Sonnet implements. Reviewers verify by **mutation**: break the code, confirm a test fails, restore.
+- **Models are fixed per role. Set `model` explicitly on every Agent dispatch; never rely on the default, which inherits the controller's model.**
+
+  | Role | Model | Agent `model` value | Covers |
+  |---|---|---|---|
+  | Implementer (writes code and tests) | Sonnet 5.5 (`claude-sonnet-5-5`) | `"sonnet"` | Every task's Steps, including fixes after a review |
+  | Task reviewer / eval | Opus 5.5 (`claude-opus-5-5`) | `"opus"` | Spec compliance and code-quality review after each task, mutation checks, the visual and overflow checks |
+  | Final whole-branch review | Opus 5.5 | `"opus"` | One review of the complete branch before merge |
+  | Controller (dispatches, merges, updates this plan) | The session model (Opus) | — | Does not write feature code itself |
+
+- Implementer briefs carry the exact values from this plan (sizes, colours, copy strings, test code) and the instruction to give long Bash calls `timeout: 600000`.
+- Reviewers verify by **mutation**: break the code, confirm a test fails, restore. A review that ran no mutation is not a pass.
+- If a Sonnet implementer is stuck after two attempts on the same step, the controller re-dispatches with a sharper brief on Sonnet; it does not switch the implementer to Opus without asking the user.
+- Record the model used for each implementer and reviewer dispatch in Execution notes (one line per task).
 - Mutation runs use `.venv/bin/python -B -m pytest` after clearing `__pycache__` (memory: mutation-review gotchas).
 - Never run the app on real App Support data from a subagent; use a temp `HOME` (conftest already isolates pytest).
 

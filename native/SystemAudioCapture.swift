@@ -191,7 +191,7 @@ private func audioProcessObject(for processID: pid_t) throws -> AudioObjectID {
     return objectID
 }
 
-private func eligibleAudioProcessIDs() throws -> [pid_t] {
+private func audioProcessObjects() throws -> [AudioObjectID] {
     var address = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyProcessObjectList,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -220,19 +220,42 @@ private func eligibleAudioProcessIDs() throws -> [pid_t] {
         )
     }
     try check(status, "process_list")
-    return objects.compactMap { objectID in
-        var pidAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyPID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var processID: pid_t = 0
-        var pidSize = UInt32(MemoryLayout<pid_t>.size)
-        let pidStatus = AudioObjectGetPropertyData(
-            objectID, &pidAddress, 0, nil, &pidSize, &processID
-        )
-        return pidStatus == noErr && processID > 0 ? processID : nil
-    }
+    return objects
+}
+
+private func processID(_ objectID: AudioObjectID) -> pid_t? {
+    var pidAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioProcessPropertyPID,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var processID: pid_t = 0
+    var pidSize = UInt32(MemoryLayout<pid_t>.size)
+    let pidStatus = AudioObjectGetPropertyData(
+        objectID, &pidAddress, 0, nil, &pidSize, &processID
+    )
+    return pidStatus == noErr && processID > 0 ? processID : nil
+}
+
+// True while the process has Core Audio input running (the mic is in use).
+private func isRunningInput(_ objectID: AudioObjectID) -> Bool {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioProcessPropertyIsRunningInput,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var running: UInt32 = 0
+    var size = UInt32(MemoryLayout<UInt32>.size)
+    return AudioObjectGetPropertyData(objectID, &address, 0, nil, &size, &running) == noErr
+        && running != 0
+}
+
+private func eligibleAudioProcessIDs() throws -> [pid_t] {
+    try audioProcessObjects().compactMap(processID)
+}
+
+private func inputProcessIDs() throws -> [pid_t] {
+    try audioProcessObjects().filter(isRunningInput).compactMap(processID)
 }
 
 @available(macOS 14.2, *)
@@ -585,6 +608,16 @@ private struct SystemAudioCaptureMain {
                 exit(0)
             } catch {
                 emit(["event": "error", "reason": "process_list_failed"])
+                exit(5)
+            }
+        }
+        if CommandLine.arguments.count == 2,
+           CommandLine.arguments[1] == "--list-input-pids" {
+            do {
+                emit(["event": "input_processes", "pids": try inputProcessIDs()])
+                exit(0)
+            } catch {
+                emit(["event": "error", "reason": "input_list_failed"])
                 exit(5)
             }
         }

@@ -79,33 +79,45 @@ def capability() -> str:
     return "available"
 
 
-def eligible_process_ids() -> set[int]:
+def _helper_pids(flag: str, event_name: str) -> set[int] | None:
+    """PIDs from one helper listing, or None when the helper can't say."""
     if capability() != "available":
-        return set()
+        return None
     try:
         result = subprocess.run(
-            [str(helper_path()), "--list-pids"],
+            [str(helper_path()), flag],
             capture_output=True,
             text=True,
             timeout=1.0,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return set()
+        return None
     for line in result.stdout.splitlines():
         try:
             event = json.loads(line)
         except (TypeError, ValueError):
             continue
-        if isinstance(event, dict) and event.get("event") == "eligible_processes":
+        if isinstance(event, dict) and event.get("event") == event_name:
             values = event.get("pids")
             if isinstance(values, list):
                 return {
                     value
                     for value in values
-                    if isinstance(value, int) and value > 0
+                    if isinstance(value, int) and not isinstance(value, bool) and value > 0
                 }
-    return set()
+    return None
+
+
+def eligible_process_ids() -> set[int]:
+    return _helper_pids("--list-pids", "eligible_processes") or set()
+
+
+def input_process_ids() -> set[int] | None:
+    """PIDs whose Core Audio input is running now (the mic is in use), or
+    None when unknown. Transient: call_detect reduces it to one boolean and
+    nothing logs or stores a PID."""
+    return _helper_pids("--list-input-pids", "input_processes")
 
 
 def _public_reason(reason: str) -> str:

@@ -1406,3 +1406,10 @@ Recording pill with a capture drawer; menu-bar popover replacing the Dock (touch
 ## Execution notes
 
 (Empty. Record decisions, deviations, test counts and live-check results here as tasks complete.)
+
+### Progress (2 Oct 2026, paused at usage limit)
+- Tasks 1–7 complete and reviewed (implementers Sonnet, reviewers Opus, mutation-checked), branch `quiet-library`, worktree `.claude/worktrees/quiet-library`, head cb775b6. Next: Task 8 (brief already extracted).
+- Full ledger with every ruling and deferred minor: `.superpowers/sdd/2026-10-02-quiet-library/progress.md` (git-ignored, in the worktree).
+- Rulings: highlights/search marks use `--amber`, not coral; non-Record coral removed (popover, Connect Claude, library banner); day headers flat and non-sticky; reviewers may mutate temporarily.
+- For the final fix wave: Switch.module.css on-state is still coral; no test for `apply_saved()` at launch; token lint doesn't check that `var(--x)` names exist; add a test for two speaker numbers sharing a label; `--surface-sticky` is unused; ⌘K fires while a sheet is open.
+- "Live" sidebar row skipped: MeetingMeta has no recording state.

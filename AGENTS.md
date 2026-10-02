@@ -90,6 +90,12 @@ visibly to the original mic-only diarization mode. See README's
   Calendar access is never requested at launch, wake or on a timer; only the
   user's Connect Calendar click may show the macOS prompt, and revoked access
   clears the cache.
+- **Record prompts never record.** Every `begin_meeting`/`end_meeting` from
+  `record_prompt_controller.py` follows a banner click. `call_detect.py`
+  reduces the helper's input PIDs to one boolean (is a process other than
+  Speakeasy and its children using the mic) and nothing logs, stores or shows
+  them. The banner panel is native, borderless and non-activating
+  (`orderFrontRegardless()`); never make it key.
 - **Test isolation.** Tests never touch the real App Support folder: the
   autouse `isolated_home` fixture in `tests/conftest.py` redirects it. Never
   bypass it, and never create an `EKEventStore` in a test.
@@ -144,6 +150,14 @@ contexts are intentionally bounded and single-purpose:
   if access is already granted), after wake, on `EKEventStoreChangedNotification`
   and every 5 minutes. Never touches audio or the model. The engine never calls
   EventKit: it reads the cached table.
+- **`call-probe`** (1 daemon thread, `call_detect.CallProbe`) — every 5 s while
+  wanted, runs the system-audio helper's `--list-input-pids` (1 s timeout) and
+  `pgrep -P`, and hands a bool to the main thread. It never opens audio and
+  never touches the model, executors or UI. `call_detect.MicWatch` keeps the
+  ignored PIDs (apps already on the mic at the first answer, or behind a
+  waved-off offer) inside `call_detect.py`; the controller only sends
+  `ignore_current()` (waved-off offer) and `forgive_waved()` (recording starts;
+  waved-off apps count again, the first-answer baseline stays ignored).
 - **`ax-warmup`** (1 thread, `ax_warmup.AccessibilityWarmer`) — on every app
   activation, one focus query; if the app answers NoValue and
   `AXEnhancedUserInterface` is settable and off, writes it once (Chromium

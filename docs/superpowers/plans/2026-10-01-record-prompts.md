@@ -30,9 +30,9 @@
 
 ## Setup (once, before Task 1)
 
-- [ ] Create a worktree and branch `record-prompts` (superpowers:using-git-worktrees or `EnterWorktree`), then `git merge --ff-only master`.
-- [ ] Symlink the git-ignored dirs from the main checkout: `.venv`, `frontend/node_modules` (check that `.bin/tsc` exists first) and `models`. Never run `ln -sf` onto an existing directory symlink.
-- [ ] Baseline: `.venv/bin/python -m pytest -q -p no:cacheprovider` (timeout 300000). Expect **929 passed** (measured 1 Oct 2026, 82 s).
+- [x] Create a worktree and branch `record-prompts` (superpowers:using-git-worktrees or `EnterWorktree`), then `git merge --ff-only master`.
+- [x] Symlink the git-ignored dirs from the main checkout: `.venv`, `frontend/node_modules` (check that `.bin/tsc` exists first) and `models`. Never run `ln -sf` onto an existing directory symlink.
+- [x] Baseline: `.venv/bin/python -m pytest -q -p no:cacheprovider` (timeout 300000). Expect **929 passed** (measured 1 Oct 2026, 82 s).
 
 ## Global Constraints
 
@@ -91,7 +91,7 @@
   - `call_detect.CallProbe(on_result: Callable[[bool], None], wanted: Callable[[], bool], probe=None, interval=POLL_SECONDS)` with `.start()` and `.stop()`;
   - `call_detect.POLL_SECONDS = 5.0`.
 
-- [ ] **Step 1: Swift — split the process listing and add `--list-input-pids`**
+- [x] **Step 1: Swift — split the process listing and add `--list-input-pids`**
 
 Replace `eligibleAudioProcessIDs()` with these four functions. The body of `audioProcessObjects` is the existing list code, moved.
 
@@ -179,12 +179,12 @@ In `SystemAudioCaptureMain.main()`, directly after the `--list-pids` block, add:
         }
 ```
 
-- [ ] **Step 2: Build the helper and smoke-run it**
+- [x] **Step 2: Build the helper and smoke-run it**
 
 Run: `scripts/build_system_audio_helper.sh`, then `build/native/SpeakeasySystemAudioCapture --list-input-pids`.
 Expected: one line `{"event":"input_processes","pids":[...]}`. The list is empty when nothing is recording. `--list-pids` still prints `eligible_processes`.
 
-- [ ] **Step 3: Write the failing Python tests**
+- [x] **Step 3: Write the failing Python tests**
 
 Append to `tests/test_system_audio.py`:
 
@@ -316,12 +316,12 @@ def test_probe_never_reports_unknown():
     assert calls and results == []
 ```
 
-- [ ] **Step 4: Run them to verify they fail**
+- [x] **Step 4: Run them to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_system_audio.py tests/test_call_detect.py`
 Expected: FAIL (`input_process_ids` and `call_detect` do not exist).
 
-- [ ] **Step 5: Implement `system_audio.input_process_ids`, sharing parsing with `eligible_process_ids`**
+- [x] **Step 5: Implement `system_audio.input_process_ids`, sharing parsing with `eligible_process_ids`**
 
 Replace `eligible_process_ids` in `speakeasy/system_audio.py` with:
 
@@ -367,7 +367,7 @@ def input_process_ids() -> set[int] | None:
     return _helper_pids("--list-input-pids", "input_processes")
 ```
 
-- [ ] **Step 6: Create `speakeasy/call_detect.py`**
+- [x] **Step 6: Create `speakeasy/call_detect.py`**
 
 ```python
 """Is another app using the microphone? One boolean for the record banner.
@@ -445,12 +445,12 @@ class CallProbe:
                 self._on_result(result)
 ```
 
-- [ ] **Step 7: Run the tests, then the full suite**
+- [x] **Step 7: Run the tests, then the full suite**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_system_audio.py tests/test_call_detect.py`, expect PASS.
 Then run the full suite with a 300000 ms timeout and expect all tests to pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add native/SystemAudioCapture.swift speakeasy/system_audio.py speakeasy/call_detect.py tests/test_system_audio.py tests/test_call_detect.py
@@ -483,7 +483,7 @@ git commit -m "Call detect: helper lists PIDs with mic input running; one-boolea
   - `settings.set_prompted_events(day: str, keys) -> None`;
   - bridge payload key `detectCalls`.
 
-- [ ] **Step 1: Update the existing settings tests and add new ones (failing)**
+- [x] **Step 1: Update the existing settings tests and add new ones (failing)**
 
 In `tests/test_settings.py`:
 - Add `"detect_calls": True` to the expected dicts in `test_meeting_settings_defaults_and_round_trip` (both asserts) and `test_meeting_settings_ignore_corrupt_file`.
@@ -532,12 +532,12 @@ In `tests/test_meetings_bridge.py`, `test_meeting_settings_round_trip`, add:
     assert settings.get_meeting_settings()["detect_calls"] is False
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_settings.py tests/test_meetings_bridge.py`
 Expected: FAIL (`detect_calls` and `get_prompted_events` are missing).
 
-- [ ] **Step 3: Implement in `speakeasy/settings.py`**
+- [x] **Step 3: Implement in `speakeasy/settings.py`**
 
 Replace `get_meeting_settings` and `set_meeting_settings`, and add the two prompted-event functions after them:
 
@@ -603,7 +603,7 @@ def set_prompted_events(day: str, keys) -> None:
     _write(data)
 ```
 
-- [ ] **Step 4: Bridge payload (`speakeasy/ui/meetings_bridge.py`)**
+- [x] **Step 4: Bridge payload (`speakeasy/ui/meetings_bridge.py`)**
 
 ```python
     def settings_get_payload(self, params) -> dict:
@@ -624,7 +624,7 @@ def set_prompted_events(day: str, keys) -> None:
         return self.settings_get_payload({})
 ```
 
-- [ ] **Step 5: Frontend toggle**
+- [x] **Step 5: Frontend toggle**
 
 - `frontend/src/mock/meetings.ts`: `export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; accounts: CalendarAccountSettings[] }`, and add `detectCalls: true,` to the mock settings object next to `offerToRecord: true,`.
 - `frontend/src/meetings/SettingsSheet.tsx`:
@@ -645,13 +645,13 @@ def set_prompted_events(day: str, keys) -> None:
   - pass `detectCalls` through to the bridge call wherever `offerToRecord` is passed.
 - Delete `frontend/prompt.html` and `frontend/src/prompt/`, and remove the `prompt:` line from `frontend/vite.config.ts`. Then `grep -rn "prompt.html\|src/prompt" frontend scripts packaging speakeasy` must print nothing.
 
-- [ ] **Step 6: Run the tests and the frontend build**
+- [x] **Step 6: Run the tests and the frontend build**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_settings.py tests/test_meetings_bridge.py`, expect PASS.
 Run: `npm --prefix frontend run build`, expect success with no type errors.
 Then run the full suite (timeout 300000) and expect all tests to pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A speakeasy/settings.py speakeasy/ui/meetings_bridge.py frontend tests/test_settings.py tests/test_meetings_bridge.py
@@ -687,7 +687,7 @@ git commit -m "Settings: call-detection toggle and per-day prompted events; drop
     - methods `engine_state(state: str)`, `calendar_tick(events, now, *, offer_enabled)`, `call_observed(using, now, events, *, detect_enabled)`, `record(index=0) -> str | None`, `not_now()`, `stop()` and `keep()`.
   - The engine states it reacts to are the `State.value` strings `"ready"`, `"meeting_recording"` and `"meeting_processing"`.
 
-- [ ] **Step 1: Write the failing tests (`tests/test_record_prompt.py`)**
+- [x] **Step 1: Write the failing tests (`tests/test_record_prompt.py`)**
 
 ```python
 from datetime import datetime, timedelta, timezone
@@ -975,12 +975,12 @@ def test_banner_text():
         "Call ended", "Stop recording?", "Stop", "Keep Recording")
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_record_prompt.py`
 Expected: FAIL (`No module named speakeasy.record_prompt`).
 
-- [ ] **Step 3: Implement `speakeasy/record_prompt.py`**
+- [x] **Step 3: Implement `speakeasy/record_prompt.py`**
 
 ```python
 """What the record banner shows. Pure and main-thread only: the controller
@@ -1172,12 +1172,12 @@ class RecordPromptCoordinator:
         self.banner = None
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_record_prompt.py tests/test_calendar_match.py`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add speakeasy/record_prompt.py tests/test_record_prompt.py
@@ -1216,7 +1216,7 @@ git commit -m "Record prompt: pure coordinator for calendar, call and call-ended
     - callbacks to the target: `bannerPrimary_(sender)`, `bannerSecondary_(sender)` and `bannerMore_(item)`, where `item.tag()` is the event index ≥ 1.
   - `RecordPromptController.alloc().initWithEngine_(engine)` with selectors `engineStateChanged_(state_name)`, `tick_(timer)` and `callObserved_(using)`, plus python method `shutdown()`.
 
-- [ ] **Step 1: Write the failing controller tests (`tests/test_record_prompt_controller.py`)**
+- [x] **Step 1: Write the failing controller tests (`tests/test_record_prompt_controller.py`)**
 
 ```python
 from datetime import datetime, timedelta, timezone
@@ -1391,7 +1391,7 @@ def test_library_error_means_no_events(monkeypatch):
     c.shutdown()
 ```
 
-- [ ] **Step 2: Write the failing panel smoke tests (`tests/test_record_prompt_panel.py`)**
+- [x] **Step 2: Write the failing panel smoke tests (`tests/test_record_prompt_panel.py`)**
 
 ```python
 from AppKit import NSApplication, NSWindowStyleMaskNonactivatingPanel
@@ -1437,12 +1437,12 @@ def test_panel_never_takes_focus_and_forwards_clicks():
     assert not p._panel.isVisible()
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_record_prompt_controller.py tests/test_record_prompt_panel.py`
 Expected: FAIL (modules missing).
 
-- [ ] **Step 4: Implement `speakeasy/ui/record_prompt_panel.py`**
+- [x] **Step 4: Implement `speakeasy/ui/record_prompt_panel.py`**
 
 ```python
 """The record banner: a borderless, non-activating glass panel in the
@@ -1617,7 +1617,7 @@ class RecordPromptPanel(NSObject):
 
 If `NSBezelStyleRounded` fails to import from the pinned PyObjC (it was renamed `NSBezelStylePush` in the macOS 14 SDK), use `NSBezelStylePush`. Both have the value 1.
 
-- [ ] **Step 5: Implement `speakeasy/ui/record_prompt_controller.py`**
+- [x] **Step 5: Implement `speakeasy/ui/record_prompt_controller.py`**
 
 ```python
 """Main-thread glue for the record banner. It feeds RecordPromptCoordinator
@@ -1779,7 +1779,7 @@ class RecordPromptController(NSObject):
         self.panel.show(text.title, text.subtitle, text.primary, text.secondary, list(text.more))
 ```
 
-- [ ] **Step 6: Wire it into `AppDelegate` (`speakeasy/ui/menubar.py`)**
+- [x] **Step 6: Wire it into `AppDelegate` (`speakeasy/ui/menubar.py`)**
 
 - In `initWithProfileName_`, add `self.record_prompt = None`.
 - In `applicationDidFinishLaunching_`, after `self.main_window.window_owner = self.controller`:
@@ -1809,13 +1809,13 @@ class RecordPromptController(NSObject):
             self.record_prompt.shutdown()
 ```
 
-- [ ] **Step 7: Run the tests, the full suite and an import check**
+- [x] **Step 7: Run the tests, the full suite and an import check**
 
 Run: `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_record_prompt_controller.py tests/test_record_prompt_panel.py`, expect PASS.
 Run the full suite (timeout 300000) and expect all tests to pass, including `test_mcp_mode_imports_nothing_heavy`.
 Run: `.venv/bin/python -c "import speakeasy.ui.menubar"`, expect no error.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add speakeasy/ui/record_prompt_panel.py speakeasy/ui/record_prompt_controller.py speakeasy/ui/menubar.py tests/test_record_prompt_controller.py tests/test_record_prompt_panel.py
@@ -1839,7 +1839,7 @@ Also check by reading that nothing calls `makeKeyAndOrderFront_` or `activateIgn
 **Files:**
 - Modify: `README.md` (Calendar section ~L307–337), `AGENTS.md` (Hard constraints; Threading model), this plan (Execution notes)
 
-- [ ] **Step 1: README.** Add a `### Record prompts` subsection after `### Calendar` covering:
+- [x] **Step 1: README.** Add a `### Record prompts` subsection after `### Calendar` covering:
   - the calendar banner: 2 min before to 5 min after start, events with other invitees only, "N more", Not Now and the 5-minute timeout, remembered for the day;
   - the call banner: another app using the mic for 10 s; one offer per call;
   - "Call ended — Stop recording?" after 60 s without the call's mic, with no auto-stop;
@@ -1847,22 +1847,310 @@ Also check by reading that nothing calls `makeKeyAndOrderFront_` or `activateIgn
   - "Speakeasy never records without your click";
   - privacy: only "is another app using the mic" is checked, and app names/PIDs are never stored;
   - unavailable before macOS 14.2.
-- [ ] **Step 2: AGENTS.md.**
+- [x] **Step 2: AGENTS.md.**
   - Under *Hard constraints*, add **Record prompts never record**: every `begin_meeting`/`end_meeting` from `record_prompt_controller.py` follows a banner click; `call_detect.py` reduces input PIDs to one boolean and nothing logs, stores or shows them.
   - Under *Threading model*, add **`call-probe`** (1 daemon thread, `call_detect.CallProbe`): every 5 s while wanted, runs the helper's `--list-input-pids` (1 s timeout) and `pgrep -P`, and hands a bool to the main thread; it never opens audio, and never touches the model, executors or UI.
   - Note that the banner panel is native, borderless and non-activating, and never made key.
-- [ ] **Step 3: Full suite (timeout 300000) and `npm --prefix frontend run build`.** Both must pass. Commit: `git commit -am "Docs: record prompts"`.
-- [ ] **Step 4: Opus whole-branch review** (`Agent(model: "opus")`): spec coverage, Global Constraints, Review Focus, and a mutation spot-check across tasks. Apply fixes with a Sonnet implementer, re-review, and record the outcome below.
-- [ ] **Step 5: Install** (needs the user's go-ahead). Run `scripts/build_app.sh --install`; from a worktree, symlink `models` first. This stops Claude Desktop's Speakeasy MCP server, so remind the user to toggle the connector off and on. Then launch `/Applications/Speakeasy.app`.
-- [ ] **Step 6: Live acceptance, launched and looked at.** The user does these by hand; screen control has been declined before. Record each result below.
+- [x] **Step 3: Full suite (timeout 300000) and `npm --prefix frontend run build`.** Both must pass. Commit: `git commit -am "Docs: record prompts"`.
+- [x] **Step 4: Opus whole-branch review** (`Agent(model: "opus")`): spec coverage, Global Constraints, Review Focus, and a mutation spot-check across tasks. Apply fixes with a Sonnet implementer, re-review, and record the outcome below.
+- [x] **Step 5: Install** (needs the user's go-ahead). Run `scripts/build_app.sh --install`; from a worktree, symlink `models` first. This stops Claude Desktop's Speakeasy MCP server, so remind the user to toggle the connector off and on. Then launch `/Applications/Speakeasy.app`.
+- [x] **Step 6: Live acceptance, launched and looked at.** The user does these by hand; screen control has been declined before. Record each result below.
   1. Meetings › Settings shows both toggles, and they persist after quit and relaunch.
   2. A real calendar meeting with invitees shows the banner within about 30 s of start − 2 min. Keep typing in Teams after it appears; Teams keeps focus. Record starts a recording, and the Dock shows "Recording · <title>".
   3. A Teams or Zoom call with no calendar event (e.g. a Teams test call) shows "Record this call?" within about 15 s. Not Now means it is not offered again during that call.
   4. While recording a call, leave it. "Call ended — Stop recording?" appears within about 65 s. Keep Recording hides it; leaving a second call and clicking Stop ends the meeting.
   5. Turn "Offer to record calls in other apps" off: no call banner appears.
   6. Dictation still pastes once in TextEdit, Codex and Teams. Insertion code is untouched, but check anyway.
-- [ ] **Step 7: Checkpoint** (per CLAUDE.md): update this plan's status, commit, list loose ends, and give the `/clear` reminder. Merge only when the user says "merge and clean up".
+- [x] **Step 7: Checkpoint** (per CLAUDE.md): update this plan's status, commit, list loose ends, and give the `/clear` reminder. Merge only when the user says "merge and clean up".
+
+### Task 6: Only apps that start using the mic count (follow-up, 2 Oct 2026)
+
+**Why:** in the live check, GeForce NOW kept Core Audio input running while idle. Speakeasy treated it as a call that never ends. The result was a false "Record this call?" banner, no offers for real Teams calls, and no "Call ended". The user chose this rule: only apps that *start* using the mic count.
+
+**Rule:**
+- An app already using the mic at the first known answer after launch is ignored until it releases the mic.
+- After a release, its next use counts.
+- The app behind a call offer that is waved off (Not Now, or the 5-minute timeout) is ignored the same way. This covers GeForce NOW opened *after* Speakeasy: one offer, then it stays quiet.
+- Recording, or a meeting started by hand, never ignores anything, so "Call ended" still works.
+- **Trade-off:** a call already in progress when Speakeasy launches is not offered. Begin Meeting still works.
+
+PIDs stay inside `call_detect.py` (Global Constraints). The controller only sends a "wave off" flag.
+
+**Files:**
+- Modify: `speakeasy/call_detect.py`, `speakeasy/record_prompt.py`, `speakeasy/ui/record_prompt_controller.py`, `README.md` (Record prompts), `AGENTS.md` (call-probe thread)
+- Test: `tests/test_call_detect.py`, `tests/test_record_prompt.py`, `tests/test_record_prompt_controller.py`
+
+- [x] **Step 1: Failing tests.**
+
+  `tests/test_call_detect.py` replaces `test_other_app_using_mic_ignores_speakeasy_processes` (keep that name for Review Focus 4) and adds the rest:
+
+```python
+def _watch(answers, own=frozenset({10})):
+    seq = iter(answers)
+    return call_detect.MicWatch(input_ids=lambda: next(seq), own_ids=lambda: set(own))
+
+
+def test_other_app_using_mic_ignores_speakeasy_processes():
+    w = _watch([set(), {10, 11}, {10, 12}], own={10, 11})
+    assert [w(), w(), w()] == [False, False, True]
+
+
+def test_apps_already_using_the_mic_are_ignored_until_they_release_it():
+    w = _watch([{20}, {20}, {20, 30}, {20}, set(), {20}])
+    assert [w(), w(), w(), w(), w(), w()] == [False, False, True, False, False, True]
+
+
+def test_unknown_answers_pass_through_and_do_not_set_the_baseline():
+    w = _watch([None, {20}, {20, 30}])
+    assert [w(), w(), w()] == [None, False, True]
+
+
+def test_waved_off_apps_are_ignored_until_they_release_the_mic():
+    w = _watch([set(), {30}, {30}, {30, 40}, set(), {30}])
+    assert [w(), w()] == [False, True]
+    w.ignore_current()
+    assert [w(), w(), w(), w()] == [False, True, False, True]
+
+
+def test_probe_ignore_current_reaches_its_watch():
+    p = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False)
+    assert isinstance(p.watch, call_detect.MicWatch)
+    p.ignore_current()
+    assert p.watch._ignore_requested
+    q = call_detect.CallProbe(on_result=lambda v: None, wanted=lambda: False,
+                              probe=lambda: True)
+    assert q.watch is None
+    q.ignore_current()        # no watch: nothing to do, no error
+```
+
+  `tests/test_record_prompt.py` gets:
+
+```python
+def test_waving_off_a_call_offer_is_reported_once():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.not_now()
+    assert c.take_call_waved_off() is True
+    assert c.take_call_waved_off() is False
+
+
+def test_call_offer_timeout_counts_as_waving_off():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.calendar_tick([], at(5, 10), offer_enabled=True)
+    assert c.banner is None and c.take_call_waved_off() is True
+
+
+def test_recording_or_calendar_dismissal_is_not_waving_off_a_call():
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.record()
+    assert c.take_call_waved_off() is False
+    c = coord()
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    c.engine_state("meeting_recording")
+    assert c.take_call_waved_off() is False
+    c = coord()
+    c.calendar_tick([ev("a")], at(0), offer_enabled=True)
+    c.not_now()
+    assert c.take_call_waved_off() is False
+```
+
+  `tests/test_record_prompt_controller.py`: `FakeProbe` gains `ignored = 0` and `def ignore_current(self): self.ignored += 1`. Then add:
+
+```python
+def test_not_now_on_a_call_offer_ignores_that_app(monkeypatch):
+    c, panel, probe, times = make(monkeypatch, FakeEngine())
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=10)
+    c.callObserved_(True)
+    c.bannerSecondary_(None)
+    assert probe.ignored == 1
+    c.shutdown()
+
+
+def test_not_now_on_a_calendar_offer_ignores_nothing(monkeypatch):
+    c, panel, probe, _ = make(monkeypatch, FakeEngine(events=[ev("k1")]))
+    c.tick_(None)
+    c.bannerSecondary_(None)
+    assert probe.ignored == 0
+    c.shutdown()
+```
+
+- [x] **Step 2: Run them to verify they fail.** `.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_call_detect.py tests/test_record_prompt.py tests/test_record_prompt_controller.py`
+
+- [x] **Step 3: `speakeasy/call_detect.py`.** Replace `other_app_using_mic` with `MicWatch`. Keep `own_process_ids` unchanged. Update the module docstring's first paragraph to say an app counts only from when it starts using the mic.
+
+```python
+class MicWatch:
+    """Is another app on a call? An app counts only from when it starts using
+    the mic while Speakeasy watches. Apps already using it at the first known
+    answer (GeForce NOW keeps input running while idle), and apps behind a
+    waved-off call offer, are ignored until they release the mic. Called on
+    the probe thread; the PIDs never leave this object."""
+
+    def __init__(self, input_ids=None, own_ids=None) -> None:
+        self._input_ids = input_ids or system_audio.input_process_ids
+        self._own_ids = own_ids or own_process_ids
+        self._ignored: set[int] | None = None   # None until the first known answer
+        self._ignore_requested = False
+
+    def ignore_current(self) -> None:
+        """Main thread: ignore the apps using the mic now. A plain flag that
+        the probe thread applies on its next answer."""
+        self._ignore_requested = True
+
+    def __call__(self) -> bool | None:
+        active = self._input_ids()
+        if active is None:
+            return None
+        others = active - self._own_ids()
+        requested, self._ignore_requested = self._ignore_requested, False
+        if self._ignored is None or requested:
+            self._ignored = (self._ignored or set()) | others
+        self._ignored &= others   # released the mic: its next use counts
+        return bool(others - self._ignored)
+```
+
+  In `CallProbe.__init__`, replace `self._probe = probe or other_app_using_mic` with:
+
+```python
+        self.watch = MicWatch() if probe is None else None
+        self._probe = probe or self.watch
+```
+
+  Then add this method:
+
+```python
+    def ignore_current(self) -> None:
+        if self.watch is not None:
+            self.watch.ignore_current()
+```
+
+- [x] **Step 4: `speakeasy/record_prompt.py`.**
+  - In `__init__`, add `self._call_waved_off = False   # a call offer got Not Now or timed out`.
+  - In `not_now`, and in `_expire` before `_close_offer()`, set `self._call_waved_off = True` when `self.banner.kind == "call"`.
+  - Add this method:
+
+```python
+    def take_call_waved_off(self) -> bool:
+        """True once after a call offer was waved off (Not Now or timeout), so
+        the controller can tell the probe to ignore the apps on that call."""
+        waved, self._call_waved_off = self._call_waved_off, False
+        return waved
+```
+
+- [x] **Step 5: `speakeasy/ui/record_prompt_controller.py`.** At the start of `_render` (after `_persist()`), add:
+
+```python
+        if self.coordinator.take_call_waved_off():
+            self.probe.ignore_current()
+```
+
+- [x] **Step 6: Docs.**
+  - README Record prompts, call banner: only an app that *starts* using the mic counts. Apps already using it when Speakeasy starts are ignored until they release it, as is an app whose call offer you dismissed (or that timed out). So a game launcher or voice app that keeps the mic open only asks once. A call already running when Speakeasy launches isn't offered.
+  - AGENTS.md call-probe bullet: `MicWatch` keeps the ignored PIDs inside `call_detect.py`, and the controller only sends `ignore_current()`.
+
+- [x] **Step 7: Tests, full suite (timeout 300000), commit** `Call detect: only apps that start using the mic count; waved-off calls ignored`.
+
+**Review mutations (Opus):**
+- baseline not taken on the first answer;
+- `self._ignored &= others` removed (a released app stays ignored);
+- `ignore_current` flag never applied;
+- `_call_waved_off` set on Record or on a manual meeting start;
+- the controller never calls `ignore_current`;
+- the expiry path not marking a waved-off call;
+- own PIDs not excluded.
+
+- [x] **Step 8: Reinstall (needs the user's go-ahead) and live check.**
+  1. Start GeForce NOW, then relaunch Speakeasy: no call banner.
+  2. A synthetic or real call while GeForce NOW stays open: a banner within about 15 s.
+  3. Open GeForce NOW while Speakeasy is already running: one banner. Not Now, then a synthetic call within the next minute or two: a banner.
+
+---
 
 ## Execution notes
 
 (Record deviations, surprises, review findings and acceptance results here during execution.)
+
+**Status, 2 Oct 2026:** Tasks 1–4 and Task 5 Steps 1–4 are done on branch `record-prompts` (worktree `.claude/worktrees/record-prompts`), HEAD `f0e3c93`, full suite **991 passed**, frontend build OK. Tests only so far: the app has **not** been installed or launched. Next: Step 5 (install, needs the user's go-ahead), Step 6 (live acceptance), Step 7.
+
+Commits: `c0e83f5` call detect, `cc216bd` pin interval/timeout, `1fcd799` settings + toggle, `a2b409e` coordinator, `d15b3c9` panel/controller/wiring, `224d1a7` pin geometry/timings/focus, `cf7c692` docs, `f0e3c93` final-review fixes.
+
+**Per-task reviews (Opus, by mutation):** every listed mutation was caught. Reviewers found Global Constraint values that no test pinned: the 5 s probe, 1.0 s helper timeout, 30 s tick, 2 s confirmation, 360×92 / 12 pt top-right, and `orderFrontRegardless` vs `makeKeyAndOrderFront_`. Tests now pin all of them.
+
+**Whole-branch review found 3 Important issues, fixed in `f0e3c93`:**
+- *Stale countdown.* The banner kept "Starts in 2 min" for up to 5 min. The controller now redraws on each tick when the text changes.
+- *Call toggle didn't hide call banners* (the spec says it should). Fix: `RecordPromptCoordinator.calls_disabled()`, called from `tick_`.
+- *A short mic blip gave a false "Call ended".* This is a **deviation from the plan's code**. `_heard_call` is now set only after 10 s (`CALL_START`) of other-app mic use during a recording. Resumed mic use still hides "Call ended" at once. The existing call-ended tests now observe 10 s of use.
+
+Also in `f0e3c93`:
+- Record does nothing unless the engine is ready.
+- "N more" ignores out-of-range tags.
+- New tests: Keep Recording wiring, 3-invited count, and `set_prompted_events` keeping other settings.
+- `menubar.py` catches a `RecordPromptController` init failure, so app launch is not aborted.
+
+**Loose ends (not blocking; fix later):**
+- `bannerMore_`'s not-ready guard has no test that catches its removal: the test uses `Item(0)` with one event. Use 2 events and `Item(1)`.
+- `menubar.py` uses `logging.exception`, the only `logging` use in `speakeasy/`. The project's pattern is `print(type(err).__name__, file=sys.stderr)`.
+- `calls_disabled()` doesn't set `_ended_dismissed`. If detection is switched back on mid-recording, the same "Call ended" can show again.
+- Untested minors:
+  - bool-PID exclusion;
+  - the stop-while-probe-in-flight guard;
+  - `eligible_process_ids` `or set()`;
+  - the latest-500 test keys sort like plain strings;
+  - `pick_event` without `_with_people` on the call path;
+  - call-offer expiry via `call_observed`;
+  - `_when` rounding at half-minutes.
+- First calendar check runs 30 s after launch (still inside the window).
+- `test_meeting_recorder::test_gap_fill_queue_full_is_retried_on_the_next_block` is flaky (untouched file, existed before this branch). It failed once in a full run and in 1 of 3 solo reruns.
+
+**Add to Step 6 live acceptance:** check whether an always-on system process (e.g. "Hey Siri") reports running mic input. If it does, it would cause a false "Record this call?" while idle and stop "Call ended" from ever appearing.
+
+**Step 5, 2 Oct 2026:** built and installed from the worktree with `build_app.sh --install` (HEAD `ddeb14a`), then launched `/Applications/Speakeasy.app`. The Claude Desktop connector needs its off/on toggle.
+
+**Step 6, live checks done by Claude (no screen control: screen capture and Accessibility are both denied to the session):**
+- **Detection works.** The installed helper's `--list-input-pids` listed a throwaway `sounddevice` recorder within 6 s and dropped it when it stopped. Speakeasy's own processes (main, mic helper) were not listed while idle.
+- **Surprise: GeForce NOW (`/Applications/GeForceNOW.app`) keeps Core Audio input running while idle.** Speakeasy therefore showed a call banner about 15 s after launch with no call in progress. This is the "always-on process" risk from Review Focus/M3, and it is real.
+  - While GeForce NOW holds the mic, its "call" never ends. Real Teams/Zoom calls get no offer, and "Call ended" never appears.
+  - **Open decision for the user:** quit GeForce NOW, or change detection so only apps that *start* using the mic count (per-PID onset tracking kept inside `call_detect.py`).
+- **Banner geometry and focus confirmed with CGWindowList.** The banner is 360×92 at x=1356, y=45 (top-left coordinates), which is 12 pt from the top-right of the visible frame (1728×1117 screen, menu bar plus Dock inset). Window layer is 25 (status). The frontmost app stayed NVIDIA GeForce NOW, so the banner took no focus.
+- **Check 5 passed, and the I2 fix works live.** Setting `detect_calls: false` in settings.json hid the showing call banner within 5 s. No banner came back for 45 s while GeForce NOW still held the mic. settings.json was then restored byte for byte from a backup; only that key had changed.
+- **One offer per call holds across the toggle.** After detection was switched back on with GeForce NOW still using the mic, no new banner appeared.
+- **Not checked yet (needs the user's eyes or clicks):**
+  - (1) the toggles in Meetings › Settings, and that they persist across relaunch;
+  - (2) a real calendar meeting banner and its Record button;
+  - (3) the Teams call banner, and Not Now (blocked by GeForce NOW, see above);
+  - (4) "Call ended" → Stop / Keep Recording;
+  - (6) dictation paste in TextEdit, Codex and Teams;
+  - the banner's text and look.
+- **After GeForce NOW was quit (same day):**
+  - **Synthetic call** (a throwaway `sounddevice` recorder held the mic for 30 s after 65 s idle): the banner appeared **11.4 s** after mic start. Microsoft Teams stayed frontmost. The banner linked to the user's calendar event that started at 12:00 and was still in progress.
+  - **The user clicked Not Now** about 46 s after the mic was released. That event was then saved as prompted for the day (`record_prompted`, 1 key).
+  - **Check 3 passed:** the call was detected, linked to the right event, the banner took no focus, and Not Now was remembered.
+  - **Not verified live:** the call offer hiding by itself about 60 s after the call ends, because the click came first. Unit tests cover it (`test_call_offer_hides_when_the_call_ends`).
+  - **Still for the user:** checks 1, 2, 4 and 6.
+- **User, 2 Oct:** toggled the call-offer setting in Meetings › Settings (persistence after relaunch not yet confirmed). Chose the follow-up "only apps that start using the mic count" → Task 6.
+
+**Task 6, 2 Oct 2026:**
+- Commits: `112cc19` onset rule, `4402fb4` recording forgives waved-off apps (two sets: launch baseline + waved; counters for requests), `e06a000` an ignore then a forgive in one poll lets the forgive win. Full suite 1004 passed.
+- Opus review: 7/7 mutations caught. It found that waved-off apps stayed ignored during a recording, so "Call ended" never fired; that was fixed. The re-review found that my fix spec had the ignore/forgive order wrong; that was fixed and pinned.
+- Reinstalled. Live checks, all passed (banner seen through CGWindowList, no clicks):
+  1. GeForce NOW holding the mic before Speakeasy launched: no banner for 45 s.
+  2. A 30 s synthetic call while GeForce NOW held the mic, at 14:01 with no meeting in progress: the banner appeared at **13.3 s** and hid itself **65.5 s** after the call ended. This also confirms the call-offer auto-hide live.
+  3. GeForce NOW force-quit (it ignores a normal quit) and reopened while Speakeasy was running: one banner, **63 s** after opening (GeForce takes that long to take the mic). It timed out after **303 s**. No banner for the next 70 s. A synthetic call then got a banner at **16.3 s**, which hid **63.5 s** after the call ended.
+- First attempt at 13:07: no banner. That was correct, not a bug: both meetings in progress (12–2 pm and 1–2 pm) were already marked offered, and a call linked to an offered meeting is not offered again.
+- Loose end: a stale ignore request is applied after a probe pause (detection off, or not ready), so it may ignore a new call. An ignored app that takes the mic again during a pause stays ignored.
+- Loose end: README.md:353 is an unwrapped long line.
+
+**Merged, 2 Oct 2026** (the user said "merge and clean up").
+- Check 1: the user toggled the call setting and relaunched Speakeasy (user-confirmed).
+- Checks 3 and 5, and the GeForce NOW checks: passed live, run by Claude (above).
+- **Not done at merge, open for the user:**
+  - check 2: a calendar banner, then Record → "Recording · <title>" in the Dock;
+  - check 4: "Call ended" with Stop and with Keep Recording in a real call;
+  - check 6: dictation pastes once in TextEdit, Codex and Teams. Insertion code is untouched.

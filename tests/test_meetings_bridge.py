@@ -603,6 +603,9 @@ def test_meeting_settings_round_trip(library_path, tmp_path, monkeypatch):
     assert out["offerToRecord"] is False
     assert settings.get_meeting_settings()["calendar_choices"] == {"w": False}
     assert b._calendar.synced == 1
+    out = b.settings_set_payload({"detectCalls": False})
+    assert out["detectCalls"] is False
+    assert settings.get_meeting_settings()["detect_calls"] is False
 
 
 def test_get_payload_never_looks_up_a_missing_event_key(library_path, monkeypatch):

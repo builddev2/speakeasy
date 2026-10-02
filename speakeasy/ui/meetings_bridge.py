@@ -210,12 +210,14 @@ class MeetingsBridge:
         stored = settings.get_meeting_settings()
         calendars = self._calendar.calendars if self._calendar is not None else []
         return {"offerToRecord": stored["offer_to_record"],
+                "detectCalls": stored["detect_calls"],
                 "accounts": calendar_payloads.calendars_payload(
                     calendars, stored["calendar_choices"])}
 
     def settings_set_payload(self, params) -> dict:
         settings.set_meeting_settings(
             offer_to_record=params.get("offerToRecord"),
+            detect_calls=params.get("detectCalls"),
             calendar_choices=params.get("calendars"))
         if params.get("calendars") is not None and self._calendar is not None:
             self._calendar.request_sync()

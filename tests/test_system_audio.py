@@ -345,3 +345,52 @@ def test_malformed_timeline_events_are_ignored(monkeypatch, tmp_path):
     ])
     assert result.timeline is None
     assert result.sample_timeline is None
+
+
+def _helper_prints(monkeypatch, payload):
+    result = type("Result", (), {"stdout": json.dumps(payload)})()
+    class Calls(list):
+        kwargs: list = []
+
+    calls = Calls()
+    calls.kwargs = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        calls.kwargs.append(kwargs)
+        return result
+
+    monkeypatch.setattr(system_audio.subprocess, "run", run)
+    return calls
+
+
+def test_input_process_ids_are_read_from_helper(monkeypatch, tmp_path):
+    _available(monkeypatch, tmp_path)
+    calls = _helper_prints(
+        monkeypatch, {"event": "input_processes", "pids": [101, 0, -4, "7", 202]})
+    assert system_audio.input_process_ids() == {101, 202}
+    assert calls[0][1:] == ["--list-input-pids"]
+    assert calls.kwargs[0]["timeout"] == 1.0
+
+
+def test_input_process_ids_empty_list_is_an_answer(monkeypatch, tmp_path):
+    _available(monkeypatch, tmp_path)
+    _helper_prints(monkeypatch, {"event": "input_processes", "pids": []})
+    assert system_audio.input_process_ids() == set()
+
+
+def test_input_process_ids_unknown_when_helper_cannot_say(monkeypatch, tmp_path):
+    _available(monkeypatch, tmp_path)
+    _helper_prints(monkeypatch, {"event": "error", "reason": "input_list_failed"})
+    assert system_audio.input_process_ids() is None
+
+    def timeout(*a, **k):
+        raise system_audio.subprocess.TimeoutExpired("helper", 1.0)
+
+    monkeypatch.setattr(system_audio.subprocess, "run", timeout)
+    assert system_audio.input_process_ids() is None
+
+
+def test_input_process_ids_unknown_before_macos_14_2(monkeypatch):
+    monkeypatch.setattr(system_audio.platform, "mac_ver", lambda: ("14.1", (), ""))
+    assert system_audio.input_process_ids() is None

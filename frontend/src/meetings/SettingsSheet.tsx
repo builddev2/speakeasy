@@ -9,14 +9,14 @@ interface SettingsSheetProps {
   settings: MeetingSettings;
   /** "No calendars found." only makes sense once access is granted. */
   calendarConnected: boolean;
-  onChange: (patch: { offerToRecord?: boolean; calendars?: Record<string, boolean> }) => void;
+  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; calendars?: Record<string, boolean> }) => void;
   onClose: () => void;
   onExportAll: () => void;
 }
 
 /** Meetings section of Settings: recording offer toggle, calendar checklist, export. */
 export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll }: SettingsSheetProps) {
-  const { offerToRecord, accounts } = settings;
+  const { offerToRecord, detectCalls, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -26,6 +26,11 @@ export function SettingsSheet({ settings, calendarConnected, onChange, onClose, 
       <div className={styles.toggleRow}>
         <span id="offer-to-record-label">Offer to record calendar meetings</span>
         <Switch checked={offerToRecord} onChange={(value) => onChange({ offerToRecord: value })} ariaLabelledBy="offer-to-record-label" />
+      </div>
+
+      <div className={styles.toggleRow}>
+        <span id="detect-calls-label">Offer to record calls in other apps</span>
+        <Switch checked={detectCalls} onChange={(value) => onChange({ detectCalls: value })} ariaLabelledBy="detect-calls-label" />
       </div>
 
       <div className={styles.sectionTitle}>Calendars</div>

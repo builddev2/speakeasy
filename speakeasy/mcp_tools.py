@@ -17,6 +17,7 @@ from typing import Callable
 from . import settings
 from .meeting_library import HIT_CLOSE, HIT_OPEN, local_start, utc_iso
 from .meetings import _ID_RE
+from .summary_format import SUMMARY_INSTRUCTIONS
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _MAX_CALENDAR_DAYS = 366
@@ -318,6 +319,20 @@ def build_tools(library) -> dict[str, Tool]:
         return {"name": info.name, "description": info.description,
                 "aliases": info.aliases, "count": info.count}
 
+    def pending_summaries(args):
+        limit = _int(args, "limit", 5, 1, 10)
+        meetings = []
+        for meeting_id, requested in library.pending_summaries(limit=limit):
+            m = library.get_meeting(meeting_id, with_segments=False)
+            meetings.append({
+                "id": m.meeting_id, "title": m.title,
+                "start": _start(m.started_at, m.tz_offset_minutes),
+                "duration_minutes": _minutes(m.duration_seconds),
+                "speakers": m.speakers, "tags": m.tags,
+                "has_summary": bool(m.notes and m.notes.summary),
+                "requested": requested})
+        return {"meetings": meetings, "instructions": SUMMARY_INSTRUCTIONS}
+
     specs = [
         ("list_meetings",
          "List saved meetings, newest first, with date, duration, speakers, tags "
@@ -365,8 +380,11 @@ def build_tools(library) -> dict[str, Tool]:
          "reuse existing tags (any spelling of a tag or its aliases matches it); "
          "create a new tag only for a genuinely new topic, at most 3 per call. "
          "Replacing tags never removes tags the user added, and tags the user "
-         "removed from this meeting are skipped.",
-         {**_ID, "summary": {"type": "string", "maxLength": 20000},
+         "removed from this meeting are skipped. "
+         "Write summaries in the format pending_summaries returns.",
+         {**_ID, "summary": {"type": "string", "maxLength": 20000,
+                             "description": "Use the format from pending_summaries: a TL;DR line, "
+                                            "then ## Decisions, ## Key points, ## Open questions."},
           "action_items": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
           "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 20}},
          ["id"], save_notes, False),
@@ -391,6 +409,13 @@ def build_tools(library) -> dict[str, Tool]:
           "description": {"type": "string", "maxLength": 200,
                           "description": "describe: what the tag is for; empty clears it."}},
          ["action", "tag"], manage_tags, False),
+        ("pending_summaries",
+         "Meetings waiting for a summary (new ones from the last 7 days, plus any "
+         "the user asked to summarise or redo), with the summary format to use. "
+         "For each: read the whole transcript with get_transcript, then save the "
+         "summary, action items and tags with save_notes.",
+         {"limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}},
+         [], pending_summaries, True),
     ]
     return {
         name: Tool(name, description,

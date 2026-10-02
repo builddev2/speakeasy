@@ -254,7 +254,7 @@ def test_subprocess_round_trip_every_tool(tmp_path):
     ))
     assert proc.returncode == 0, proc.stderr
     assert by_id[0]["result"]["serverInfo"]["name"] == "speakeasy"
-    assert len(by_id["list"]["result"]["tools"]) == 10
+    assert len(by_id["list"]["result"]["tools"]) == 11
     assert _payload(by_id[1])["meetings"][0]["id"] == mid
     assert _payload(by_id[2])["title"] == "Budget"
     assert _payload(by_id[3])["results"][0]["meeting_id"] == mid

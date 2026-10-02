@@ -46,7 +46,7 @@
     },
     {
       "name": "save_notes",
-      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced. Tags are your own suggestions: call list_tags first and reuse existing tags (any spelling of a tag or its aliases matches it); create a new tag only for a genuinely new topic, at most 3 per call. Replacing tags never removes tags the user added, and tags the user removed from this meeting are skipped."
+      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced. Tags are your own suggestions: call list_tags first and reuse existing tags (any spelling of a tag or its aliases matches it); create a new tag only for a genuinely new topic, at most 3 per call. Replacing tags never removes tags the user added, and tags the user removed from this meeting are skipped. Write summaries in the format pending_summaries returns."
     },
     {
       "name": "tag_meetings",
@@ -55,6 +55,10 @@
     {
       "name": "manage_tags",
       "description": "Rename, merge, delete or describe a tag across all meetings, when the user asks to tidy their tags. Renaming or merging keeps the old name as an alias, so it still finds the tag."
+    },
+    {
+      "name": "pending_summaries",
+      "description": "Meetings waiting for a summary (new ones from the last 7 days, plus any the user asked to summarise or redo), with the summary format to use. For each: read the whole transcript with get_transcript, then save the summary, action items and tags with save_notes."
     }
   ],
   "compatibility": {

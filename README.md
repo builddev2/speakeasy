@@ -377,6 +377,13 @@ What Claude can do:
   kept, and ones you remove are not re-added.
 - `manage_tags` — rename, merge, delete or describe a tag everywhere; old names
   stay as aliases.
+- `pending_summaries` — meetings waiting for a summary (recent unsummarised
+  ones and any you queued in the app), with the summary format Claude uses.
+
+**Automatic summaries.** A Claude Desktop scheduled task checks
+`pending_summaries` every 30 minutes and saves a summary for each waiting
+meeting. In the app, **Summarise** and **Redo summary** queue a meeting for
+the next check. The app itself never goes online.
 
 Claude never sees capture health, device names or audio. The sheet also shows
 when Claude last used the library.

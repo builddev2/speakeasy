@@ -121,26 +121,33 @@ def set_last_profile(name: str | None) -> None:
 
 
 def get_meeting_settings() -> dict:
-    """Offer-to-record toggle and per-calendar include choices. A calendar
+    """Record-offer toggles and per-calendar include choices. A calendar
     missing from calendar_choices uses its default (calendar_sync)."""
     raw = _read().get("meetings")
     raw = raw if isinstance(raw, dict) else {}
     offer = raw.get("offer_to_record")
+    detect = raw.get("detect_calls")
     choices = raw.get("calendar_choices")
     return {
         "offer_to_record": offer if isinstance(offer, bool) else True,
+        "detect_calls": detect if isinstance(detect, bool) else True,
         "calendar_choices": {
             k: v for k, v in choices.items() if isinstance(k, str) and isinstance(v, bool)
         } if isinstance(choices, dict) else {},
     }
 
 
-def set_meeting_settings(*, offer_to_record=None, calendar_choices=None) -> dict:
+def set_meeting_settings(*, offer_to_record=None, detect_calls=None,
+                         calendar_choices=None) -> dict:
     current = get_meeting_settings()
     if offer_to_record is not None:
         if not isinstance(offer_to_record, bool):
             raise ValueError("Offer to record must be on or off.")
         current["offer_to_record"] = offer_to_record
+    if detect_calls is not None:
+        if not isinstance(detect_calls, bool):
+            raise ValueError("Call detection must be on or off.")
+        current["detect_calls"] = detect_calls
     if calendar_choices is not None:
         if (not isinstance(calendar_choices, dict) or len(calendar_choices) > 500
                 or not all(isinstance(k, str) and 0 < len(k) <= 300 and isinstance(v, bool)
@@ -151,6 +158,27 @@ def set_meeting_settings(*, offer_to_record=None, calendar_choices=None) -> dict
     data["meetings"] = current
     _write(data)
     return current
+
+
+# Event keys end in "@<UTC start>", so sorting on that suffix keeps the latest.
+_PROMPTED_MAX = 500
+
+
+def get_prompted_events(day: str) -> set[str]:
+    """Events the record banner already offered on local day `day`, so a
+    relaunch doesn't ask again. Another day's list reads as empty."""
+    raw = _read().get("record_prompted")
+    if not isinstance(raw, dict) or raw.get("day") != day:
+        return set()
+    keys = raw.get("keys")
+    return {k for k in keys if isinstance(k, str)} if isinstance(keys, list) else set()
+
+
+def set_prompted_events(day: str, keys) -> None:
+    latest = sorted(keys, key=lambda k: (k.rsplit("@", 1)[-1], k))[-_PROMPTED_MAX:]
+    data = _read()
+    data["record_prompted"] = {"day": day, "keys": latest}
+    _write(data)
 
 
 # -- model location --------------------------------------------------------

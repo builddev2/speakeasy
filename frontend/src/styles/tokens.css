@@ -93,6 +93,11 @@
   --training-field-bg: rgba(255,255,255,0.06);
   --training-bullet: rgba(255,255,255,0.45);
   --focus-glow: rgba(235,152,93,0.25);
+  --wave-tip: rgba(255,255,255,0.85);
+  --wave-l1: 62%;
+  --wave-l2: 48%;
+  --wave-glow-a: 0.75;
+  --wave-inset: rgba(255,255,255,0.6);
 
   /* Speaker palette (transcript colour-coding) */
   --sp-1:#6FD8B0; --sp-2:#F0B34A; --sp-3:#C08CF2; --sp-4:#6EA8FF;
@@ -191,6 +196,11 @@
     --training-field-bg: rgba(0,0,0,0.04);
     --training-bullet: rgba(0,0,0,0.38);
     --focus-glow: rgba(184,85,31,0.25);
+    --wave-tip: rgba(255,255,255,0.30);
+    --wave-l1: 50%;
+    --wave-l2: 38%;
+    --wave-glow-a: 0.40;
+    --wave-inset: rgba(255,255,255,0.35);
     --serif: ui-serif, "New York", Georgia, serif;
     --shadow-panel: inset 0 1px 0 rgba(255,255,255,0.7),
                     0 18px 50px -20px rgba(20,30,25,0.35),

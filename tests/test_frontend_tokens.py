@@ -95,7 +95,7 @@ def test_pinned_accent_values():
 
 
 SRC = TOKENS.parents[1]
-LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
+LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|:[^;{}]*\b(?:white|black)\b")
 
 
 def test_css_modules_use_tokens_only():

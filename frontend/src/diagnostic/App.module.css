@@ -11,6 +11,6 @@
 .primary { background: var(--diag-primary-bg); color: var(--diag-primary-text); }
 .secondary { background: transparent; color: var(--text); margin-left: 12px; }
 .primary:disabled, .secondary:disabled { opacity: .45; cursor: default; }
-.primary:focus-visible, .secondary:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.primary:focus-visible, .secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .score { font-size: 36px; margin: 22px 0; }
 .score span { font-size: 14px; color: var(--text-mid); }

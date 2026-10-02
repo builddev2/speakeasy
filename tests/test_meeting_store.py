@@ -308,3 +308,94 @@ def test_segments_fts_survives_vacuum_via_explicit_id(library_path):
     assert _fts_hits(conn, "segments_fts", "gamma") == 0
     assert _fts_hits(conn, "segments_fts", "delta") == 1
     conn.close()
+
+
+def _v2_library(path, meetings):
+    """A v2 library file: one meeting per entry, each a list of tag names."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(meeting_store._SCHEMA_V1)
+        conn.executescript(meeting_store._SCHEMA_V2)
+        for i, names in enumerate(meetings):
+            mid = f"20260901-0000{i:02d}-abcd"
+            conn.execute(
+                "INSERT INTO meetings (id, title, started_at, tz_offset_minutes,"
+                " duration_seconds, capture_mode, system_audio_status, capture_scope,"
+                " track_offsets_json, capture_health_json, source, created_at, updated_at)"
+                " VALUES (?, 't', '2026-09-01T00:00:00Z', 0, 60, 'mic', 'off', 'mic',"
+                " '{}', '{}', 'recorded', 'x', 'x')", (mid,))
+            for name in names:
+                conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+                conn.execute("INSERT INTO meeting_tags (meeting_id, tag_id)"
+                             " SELECT ?, id FROM tags WHERE name = ?", (mid, name))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_v3_merges_tags_that_collide_on_slug(library_path):
+    # Insertion order gives ids: Project X=1, project-x=2, Ops=3, !!!=4.
+    _v2_library(library_path, [["Project X"], ["project-x", "Ops"],
+                               ["project-x"], ["!!!"]])
+    conn = meeting_store.connect(library_path)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        tags = {r["slug"]: r["name"] for r in conn.execute("SELECT name, slug FROM tags")}
+        # project-x has the most links, so it survives; an empty slug keeps
+        # its tag under tag<id> rather than losing it.
+        assert tags == {"projectx": "project-x", "ops": "Ops", "tag4": "!!!"}
+        links = conn.execute(
+            "SELECT mt.meeting_id, mt.source, mt.added_at FROM meeting_tags mt"
+            " JOIN tags t ON t.id = mt.tag_id WHERE t.slug = 'projectx'"
+            " ORDER BY mt.meeting_id").fetchall()
+        assert [tuple(r) for r in links] == [
+            ("20260901-000000-abcd", "claude", None),
+            ("20260901-000001-abcd", "claude", None),
+            ("20260901-000002-abcd", "claude", None)]
+        assert _tables(conn) >= {"tag_aliases", "tag_suppressions"}
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO tags (name, slug) VALUES ('PROJECT x!', 'projectx')")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE meeting_tags SET source = 'robot'")
+    finally:
+        conn.close()
+
+
+def test_v3_collision_tie_keeps_the_lowest_id(library_path):
+    _v2_library(library_path, [["B-1"], ["b1"]])
+    conn = meeting_store.connect(library_path)
+    try:
+        assert [tuple(r) for r in conn.execute("SELECT name, slug FROM tags")] == [("B-1", "b1")]
+        assert conn.execute("SELECT COUNT(*) FROM meeting_tags").fetchone()[0] == 2
+    finally:
+        conn.close()
+
+
+def test_concurrent_v3_migration_converges(tmp_path):
+    """The app and the MCP server open a v2 library at the same moment
+    (first launch after install): both succeed and the backfill runs once."""
+    for k in range(10):
+        path = tmp_path / f"lib{k}.sqlite"
+        _v2_library(path, [["Project X"], ["project-x"]])
+        barrier = threading.Barrier(2)
+        errors = [None, None]
+
+        def worker(i, path=path, errors=errors):
+            try:
+                barrier.wait(timeout=10)
+                meeting_store.connect(path).close()
+            except BaseException as exc:  # noqa: BLE001 - surfaced via errors[i]
+                errors[i] = exc
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert errors == [None, None], (k, errors)
+        check = sqlite3.connect(path)
+        try:
+            assert check.execute("PRAGMA user_version").fetchone()[0] == 3
+            assert check.execute("SELECT slug FROM tags").fetchall() == [("projectx",)]
+        finally:
+            check.close()

@@ -14,23 +14,44 @@ interface SettingsSheetProps {
   onExportAll: () => void;
 }
 
-/** Meetings section of Settings: recording offer toggle, calendar checklist, export. */
+/** Meetings section of Settings: record prompts, appearance, calendar checklist, export. */
 export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll }: SettingsSheetProps) {
-  const { offerToRecord, detectCalls, accounts } = settings;
+  const { offerToRecord, detectCalls, appearance, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
 
   return (
     <Sheet ariaLabel="Settings" onClose={onClose} initialFocusRef={doneRef} className={styles.sheet}>
       <div className={styles.title}>Settings</div>
 
+      <div className={styles.sectionTitle}>Record prompts</div>
       <div className={styles.toggleRow}>
-        <span id="offer-to-record-label">Offer to record calendar meetings</span>
+        <span id="offer-to-record-label">
+          Offer to record calendar meetings
+          <span className={styles.hint}>When an event with other people starts</span>
+        </span>
         <Switch checked={offerToRecord} onChange={(value) => onChange({ offerToRecord: value })} ariaLabelledBy="offer-to-record-label" />
       </div>
-
       <div className={styles.toggleRow}>
-        <span id="detect-calls-label">Offer to record calls in other apps</span>
+        <span id="detect-calls-label">
+          Offer to record calls in other apps
+          <span className={styles.hint}>Also asks to stop when the call ends</span>
+        </span>
         <Switch checked={detectCalls} onChange={(value) => onChange({ detectCalls: value })} ariaLabelledBy="detect-calls-label" />
+      </div>
+
+      <div className={styles.sectionTitle}>Appearance</div>
+      <div className={styles.segmented} role="radiogroup" aria-label="Appearance">
+        {(['system', 'light', 'dark'] as const).map((choice) => (
+          <button
+            key={choice}
+            role="radio"
+            aria-checked={appearance === choice}
+            className={appearance === choice ? `${styles.segment} ${styles.segmentOn}` : styles.segment}
+            onClick={() => onChange({ appearance: choice })}
+          >
+            {choice === 'system' ? 'System' : choice === 'light' ? 'Light' : 'Dark'}
+          </button>
+        ))}
       </div>
 
       <div className={styles.sectionTitle}>Calendars</div>

@@ -584,6 +584,7 @@ class AppDelegate(NSObject):
         self.ax_warmer = None
         self.controller = None
         self.main_window = None
+        self.record_prompt = None
         return self
 
     def appDidActivate_(self, notification):
@@ -649,6 +650,12 @@ class AppDelegate(NSObject):
         # TrainingWindowController alongside the status item's, doubling
         # engine.pause() calls and hotkey event taps (see CLAUDE.md).
         self.main_window.window_owner = self.controller
+        from .record_prompt_controller import RecordPromptController
+
+        # Offers to record when a calendar meeting starts or another app
+        # starts using the mic; never records without a click.
+        self.record_prompt = RecordPromptController.alloc().initWithEngine_(engine)
+        record_prompt = self.record_prompt
         # Reverse link: profile switches happen in the status-item menu but
         # must refresh the dock too (no engine state change to ride on).
         self.controller.dock_window = self.main_window
@@ -669,6 +676,9 @@ class AppDelegate(NSObject):
                 b"engineStateChanged:", state.value, False
             )
             main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"engineStateChanged:", state.value, False
+            )
+            record_prompt.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
             )
 
@@ -704,6 +714,7 @@ class AppDelegate(NSObject):
         engine.upgrade_library()
         controller.engineStateChanged_(engine.state.value)
         main_window.engineStateChanged_(engine.state.value)
+        self.record_prompt.engineStateChanged_(engine.state.value)
         # Cold launch from the Dock counts as "the user clicked the icon" —
         # show the fallback window right away rather than only on a later
         # reopen click.
@@ -716,6 +727,8 @@ class AppDelegate(NSObject):
         print(f"Speakeasy in the menu bar{profile_tag}. Hold [{hotkey_name}] to dictate.")
 
     def applicationWillTerminate_(self, notification):
+        if getattr(self, "record_prompt", None) is not None:
+            self.record_prompt.shutdown()
         if getattr(self, "calendar_sync", None) is not None:
             self.calendar_sync.shutdown()
         if getattr(self, "ax_warmer", None) is not None:

@@ -9,8 +9,9 @@ Speakeasy lives in the menu bar as a small skull icon — it turns into a mic
 while recording and a waveform while transcribing. Click its status item to
 see the current state, switch profiles, train, record a meeting, or quit.
 The menu shows a Next-up card for your next calendar meeting. While a meeting
-is recording, a small floating pill shows the elapsed time and lets you stop,
-cancel (with a Discard/Keep confirm) or open a drawer with capture health.
+is recording, a small floating pill shows the elapsed time and offers Notes and
+Stop, plus a drawer with capture health. While a meeting is processing, the pill
+offers Cancel, with a Discard/Keep confirm.
 Speakeasy also has a normal Dock icon; launching it or clicking it opens the
 Meetings window, whose Today home shows what is on now and next. That is the
 way back in when the status item is hidden by menu-bar overflow (common with
@@ -348,14 +349,17 @@ have already added to it) to show your day and to name and label recordings.
   seven days. Click Record on a row to start a meeting for that event.
 - **Recordings:** a meeting started during an event, or up to 10 minutes
   before it, is linked to it. It takes the event's title and its attendees
-  as people. The pill shows the event title while recording.
+  as people. The pill's capture drawer has an Event row: **Link to event…** opens a menu
+  of today's events, and **Unlink** appears when one is linked, so the event can
+  be linked, changed or unlinked while recording.
 - **Speaker count:** the number of attendees caps how many remote voices
   diarization may report (with dual-track capture the cap is the other
   attendees; in mic-only fallback it also counts you). Speakeasy folds the
   quietest and most similar voices together until the count fits. This is an
   upper bound only if everyone who speaks was invited: an uninvited guest can
-  be merged into another voice. An explicit remote-speaker count
-  overrides the cap.
+  be merged into another voice. Every recording started from the UI uses
+  automatic speaker count; an explicit remote-speaker count exists only in the
+  engine and no screen sets it.
 
 ### Record prompts
 
@@ -559,8 +563,8 @@ read but never copied. A 16 kHz mono WAV is required:
 .venv/bin/python -m speakeasy --import-vocabulary Jason terms.txt
 ```
 
-Meeting recording can optionally use the enrolled profiles and an expected
-speaker count. Speaker labels in saved meetings can be clicked and corrected;
+Meeting recording uses enrolled voices only when Settings › Identify enrolled
+voices is on; the speaker count is always automatic from the UI. Speaker labels in saved meetings can be clicked and corrected;
 the correction can apply to one segment or every matching segment. Identification
 is deliberately conservative: weak, ambiguous, or duplicate matches keep their
 anonymous `Speaker N` label.

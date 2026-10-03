@@ -94,7 +94,7 @@ class RecordPromptCoordinator:
             if isinstance(self.banner, CallEnded):
                 self.banner = None
         if state in (RECORDING, PROCESSING) and isinstance(self.banner, Offer):
-            self._close_offer()   # started by hand (menu, Dock, Today view)
+            self._close_offer()   # started by hand (menu, pill, Today view)
         self._state = state
 
     def calendar_tick(self, events, now: datetime, *, offer_enabled: bool) -> None:

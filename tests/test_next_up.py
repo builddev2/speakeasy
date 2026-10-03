@@ -42,3 +42,14 @@ def test_skips_recorded_finished_recording_and_all_day():
 
 def test_nothing_left_is_none():
     assert next_up([ev("done", NOW - timedelta(hours=2))], NOW, None) is None
+
+
+def test_event_in_progress_across_midnight_is_now():
+    now = datetime(2026, 10, 3, 0, 10, tzinfo=UTC)
+    got = next_up([ev("late", now - timedelta(minutes=40), minutes=60)], now, None)
+    assert got["key"] == "late" and got["subtitle"].startswith("Now")
+
+
+def test_just_under_an_hour_does_not_say_60_min():
+    got = next_up([ev("x", NOW + timedelta(minutes=59, seconds=40))], NOW, None)
+    assert got["subtitle"].startswith("at ")

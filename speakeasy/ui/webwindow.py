@@ -93,8 +93,6 @@ class WebWindow:
         min_size: tuple[float, float] | None = None,
     ) -> None:
         from AppKit import (
-            NSAppearance,
-            NSAppearanceNameDarkAqua,
             NSViewHeightSizable,
             NSViewMinYMargin,
             NSViewWidthSizable,
@@ -102,7 +100,7 @@ class WebWindow:
         from Foundation import NSMakeRect, NSURL
         from WebKit import WKWebView, WKWebViewConfiguration
 
-        from speakeasy.ui import glass
+        from speakeasy.ui import appearance, glass
 
         script_handler_cls, nav_delegate_cls, drag_strip_cls = _make_handler_classes()
 
@@ -112,7 +110,9 @@ class WebWindow:
         window, effect = glass.make_glass_window(
             title, width, height, resizable=resizable, min_size=min_size
         )
-        window.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameDarkAqua))
+        # Re-apply the saved app-level appearance (System/Light/Dark) on every
+        # WebWindow init, before the window is shown, so pages follow it.
+        appearance.apply_saved()
         self.window = window
 
         config = WKWebViewConfiguration.alloc().init()

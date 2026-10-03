@@ -15,8 +15,8 @@ from .. import training, training_content
 from ..engine import play_sound
 from .webbridge import BridgeDispatcher
 from .webwindow import WebWindow
+from .window_sizes import SIZES
 
-_W, _H = 640, 440
 
 
 class _Cancelled(Exception):
@@ -83,7 +83,11 @@ class TrainingWindowController(NSObject):
         dispatcher.register("training.listSessions", self._list_sessions)
         dispatcher.register("training.startSession", self._start_session)
         dispatcher.register("training.practice", self._practice)
-        self._web = WebWindow("Training", _W, _H, "training", dispatcher)
+        size = SIZES["training"]
+        self._web = WebWindow("Training", *size.default, "training", dispatcher,
+                              resizable=True, min_size=size.minimum)
+        # Overrides the centred default frame when a saved one exists.
+        self._web.window.setFrameAutosaveName_(size.autosave)
         self._web.window.setDelegate_(self)
         return self
 

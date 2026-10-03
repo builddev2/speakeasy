@@ -366,6 +366,13 @@ stopped from a banner follows a click on that banner's button.
 - **Settings:** two toggles in **Meetings › Settings**, "Offer to record
   calendar meetings" and "Offer to record calls in other apps" (both on by
   default).
+- **Turn off from the banner:** the banner's **⋯** menu has "Turn off calendar
+  prompts" or "Turn off call prompts". A notice, "Calendar prompts are off" or
+  "Call prompts are off", shows for 5 seconds with **Undo**; it also says
+  "Turn back on in Meetings › Settings". This never starts or stops a recording.
+- **Appearance:** **Meetings › Settings › Appearance** is System, Light or Dark,
+  applied to every window at once (System follows macOS, including at sunset).
+- **Window sizes:** every window resizes and reopens at the size you left it.
 - **Privacy:** the only thing checked is whether another app is using the
   microphone. Which app, and its process IDs, are never stored, logged or
   shown, and nothing extra is recorded. Calendar offers read the cached

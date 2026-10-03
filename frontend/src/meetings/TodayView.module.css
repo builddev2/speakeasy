@@ -9,6 +9,9 @@
 
 .header {
   flex-shrink: 0;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 18px 24px 6px;
 }
 
@@ -19,6 +22,9 @@
 }
 
 .agenda {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 6px 24px 24px;
 }
 
@@ -59,7 +65,7 @@ button.row:hover {
 
 .time {
   flex-shrink: 0;
-  width: 116px;
+  width: 9.5em;
   font: 400 12.5px/1.4 var(--sans);
   color: var(--text-mid);
 }
@@ -113,14 +119,14 @@ button.row:hover {
   border: none;
   border-radius: 7px;
   background: var(--coral-1);
-  color: var(--text-on-accent);
+  color: var(--on-accent);
   font: 600 12px/1 var(--sans);
   cursor: pointer;
 }
 
 .row:focus-visible,
 .recordButton:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -139,7 +145,7 @@ button.row:hover {
 
 @media (prefers-reduced-transparency: reduce) {
   button.row:hover {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }
 
@@ -208,7 +214,7 @@ button.row:hover {
 }
 
 .disclosureRow:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -230,6 +236,6 @@ button.row:hover {
 
 @media (prefers-reduced-transparency: reduce) {
   .disclosureRow:hover {
-    background: #1b1f1d;
+    background: var(--surface-opaque);
   }
 }

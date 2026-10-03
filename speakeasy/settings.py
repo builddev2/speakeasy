@@ -160,6 +160,26 @@ def set_meeting_settings(*, offer_to_record=None, detect_calls=None,
     return current
 
 
+# -- appearance -----------------------------------------------------------------
+
+APPEARANCES = ("system", "light", "dark")
+
+
+def get_appearance() -> str:
+    """System (follow macOS), light or dark; anything unreadable is system."""
+    value = _read().get("appearance")
+    return value if value in APPEARANCES else "system"
+
+
+def set_appearance(choice) -> str:
+    if choice not in APPEARANCES:
+        raise ValueError("Appearance must be System, Light or Dark.")
+    data = _read()
+    data["appearance"] = choice
+    _write(data)
+    return choice
+
+
 # Event keys end in "@<UTC start>", so sorting on that suffix keeps the latest.
 _PROMPTED_MAX = 500
 

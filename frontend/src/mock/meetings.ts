@@ -32,7 +32,8 @@ export interface EventChip { key: string; title: string; time: string }
 export interface UpcomingDay { dayLabel: string; events: AgendaEvent[] }
 export interface CalendarToggle { id: string; name: string; enabled: boolean }
 export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
-export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; accounts: CalendarAccountSettings[] }
+export type Appearance = 'system' | 'light' | 'dark';
+export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; accounts: CalendarAccountSettings[] }
 
 export type SummaryBlock =
   | { kind: 'tldr'; text: string }
@@ -626,6 +627,7 @@ export const MOCK_EVENTS_FOR_DAY: EventChip[] = [
 export const MOCK_MEETING_SETTINGS: MeetingSettings = {
   offerToRecord: true,
   detectCalls: true,
+  appearance: 'system',
   accounts: [
     {
       name: 'iCloud',

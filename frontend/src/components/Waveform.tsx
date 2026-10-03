@@ -19,8 +19,8 @@ function buildBars(): Bar[] {
     return {
       key: i,
       style: {
-        background: `linear-gradient(180deg, rgba(255,255,255,0.85), hsl(${hue} 92% 62%) 42%, hsl(${hue} 88% 48%))`,
-        boxShadow: `0 0 7px 0 hsl(${hue} 95% 60% / 0.75), inset 0 0 2px 0 rgba(255,255,255,0.6)`,
+        background: `linear-gradient(180deg, var(--wave-tip), hsl(${hue} 92% var(--wave-l1)) 42%, hsl(${hue} 88% var(--wave-l2)))`,
+        boxShadow: `0 0 7px 0 hsl(${hue} 95% var(--wave-l1) / var(--wave-glow-a)), inset 0 0 2px 0 var(--wave-inset)`,
         animation: `pill ${duration}s ${delay}s ease-in-out infinite`,
       },
     };

@@ -42,7 +42,9 @@ def test_cancel_processing_is_registered_and_cancels_engine(monkeypatch):
     dispatcher = _Dispatcher()
     monkeypatch.setattr(main_window, "BridgeDispatcher", lambda: dispatcher)
     monkeypatch.setattr(main_window, "WebWindow", lambda *a, **k: type(
-        "W", (), {"window": type("Win", (), {"setDelegate_": lambda self, d: None})()})())
+        "W", (), {"window": type("Win", (), {
+            "setDelegate_": lambda self, d: None,
+            "setFrameAutosaveName_": lambda self, n: None})()})())
 
     class _Engine:
         calls = 0

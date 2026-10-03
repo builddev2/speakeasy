@@ -31,7 +31,7 @@ const MOCK_SESSIONS: SessionInfo[] = [
 
 function CheckIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E8955A" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--coral-1)" }} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 13l4 4L19 7" />
     </svg>
   );

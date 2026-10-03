@@ -6,16 +6,16 @@
   cursor: pointer;
   font: 600 16px/1 var(--sans);
   letter-spacing: .1px;
-  color: #fff;
+  color: var(--button-primary-text);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  background: linear-gradient(180deg, rgba(235,152,93,0.92), rgba(214,120,68,0.80));
-  border: 0.5px solid rgba(255,255,255,0.35);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 8px 22px -8px rgba(217,122,69,0.7), 0 2px 6px rgba(0,0,0,0.3);
+  background: var(--button-primary-bg);
+  border: 0.5px solid var(--button-primary-border);
+  box-shadow: var(--shadow-button-primary);
 }
 
 .danger {
-  background: linear-gradient(180deg, rgba(255,90,78,0.92), rgba(226,59,50,0.80));
-  border-color: rgba(255,255,255,0.32);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 8px 22px -8px rgba(226,59,50,0.65), 0 2px 6px rgba(0,0,0,0.3);
+  background: var(--button-rec-bg);
+  border-color: var(--button-rec-border);
+  box-shadow: var(--shadow-button-rec);
 }

@@ -9,7 +9,9 @@ interface GlassPanelProps {
 }
 
 export function GlassPanel({ width, height, children }: GlassPanelProps) {
-  const style: CSSProperties = bridge.embedded
+  // `?fit` lets the browser preview resize like the real window.
+  const fit = bridge.embedded || new URLSearchParams(window.location.search).has('fit');
+  const style: CSSProperties = fit
     ? { width: '100vw', height: '100vh' }
     : { width, height };
   const className = bridge.embedded

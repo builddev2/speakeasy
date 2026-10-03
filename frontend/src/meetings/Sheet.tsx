@@ -25,7 +25,8 @@ export function Sheet({ ariaLabel, onClose, initialFocusRef, role = 'dialog', cl
   const onKeyDown = useFocusTrap(sheetRef, onClose);
 
   useEffect(() => {
-    initialFocusRef.current?.focus();
+    initialFocusRef.current?.focus({ preventScroll: true });
+    if (sheetRef.current) sheetRef.current.scrollTop = 0;
     // Only run on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

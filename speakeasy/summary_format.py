@@ -36,6 +36,9 @@ Rules:
 - If the meeting is under 2 minutes or has almost no content, the summary is
   just "TL;DR: Too short to summarise." with no sections, no action items
   and no tags.
+- If get_meeting returns user_notes, read them first: what the user wrote
+  down is what mattered. Build the summary on them; don't copy them back word
+  for word. Their checklist items stay theirs: don't repeat them as action items.
 - Save with save_notes (summary, action_items and tags together)."""
 
 _MD_HEADING = re.compile(r"^#{1,6}\s+(.*)$")

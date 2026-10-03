@@ -15,6 +15,7 @@ from pathlib import Path
 from speakeasy import mcp_setup
 from speakeasy import meetings as meeting_render
 from speakeasy import settings
+from speakeasy.meeting_export import render_export_md
 from speakeasy.summary_format import parse_summary
 from speakeasy.meeting_library import (
     LibraryWatcher, MeetingLibrary, MeetingNotFound, local_start,
@@ -63,13 +64,17 @@ def _wallclock_lines(segments, meeting_local_start: datetime) -> list[dict]:
     return lines
 
 
+_NOT_RECORDING = {"recording": False, "processing": False, "startedAt": None, "title": None}
+
+
 class BridgeError(Exception):
     """A named error code (the message) for the page, not a bug."""
 
 
 class MeetingsBridge:
     def __init__(self, library=None, now=None, set_clipboard=None, open_path=None,
-                 calendar=None, begin_meeting=None, recording_event_key=None, open_url=None):
+                 calendar=None, begin_meeting=None, recording_event_key=None, open_url=None,
+                 recording_info=None):
         self.library = library or MeetingLibrary()
         # Opens a file/folder in its default app; AppKit-backed in the real
         # window, a no-op here so this module stays pure-Python.
@@ -87,6 +92,7 @@ class MeetingsBridge:
         self._begin_meeting = begin_meeting
         self._recording_event_key = recording_event_key or (lambda: None)
         self._open_url = open_url or (lambda url: None)
+        self._recording_info = recording_info or (lambda: dict(_NOT_RECORDING))
 
     def register(self, dispatcher) -> None:
         for method, fn in {
@@ -113,6 +119,12 @@ class MeetingsBridge:
             "meetings.eventsForDay": self.events_for_day_payload,
             "settings.meetings.get": self.settings_get_payload,
             "settings.meetings.set": self.settings_set_payload,
+            "notes.user.set": self.notes_set_payload,
+            "notes.draft.get": self.draft_get_payload,
+            "notes.draft.set": self.draft_set_payload,
+            "notes.draft.discard": self.draft_discard_payload,
+            "notes.draft.finish": self.draft_finish_payload,
+            "recording.get": self.recording_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 
@@ -293,12 +305,46 @@ class MeetingsBridge:
             "summaryBlocks": parse_summary(m.notes.summary if m.notes else ""),
             "summaryQueued": self.library.summary_pending(m.meeting_id, now=self._now()),
             "actionItems": m.notes.action_items if m.notes else [],
+            "hasUserNotes": bool(m.user_notes),
+            "userNotes": {"markdown": m.user_notes.markdown if m.user_notes else "",
+                          "stamps": [list(s) for s in m.user_notes.stamps] if m.user_notes else []},
             # Never look up a None key: only linked meetings have an event.
             "event": (calendar_payloads.event_chip(ev, self._now().tzinfo)
                       if m.calendar_event_id
                       and (ev := self.library.calendar_event(m.calendar_event_id)) else None),
         })
         return detail
+
+    def notes_set_payload(self, params) -> dict:
+        notes = self.library.set_user_notes(str(params.get("id", "")),
+                                            str(params.get("markdown") or ""),
+                                            params.get("stamps") or [])
+        return {"updatedAt": notes.updated_at if notes else None}
+
+    def draft_get_payload(self, params) -> dict | None:
+        d = self.library.get_draft()
+        return None if d is None else {"markdown": d.markdown,
+                                       "stamps": [list(s) for s in d.stamps],
+                                       "startedAt": d.started_at}
+
+    def draft_set_payload(self, params) -> dict:
+        d = self.library.set_draft(str(params.get("markdown") or ""), params.get("stamps") or [],
+                                   str(params.get("startedAt", "")))
+        return {"updatedAt": d.updated_at}
+
+    def draft_discard_payload(self, params) -> bool:
+        self.library.discard_draft()
+        return True
+
+    def draft_finish_payload(self, params) -> dict:
+        notes = self.library.finish_draft(str(params.get("id", "")),
+                                          str(params.get("markdown") or ""),
+                                          params.get("stamps") or [],
+                                          str(params.get("startedAt", "")))
+        return {"updatedAt": notes.updated_at if notes else None}
+
+    def recording_payload(self, params) -> dict:
+        return {**_NOT_RECORDING, **(self._recording_info() or {})}
 
     def search_payload(self, params) -> list[dict]:
         results = []
@@ -352,7 +398,7 @@ class MeetingsBridge:
         instead of meetings_window.py's old bespoke (and untested)
         try/except MeetingNotFound."""
         meeting = self.library.get_meeting(str(params.get("id", "")))
-        self._set_clipboard(meeting_render.render_txt(meeting))
+        self._set_clipboard(render_export_md(meeting))
         return True
 
     def export_meeting(self, params):

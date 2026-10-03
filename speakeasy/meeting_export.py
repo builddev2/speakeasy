@@ -5,7 +5,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from .meeting_library import MeetingLibrary, MeetingNotFound
+from .meeting_library import NOTES_LINE_PREFIX, MeetingLibrary, MeetingNotFound
 from .meetings import render_md
 
 _UNSAFE = re.compile(r'[/\\:*?"<>|\x00-\x1f]')
@@ -27,6 +27,30 @@ def safe_filename(title: str, fallback: str) -> str:
     return name or fallback
 
 
+def format_elapsed(seconds: float) -> str:
+    """0:03, 12:40, 1:02:15 — matches the page's formatElapsed."""
+    s = max(0, int(seconds))
+    h, rem = divmod(s, 3600)
+    m, ss = divmod(rem, 60)
+    return f"{h}:{m:02d}:{ss:02d}" if h else f"{m}:{ss:02d}"
+
+
+def notes_section(stored) -> list[str]:
+    """'## My notes' with each stamped line prefixed '[12:40] ' after its list marker."""
+    notes = getattr(stored, "user_notes", None)
+    if not notes or not notes.markdown.strip():
+        return []
+    stamps = dict(notes.stamps)
+    lines = []
+    for i, line in enumerate(notes.markdown.split("\n")):
+        if i in stamps:
+            m = NOTES_LINE_PREFIX.match(line)
+            cut = m.end() if m else 0
+            line = f"{line[:cut]}[{format_elapsed(stamps[i])}] {line[cut:]}"
+        lines.append(line)
+    return ["## My notes", "", *lines, ""]
+
+
 def render_export_md(stored) -> str:
     body = render_md(stored)
     title_line, _, rest = body.partition("\n")
@@ -35,6 +59,7 @@ def render_export_md(stored) -> str:
         extra += ["## Summary", "", stored.notes.summary, ""]
     if stored.notes and stored.notes.action_items:
         extra += ["## Action items", ""] + [f"- [ ] {a}" for a in stored.notes.action_items] + [""]
+    extra += notes_section(stored)
     if stored.tags:
         extra += [f"Tags: {', '.join(stored.tags)}", ""]
     if stored.people:

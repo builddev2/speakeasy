@@ -456,7 +456,7 @@ def test_v4_adds_summary_requests(library_path):
     conn = meeting_store.connect(library_path)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(summary_requests)")]
     assert cols == ["meeting_id", "requested_at"]
-    assert meeting_store.SCHEMA_VERSION == 4
+    assert meeting_store.SCHEMA_VERSION == 5
     conn.close()
 
 
@@ -471,7 +471,7 @@ def test_migrates_populated_v3_library_to_v4(library_path):
     conn.executescript("DROP TABLE summary_requests; PRAGMA user_version = 3;")
     conn.close()
     conn = meeting_store.connect(library_path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     assert conn.execute("SELECT COUNT(*) FROM summary_requests").fetchone()[0] == 0
     assert conn.execute("SELECT id FROM meetings").fetchone()["id"] == mid
     conn.close()

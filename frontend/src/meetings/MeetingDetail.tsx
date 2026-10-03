@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { EventChip, MeetingDetail as MeetingDetailType, SummaryBlock, TranscriptLine } from '../mock/meetings';
+import type { EventChip, MeetingDetail as MeetingDetailType, NotesValue, SummaryBlock, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
 import { formatElapsed, groupTurns } from './transcriptTurns';
 import styles from './MeetingDetail.module.css';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import { useOverlayEscape } from './overlayStack';
+import { NotesEditor } from './NotesEditor';
 
-type Tab = 'summary' | 'transcript';
+type Tab = 'summary' | 'transcript' | 'notes';
 
 export interface JumpTarget {
   /** The meeting this jump targets — the effect waits for `detail` to catch
@@ -18,7 +19,7 @@ export interface JumpTarget {
   meetingId: string;
   segmentIndex: number | null;
   seconds: number | null;
-  kind: 'transcript' | 'notes';
+  kind: 'transcript' | 'notes' | 'user_notes';
   /** Bumped on every selection so re-jumping to the same line still fires. */
   nonce: number;
 }
@@ -34,6 +35,7 @@ interface MeetingDetailProps {
   onCopy: () => void;
   onExport: () => void;
   onRequestSummary: () => void;
+  onSaveNotes: (id: string, value: NotesValue) => Promise<void>;
   jumpTarget?: JumpTarget | null;
   /** Same-day events the meeting can be linked to; the chip menu fetches on open. */
   onLoadEvents?: () => Promise<EventChip[]>;
@@ -124,6 +126,7 @@ export function MeetingDetail({
   onCopy,
   onExport,
   onRequestSummary,
+  onSaveNotes,
   jumpTarget,
   onLoadEvents,
   onLinkEvent,
@@ -161,7 +164,7 @@ export function MeetingDetail({
 
   useEffect(() => {
     if (!detail) return;
-    setTab(forcedTab ?? (detail.summary ? 'summary' : 'transcript'));
+    setTab(forcedTab ?? (detail.summary ? 'summary' : detail.hasUserNotes ? 'notes' : 'transcript'));
     setRenaming(false);
     setMenuOpen(false);
     setEventMenuOpen(false);
@@ -175,6 +178,34 @@ export function MeetingDetail({
       highlightTimer.current = null;
     }
   }, [detail?.id, forcedTab]);
+
+  // Scrolls a transcript line into view and flashes it (no flash under Reduce
+  // Motion). Returns a cancel function for the pending scroll.
+  function flashSegment(index: number): () => void {
+    const raf = window.requestAnimationFrame(() => {
+      lineRefs.current
+        .get(index)
+        ?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    });
+    if (!prefersReducedMotion()) {
+      setHighlightSegment(index);
+      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+      highlightTimer.current = window.setTimeout(() => setHighlightSegment(null), 1200);
+    }
+    return () => window.cancelAnimationFrame(raf);
+  }
+
+  // A notes stamp → the transcript line at or just before that time.
+  function jumpToSeconds(seconds: number) {
+    if (!detail) return;
+    setTab('transcript');
+    let best: TranscriptLine | null = null;
+    for (const line of detail.lines) {
+      if (line.start <= seconds && (best === null || line.start > best.start)) best = line;
+    }
+    const target = best ?? detail.lines[0] ?? null;
+    if (target) flashSegment(target.segmentIndex);
+  }
 
   // Search → Transcript jump: switch tab (Summary for notes hits), scroll the
   // matching line into view (or the nearest by `start` when there's no exact
@@ -193,6 +224,10 @@ export function MeetingDetail({
     if (detail.id !== jumpTarget.meetingId) return;
     if (consumedJumpNonceRef.current === jumpTarget.nonce) return;
     consumedJumpNonceRef.current = jumpTarget.nonce;
+    if (jumpTarget.kind === 'user_notes') {
+      setTab('notes');
+      return;
+    }
     if (jumpTarget.kind === 'notes') {
       setTab('summary');
       return;
@@ -209,18 +244,7 @@ export function MeetingDetail({
       targetIndex = best?.segmentIndex ?? null;
     }
     if (targetIndex === null) return;
-    const resolvedIndex = targetIndex;
-    const raf = window.requestAnimationFrame(() => {
-      lineRefs.current
-        .get(resolvedIndex)
-        ?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-    });
-    if (!prefersReducedMotion()) {
-      setHighlightSegment(resolvedIndex);
-      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
-      highlightTimer.current = window.setTimeout(() => setHighlightSegment(null), 1200);
-    }
-    return () => window.cancelAnimationFrame(raf);
+    return flashSegment(targetIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpTarget, detail?.id]);
 
@@ -368,7 +392,7 @@ export function MeetingDetail({
     <div className={styles.detail} onKeyDown={onDetailKeyDown}>
       <div className={styles.toolbar}>
         {detail && (
-        <div className={styles.segmented} role="tablist" aria-label="Summary or transcript">
+        <div className={styles.segmented} role="tablist" aria-label="Summary, transcript or notes">
           <button
             role="tab"
             aria-selected={tab === 'summary'}
@@ -384,6 +408,14 @@ export function MeetingDetail({
             onClick={() => setTab('transcript')}
           >
             Transcript
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === 'notes'}
+            className={tab === 'notes' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+            onClick={() => setTab('notes')}
+          >
+            Notes
           </button>
         </div>
         )}
@@ -646,6 +678,13 @@ export function MeetingDetail({
                   </div>
                 )}
               </div>
+            ) : tab === 'notes' ? (
+              <NotesEditor
+                key={detail.id}
+                initial={detail.userNotes}
+                save={(v) => onSaveNotes(detail.id, v)}
+                onStampClick={(s) => jumpToSeconds(s)}
+              />
             ) : (
               <div ref={transcriptRef} className={styles.transcriptPane} tabIndex={0}>
                 {findOpen && (

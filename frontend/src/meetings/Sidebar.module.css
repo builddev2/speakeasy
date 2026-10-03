@@ -141,6 +141,32 @@
   flex-shrink: 0;
 }
 
+.recLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--rec);
+}
+
+.recDotIdle {
+  background: var(--text-lo);
+}
+
+.elapsed {
+  flex-shrink: 0;
+  font: 400 11px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-lo);
+}
+
 .footer {
   display: flex;
   align-items: center;

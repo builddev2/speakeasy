@@ -1572,4 +1572,61 @@ git commit -m "Search: label summary and notes matches, open notes hits on the N
 
 ## Execution notes
 
-(Empty. Record rulings, deviations, models per dispatch, test counts and live-check results here as tasks complete.)
+### Progress (2 Oct 2026, paused by the user)
+
+- Branch `meeting-notepad`, worktree `.claude/worktrees/meeting-notepad`. Ledger with every ruling and deferred minor: `.superpowers/sdd/2026-10-02-meeting-notepad/progress.md` (git-ignored, in the worktree).
+- **Task 1 complete** (762eae3..1d6d31b; one fix round added FTS trigger-sync and real rebuild tests). **Task 2 complete** (..dfb0f93). **Task 3 complete** (..dd687dd). **Task 4 complete** (..22b1d9a). Each: Sonnet implementer, Opus reviewer with mutation checks.
+- **Task 5 implemented, NOT yet reviewed** (22b1d9a..8c4d34d). Next step: Opus task review of that range, then Task 6. Deviations to judge: offline-check test expects 6 hits (the CSS `@import url(...)` matches two patterns); `check-offline.mjs` uses `fileURLToPath` because the repo path has spaces; `npm audit` advisories were reported on install and not addressed.
+- Plan-time decision recorded: `user_notes` uses `id INTEGER PRIMARY KEY` + `meeting_id UNIQUE` (stable FTS rowid).
+- Carry into Task 7: (a) cancel the debounced draft save before `notes.draft.finish` and never send `notes.draft.set` after it; (b) read `recording.startedAt` only while `recording || processing` (the engine keeps the last start after a meeting ends).
+- Tell the user at the end: a cancelled recording's notes are adopted by the next recording if it starts within 10 minutes (the spec's window); Copy is now Markdown.
+- Deferred minors for the final review (details in the ledger): `_check_stamps` should reject NaN/inf and non-lists with ValueError; `finish_draft` should reject naive `startedAt` with ValueError and truncate sub-seconds like adoption does; null markdown saved as "None"; `recording.get` should drop `startedAt` when idle; draft window edges and finish shift untested; export test should stamp nested/heading lines; stale docstrings.
+
+### Execution record (3 Oct 2026) — all tasks complete; merged to master with UI checks waived
+
+**UI checks waived by the user (3 Oct 2026).** The user chose to skip the UI checks listed below and merge. The notepad has therefore been tested in code (unit/node/build suites) and at data level only (temp-HOME run of the built app); **no person or agent has looked at it on screen.** Treat the UI checks below as still open: run them before relying on the Notes tab, Recording now row, stamps, or light/dark legibility.
+
+Every task: Sonnet implementer, Opus reviewer with mutation checks.
+
+| Task | Commits | Review |
+|---|---|---|
+| 1 | 762eae3..1d6d31b | clean after 1 fix round (FTS sync + rebuild tests) |
+| 2 | ..dfb0f93 | clean; 9/12 mutations |
+| 3 | ..dd687dd | clean; 9/9 |
+| 4 | ..22b1d9a | clean; 7/7 |
+| 5 | ..67d5e29 | 1 fix round: Markdown `MARKER` no longer escapes a leading `*` (paragraph "*x" was corrupted on each save); 17/18 + fix caught |
+| 6 | ..c4fd0e1 | 1 fix round: a line keeps its stamp when it becomes or leaves a list item; 5/5 + 2/2 (browser) |
+| 7 | ..e19c12f | clean; 8/8 |
+| 8 | ..9dec8e4 | clean; 4/4 |
+| 9 docs | ..0f1f1e0 | — |
+| Final review (Opus) | fixes ..58e5637 | "With fixes": README leftover-draft wording, AGENTS.md `user_notes_fts` name and offline-check wording; plus null markdown → `""`, `_check_stamps` rejects NaN/inf, finish_draft shift test (closes surviving mutation M4). Re-review: 6/6 addressed. |
+
+Final suite at 58e5637: pytest 1065 passed, node tests 20 passed, frontend build (with offline check) OK.
+
+**Rulings made during execution** (each with its cost if wrong):
+1. Reviewers mutate the worktree temporarily and restore — cost: a leftover mutation (controller checked `git status` after each).
+2. Task 1: FTS trigger-sync and real rebuild tests added beyond the plan — cost: a few extra tests.
+3. Task 5: removed `|\\` from the brief's `MARKER` (plan-mandated code broke lossless round trip) — cost: a literal leading backslash may not be escaped (rare).
+4. Task 6: stamps move between a list item and its paragraph on wrap/unwrap (brief's code dropped them) — cost: a little extra code in `appendTransaction`.
+5. Task 7: `NotesEditor` `valueRef` means "take the final value": it cancels the pending/retry save and stops further saves, so no `notes.draft.set` follows `notes.draft.finish` — cost: if later used for a non-final read, that editor stops saving.
+6. Final wave also took the reviewer's recommended one-liners and the shift test — cost: small extra diff.
+
+**Real-app evaluation (Opus, Task 9 Step 3):** screen access was declined, so the agent checked only at data level, against a temp HOME with the built `dist/` app. Passed: schema v5 created; `recording.get` idle/recording/processing; a real 60 s synthetic meeting (Parakeet ASR + diarization) adopted the draft with correct stamps; `notes.draft.finish` hand-off; stamps fall inside the transcript; every autosave triggers `meetings.changed`; notes survive quit/relaunch (read via the built binary's MCP); bundle offline. No bugs found.
+
+**Still for the user (UI, not seen by any agent; waived at merge, still open)** — in Terminal.app with a test HOME (the worktree is deleted after merge, so build `dist/` from master first with `scripts/build_app.sh`):
+```
+mkdir -p /tmp/se-notes-home
+HOME=/tmp/se-notes-home dist/Speakeasy.app/Contents/MacOS/Speakeasy
+```
+1. Record a ~1 min meeting (or play `say` audio while recording); in Meetings open its **Notes** tab, type a heading, bullet and checklist item; "Saved" appears.
+2. Type steadily ~10 s: no lost characters, caret doesn't jump, focus stays (each autosave refreshes the list). Also watch for the selection moving if the open meeting drops out of the current list/filter (unverified risk).
+3. Start a meeting recording: **Recording now** row appears within ~2 s, time ticking; open it, type two lines seconds apart — each gets a stamp. Stop; when processing finishes the saved meeting opens on **Notes** with the lines and stamps.
+4. Click a stamp: the transcript scrolls to and highlights that time.
+5. Quit the test copy, relaunch with the same command: notes and stamps are still there.
+6. Switch light/dark: editor, toolbar, stamps, Recording now row and sidebar stay legible.
+7. Optional: `sqlite3 -readonly "$HOME/Library/Application Support/Speakeasy/library.sqlite" "PRAGMA user_version"` in your normal shell still prints 4 (the agent's read was blocked).
+8. Quit the test copy; `rm -rf /tmp/se-notes-home`.
+
+**Tell the user:** a cancelled recording's notes join the next recording that starts within 10 minutes of it (spec window), or the next meeting saved while they're open/edited on Recording now; Copy is now Markdown (summary, action items, My notes, transcript), and the date line lands under "## Transcript" when extras exist.
+
+**Deferred minors (final review triaged all as "stay"):** `recording.get` keeps the last `startedAt` while idle (page ignores it); adoption errors would abort `save_meeting` (no reachable path; a try/except would harden it); every autosave re-fetches the selected meeting's full transcript (watch on long meetings); pasted `<br>` lines and table cells run together; leftover notice stays visible after typing; converter edge cases (bullet text starting "[ ] " reloads as a checklist, italic with a leading space, 4-space indents); offline check doesn't scan static `https` imports, `new Worker`, img/iframe, `.mjs`; Backspace merging a stamped paragraph into a list item drops its stamp; fallback `startedAt` ms vs whole seconds (unreachable: engine always sets the start); `npm audit --omit=dev` not run (needs network); no automated DOM tests for the editor, labels or hand-off.

@@ -8,6 +8,7 @@ UTC offset captured at recording start.
 """
 
 import json
+import math
 import re
 import secrets
 from contextlib import contextmanager
@@ -177,6 +178,66 @@ class MeetingSummary:
         return local_start(self.started_at, self.tz_offset_minutes)
 
 
+USER_NOTES_MAX_CHARS = 200_000
+
+# Line markers the notepad's Markdown uses (see frontend/src/meetings/notesMarkdown.ts).
+NOTES_LINE_PREFIX = re.compile(r"^\s*(?:#{1,2} |[-*] \[[ xX]\] |[-*] |\d+\. )")
+_MD_INLINE = re.compile(r"\\(.)|\*+")
+
+
+def notes_plain_text(markdown: str) -> str:
+    """The notepad's Markdown as plain lines for search: list/heading markers
+    and emphasis removed, backslash escapes resolved, blank lines dropped."""
+    out = []
+    for line in markdown.splitlines():
+        if not line.startswith("\\"):
+            line = NOTES_LINE_PREFIX.sub("", line)
+        line = _MD_INLINE.sub(lambda m: m.group(1) or "", line).strip()
+        if line:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _check_stamps(stamps) -> list[tuple[int, float]]:
+    """[(line, seconds)] with a non-negative int line and number; else ValueError."""
+    out = []
+    for item in stamps or []:
+        try:
+            line, seconds = item
+        except (TypeError, ValueError):
+            raise ValueError("Invalid note stamps") from None
+        if (isinstance(line, bool) or not isinstance(line, int) or line < 0
+                or isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                or not math.isfinite(seconds) or seconds < 0):
+            raise ValueError("Invalid note stamps")
+        out.append((line, round(float(seconds), 1)))
+    return out
+
+
+@dataclass
+class UserNotes:
+    markdown: str
+    stamps: list[tuple[int, float]]
+    updated_at: str
+
+
+DRAFT_EARLY_WINDOW = timedelta(minutes=10)
+
+
+@dataclass
+class NoteDraft:
+    markdown: str
+    stamps: list[tuple[int, float]]   # seconds since started_at
+    started_at: str                   # UTC ISO, the recording's start
+    updated_at: str
+
+
+def _adopt_stamps(stamps, drafted: datetime, meeting_start: datetime) -> list[tuple[int, float]]:
+    """Re-base draft stamps (seconds since the draft's start) onto the meeting."""
+    shift = (drafted - meeting_start).total_seconds()
+    return [(line, max(0.0, round(s + shift, 1))) for line, s in stamps]
+
+
 @dataclass
 class StoredMeeting:
     meeting_id: str
@@ -198,6 +259,7 @@ class StoredMeeting:
     people: list[str]
     speakers: list[str] = field(default_factory=list)
     segment_count: int = 0
+    user_notes: UserNotes | None = None
 
     @property
     def local_start(self) -> datetime:
@@ -223,7 +285,7 @@ class SearchHit:
     title: str
     started_at: str
     tz_offset_minutes: int
-    kind: str  # "transcript" or "notes"
+    kind: str  # "transcript", "notes" or "user_notes"
     speaker: str | None
     start_seconds: float | None
     end_seconds: float | None
@@ -353,7 +415,69 @@ class MeetingLibrary:
 
     def save_meeting(self, new: NewMeeting) -> str:
         with self._transaction() as conn:
-            return self._insert(conn, new)
+            meeting_id = self._insert(conn, new)
+            self._adopt_draft(conn, meeting_id, new)
+            return meeting_id
+
+    def _adopt_draft(self, conn, meeting_id: str, new: NewMeeting) -> None:
+        """Attach the notes typed during this recording (engine.py stays untouched:
+        the library is the one place every saved recording passes through)."""
+        row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
+        if row is None:
+            return
+        drafted = datetime.fromisoformat(row["started_at"])
+        start = new.started_at
+        if not (start - DRAFT_EARLY_WINDOW <= drafted
+                <= start + timedelta(seconds=float(new.duration_seconds))):
+            return
+        stamps = _adopt_stamps([tuple(s) for s in json.loads(row["stamps_json"])], drafted, start)
+        self._write_user_notes(conn, meeting_id, row["markdown"], stamps)
+        conn.execute("DELETE FROM note_draft WHERE id = 1")
+
+    def get_draft(self) -> NoteDraft | None:
+        with self._transaction() as conn:
+            row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
+        if row is None:
+            return None
+        return NoteDraft(row["markdown"], [tuple(s) for s in json.loads(row["stamps_json"])],
+                         row["started_at"], row["updated_at"])
+
+    def set_draft(self, markdown: str, stamps, started_at: str) -> NoteDraft:
+        markdown = str(markdown)
+        if len(markdown) > USER_NOTES_MAX_CHARS:
+            raise ValueError("Notes are too long to save")
+        checked = _check_stamps(stamps)
+        drafted = utc_iso(datetime.fromisoformat(str(started_at)))
+        now = _now_iso()
+        with self._transaction() as conn:
+            conn.execute(
+                "INSERT INTO note_draft (id, markdown, stamps_json, started_at, updated_at)"
+                " VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET"
+                " markdown = excluded.markdown, stamps_json = excluded.stamps_json,"
+                " started_at = excluded.started_at, updated_at = excluded.updated_at",
+                (markdown, json.dumps([list(s) for s in checked]), drafted, now))
+        return NoteDraft(markdown, checked, drafted, now)
+
+    def discard_draft(self) -> None:
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM note_draft WHERE id = 1")
+
+    def finish_draft(self, meeting_id: str, markdown: str, stamps, started_at: str) -> UserNotes | None:
+        """The page's last word when the meeting it was drafting is saved:
+        overwrite that meeting's notes with the editor's text and drop the draft."""
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            m = conn.execute("SELECT started_at FROM meetings WHERE id = ?",
+                             (meeting_id,)).fetchone()
+            if m is None:
+                raise MeetingNotFound(meeting_id)
+            shifted = _adopt_stamps(_check_stamps(stamps),
+                                    datetime.fromisoformat(str(started_at)),
+                                    datetime.fromisoformat(m["started_at"]))
+            self._touch(conn, meeting_id)
+            notes = self._write_user_notes(conn, meeting_id, markdown, shifted)
+            conn.execute("DELETE FROM note_draft WHERE id = 1")
+            return notes
 
     def _insert(self, conn, new: NewMeeting) -> str:
         if new.started_at.tzinfo is None:
@@ -563,7 +687,47 @@ class MeetingLibrary:
                 tags=self._tags(conn, meeting_id),
                 people=self._people(conn, meeting_id),
                 speakers=speakers, segment_count=segment_count,
+                user_notes=self._user_notes(conn, meeting_id),
             )
+
+    def _user_notes(self, conn, meeting_id):
+        row = conn.execute("SELECT * FROM user_notes WHERE meeting_id = ?",
+                           (meeting_id,)).fetchone()
+        if row is None:
+            return None
+        return UserNotes(row["markdown"], [tuple(s) for s in json.loads(row["stamps_json"])],
+                         row["updated_at"])
+
+    def get_user_notes(self, meeting_id: str) -> UserNotes | None:
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+                raise MeetingNotFound(meeting_id)
+            return self._user_notes(conn, meeting_id)
+
+    def set_user_notes(self, meeting_id: str, markdown: str, stamps) -> UserNotes | None:
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            self._touch(conn, meeting_id)
+            return self._write_user_notes(conn, meeting_id, markdown, stamps)
+
+    def _write_user_notes(self, conn, meeting_id, markdown, stamps) -> UserNotes | None:
+        markdown = str(markdown)
+        if len(markdown) > USER_NOTES_MAX_CHARS:
+            raise ValueError("Notes are too long to save")
+        checked = _check_stamps(stamps)
+        if not markdown.strip():
+            conn.execute("DELETE FROM user_notes WHERE meeting_id = ?", (meeting_id,))
+            return None
+        now = _now_iso()
+        conn.execute(
+            "INSERT INTO user_notes (meeting_id, markdown, text, stamps_json, updated_at)"
+            " VALUES (?, ?, ?, ?, ?) ON CONFLICT(meeting_id) DO UPDATE SET"
+            " markdown = excluded.markdown, text = excluded.text,"
+            " stamps_json = excluded.stamps_json, updated_at = excluded.updated_at",
+            (meeting_id, markdown, notes_plain_text(markdown),
+             json.dumps([list(s) for s in checked]), now))
+        return UserNotes(markdown, checked, now)
 
     def list_meetings(self, *, from_date=None, to_date=None, tag=None,
                       person=None, title=None, limit=100, offset=0) -> list[MeetingSummary]:
@@ -1038,10 +1202,10 @@ class MeetingLibrary:
         # (different table sizes and document lengths), so order by rank within
         # each kind and interleave, transcript first on ties.
         rank = {}
-        for kind in ("transcript", "notes"):
+        for kind in ("transcript", "notes", "user_notes"):
             of_kind = sorted((h for h in hits if h.kind == kind), key=lambda h: h.score)
             rank.update((id(h), i) for i, h in enumerate(of_kind))
-        hits.sort(key=lambda h: (rank[id(h)], 0 if h.kind == "transcript" else 1))
+        hits.sort(key=lambda h: (rank[id(h)], {"transcript": 0, "notes": 1, "user_notes": 2}[h.kind]))
         return collapse_echoes(hits)[:limit]
 
     def _search(self, conn, match, where, params, fetch) -> list[SearchHit]:
@@ -1072,6 +1236,18 @@ class MeetingLibrary:
                 " JOIN notes n ON n.id = notes_fts.rowid"
                 " JOIN meetings m ON m.id = n.meeting_id"
                 f" WHERE notes_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
+                (match, *params, fetch))
+        ]
+        hits += [
+            SearchHit(r["id"], r["title"], r["started_at"], r["tz_offset_minutes"],
+                      "user_notes", None, None, None, None, r["snip"], [], r["score"])
+            for r in conn.execute(
+                "SELECT m.id, m.title, m.started_at, m.tz_offset_minutes,"
+                f" {snippet.format(t='user_notes_fts')} AS snip,"
+                " bm25(user_notes_fts) AS score FROM user_notes_fts"
+                " JOIN user_notes u ON u.id = user_notes_fts.rowid"
+                " JOIN meetings m ON m.id = u.meeting_id"
+                f" WHERE user_notes_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
                 (match, *params, fetch))
         ]
         return hits

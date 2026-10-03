@@ -374,3 +374,29 @@ def test_save_notes_description_points_at_summary_format(tools):
     assert "pending_summaries returns" in tools["save_notes"].description
     props = tools["save_notes"].definition()["inputSchema"]["properties"]
     assert "TL;DR" in props["summary"]["description"]
+
+
+def test_get_meeting_returns_the_users_notes(library_path):
+    from datetime import datetime, timedelta, timezone
+    from speakeasy.meeting_library import MeetingLibrary, NewMeeting
+    from speakeasy.meetings import MeetingSegment
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 4, "hi")], duration_seconds=900,
+        started_at=datetime(2026, 10, 2, 9, 0, tzinfo=timezone(timedelta(hours=-4)))))
+    out = build_tools(lib)["get_meeting"].run({"id": mid})
+    assert out["user_notes"] is None
+    lib.set_user_notes(mid, "## Plan\n- [ ] send deck", [(1, 760.0)])
+    out = build_tools(lib)["get_meeting"].run({"id": mid})
+    assert out["user_notes"]["markdown"] == "## Plan\n- [ ] send deck"
+    assert out["user_notes"]["stamps"] == [{"line": 1, "at": "00:12:40"}]
+    assert "save_notes" in build_tools(lib) and "user_notes" not in str(
+        build_tools(lib)["save_notes"].input_schema)
+
+
+def test_summary_instructions_and_descriptions_point_claude_at_user_notes():
+    from speakeasy.summary_format import SUMMARY_INSTRUCTIONS
+    assert "user_notes" in SUMMARY_INSTRUCTIONS
+    tools = build_tools(None)
+    assert "user_notes" in tools["get_meeting"].description
+    assert "the user's own notes" in tools["search_meetings"].description

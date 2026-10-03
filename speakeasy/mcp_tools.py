@@ -217,6 +217,11 @@ def build_tools(library) -> dict[str, Tool]:
         if m.notes is not None:
             notes = {"summary": m.notes.summary, "action_items": m.notes.action_items,
                      "updated_at": m.notes.updated_at, "updated_by": m.notes.updated_by}
+        un = m.user_notes
+        user_notes = None if un is None else {
+            "markdown": un.markdown,
+            "stamps": [{"line": line, "at": _hms(s)} for line, s in un.stamps],
+            "updated_at": un.updated_at}
         event = library.calendar_event(m.calendar_event_id)
         return {
             "id": m.meeting_id, "title": m.title,
@@ -228,6 +233,7 @@ def build_tools(library) -> dict[str, Tool]:
                             for n, src in library.meeting_tag_details(m.meeting_id)],
             "calendar_event": _event(event) if event else None, "notes": notes,
             "timestamps_approximate": m.timestamps_approximate, "source": m.source,
+            "user_notes": user_notes,
         }
 
     def search_meetings(args):
@@ -347,13 +353,16 @@ def build_tools(library) -> dict[str, Tool]:
           "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
           "offset": {"type": "integer", "minimum": 0, "default": 0}}, [], list_meetings, True),
         ("get_meeting",
-         "Get one meeting's details, notes (summary, action items), tags, people and "
-         "calendar event. No transcript: use get_transcript for that.",
+         "Get one meeting's details: the user's own notes (user_notes; read these "
+         "first, they show what mattered to the user), Claude's notes (summary, "
+         "action items), tags, people and calendar event. No transcript: use "
+         "get_transcript for that.",
          _ID, ["id"], get_meeting, True),
         ("search_meetings",
-         "Full-text search across transcripts and notes. Returns ranked snippets "
-         "(matches in **bold**) with the meeting id and time offset. Meeting titles "
-         "aren't searched: use list_meetings with title.",
+         "Full-text search across transcripts, summaries and the user's own notes "
+         "(kind user_notes). Returns ranked snippets (matches in **bold**) with the "
+         "meeting id and time offset. Meeting titles aren't searched: use "
+         "list_meetings with title.",
          {"query": {"type": "string"}, **_FILTERS,
           "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
          ["query"], search_meetings, True),

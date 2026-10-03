@@ -8,6 +8,7 @@ UTC offset captured at recording start.
 """
 
 import json
+import math
 import re
 import secrets
 from contextlib import contextmanager
@@ -207,7 +208,7 @@ def _check_stamps(stamps) -> list[tuple[int, float]]:
             raise ValueError("Invalid note stamps") from None
         if (isinstance(line, bool) or not isinstance(line, int) or line < 0
                 or isinstance(seconds, bool) or not isinstance(seconds, (int, float))
-                or seconds < 0):
+                or not math.isfinite(seconds) or seconds < 0):
             raise ValueError("Invalid note stamps")
         out.append((line, round(float(seconds), 1)))
     return out

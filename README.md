@@ -317,9 +317,11 @@ While a meeting records, a **Recording now** row appears at the top of the
 sidebar. Open it to type notes before the meeting is saved. Each line gets a
 time stamp in the gutter; once the meeting is saved the stamps jump to that
 moment in the transcript. When the meeting is saved, the notes you typed join
-it, provided the notepad was started between 10 minutes before the meeting
-began and its end. Notes from a recording that wasn't saved stay available
-until you discard them. Claude can read your notes (`get_meeting` and
+it. Notes typed during a recording always join that recording. If a
+recording isn't saved, its notes wait on the next Recording now page with a
+Discard button; they join the next meeting that is saved while you have them
+open or edit them, or one that starts within 10 minutes of the unsaved
+recording. Claude can read your notes (`get_meeting` and
 `search_meetings`) but never write them.
 
 ### Calendar

@@ -90,3 +90,17 @@ def test_finish_draft_for_a_missing_meeting_keeps_the_draft(library_path):
     with pytest.raises(MeetingNotFound):
         lib.finish_draft("20260101-000000-abcd", "keep me", [], utc_iso(START))
     assert lib.get_draft().markdown == "keep me"
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_stamp_seconds_are_refused(library_path, bad):
+    lib = MeetingLibrary()
+    with pytest.raises(ValueError):
+        lib.set_draft("x", [(0, bad)], utc_iso(START))
+
+
+def test_finish_draft_shifts_stamps_by_the_draft_start(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    lib.finish_draft(mid, "late", [(0, 10.0)], utc_iso(START + timedelta(seconds=20)))
+    assert lib.get_user_notes(mid).stamps == [(0, 30.0)]

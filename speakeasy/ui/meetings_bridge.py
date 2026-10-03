@@ -317,7 +317,7 @@ class MeetingsBridge:
 
     def notes_set_payload(self, params) -> dict:
         notes = self.library.set_user_notes(str(params.get("id", "")),
-                                            str(params.get("markdown", "")),
+                                            str(params.get("markdown") or ""),
                                             params.get("stamps") or [])
         return {"updatedAt": notes.updated_at if notes else None}
 
@@ -328,7 +328,7 @@ class MeetingsBridge:
                                        "startedAt": d.started_at}
 
     def draft_set_payload(self, params) -> dict:
-        d = self.library.set_draft(str(params.get("markdown", "")), params.get("stamps") or [],
+        d = self.library.set_draft(str(params.get("markdown") or ""), params.get("stamps") or [],
                                    str(params.get("startedAt", "")))
         return {"updatedAt": d.updated_at}
 
@@ -338,7 +338,7 @@ class MeetingsBridge:
 
     def draft_finish_payload(self, params) -> dict:
         notes = self.library.finish_draft(str(params.get("id", "")),
-                                          str(params.get("markdown", "")),
+                                          str(params.get("markdown") or ""),
                                           params.get("stamps") or [],
                                           str(params.get("startedAt", "")))
         return {"updatedAt": notes.updated_at if notes else None}

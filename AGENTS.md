@@ -309,7 +309,7 @@ rebuilds.
   (`tests/test_frontend_tokens.py` enforces it, with contrast checks in both
   modes). Pure helpers are tested with `node --test` on `.ts` files.
 - **Meeting notes (notepad).** Schema v5: `user_notes` (`id` PK, `meeting_id`
-  UNIQUE, Markdown, FTS-indexed via `notes_fts`) and the single-row `note_draft`
+  UNIQUE, Markdown, FTS-indexed via `user_notes_fts`; `notes_fts` indexes Claude's summaries) and the single-row `note_draft`
   for the "Recording now" notepad. `MeetingLibrary.save_meeting` adopts a draft
   whose start is within meeting start − 10 min .. start + duration, shifting its
   time stamps. Limit 200,000 characters (`Notes are too long to save`); the
@@ -320,7 +320,8 @@ rebuilds.
   `react`, `starter-kit` and `extension-list` have no `^`/`~` in
   `frontend/package.json`. The frontend build ends with
   `frontend/scripts/check-offline.mjs`, which fails the build if the bundle
-  references any remote URL; keep the app fully offline.
+  loads a remote script, stylesheet, CSS `url()` or dynamic import (URLs inside
+  ordinary strings are not checked); keep the app fully offline.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.

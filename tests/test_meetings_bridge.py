@@ -683,3 +683,16 @@ def test_search_reports_user_notes_kind(library_path):
     lib, mid, bridge, d = _setup(library_path)
     lib.set_user_notes(mid, "vendor contract", [])
     assert [r["kind"] for r in bridge.search_payload({"query": "vendor"})] == ["user_notes"]
+
+
+def test_null_markdown_is_empty_not_the_word_none(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    _bcall(bridge, "notes.user.set", {"id": mid, "markdown": "keep", "stamps": []})
+    _bcall(bridge, "notes.user.set", {"id": mid, "markdown": None, "stamps": []})
+    assert lib.get_user_notes(mid) is None or lib.get_user_notes(mid).markdown == ""
+    _bcall(bridge, "notes.draft.set", {"markdown": None, "stamps": [],
+                                      "startedAt": "2026-09-24T17:17:00Z"})
+    assert lib.get_draft().markdown == ""
+    _bcall(bridge, "notes.draft.finish", {"id": mid, "markdown": None, "stamps": [],
+                                         "startedAt": "2026-09-24T17:17:00Z"})
+    assert lib.get_user_notes(mid) is None or lib.get_user_notes(mid).markdown == ""

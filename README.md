@@ -126,14 +126,22 @@ cursor within about a second.
 
 Click the menu-bar item for:
 
+- **Next-up card** — when Calendar is connected and something is left today,
+  the next event with a Record button
+- **Start Meeting** / **End Meeting (mm:ss)** — record and transcribe a meeting
+  (see [Meeting transcription](#meeting-transcription)); **Cancel Processing**
+  appears while a meeting is being transcribed, and **Retry Microphone** when
+  the microphone failed
+- **Open Meetings** (⌘O) — browse, copy, export, rename, or delete saved
+  transcripts; **Meeting Notes** appears while a meeting records or processes
 - **Profile** — switch the active profile, pick **Guest (no corrections)**, or
   create a **New Profile…**
-- **Train Profile…** — open the training window (see below)
-- **Copy Last Dictation** / **Paste Last Dictation (may duplicate)** — recover
-  the latest final text for 60 seconds; it is cleared on profile change or quit
-- **Begin Meeting** / **End Meeting** — record and transcribe a meeting (see
-  [Meeting transcription](#meeting-transcription))
-- **Meetings…** — browse, copy, export, rename, or delete saved transcripts
+- **Train My Voice…** — open the training window (see below)
+- **Check Microphone…** — a short microphone diagnostic
+- **Correct Last Dictation…**, **Copy Last Dictation** and **Paste Last
+  Dictation (may duplicate)** — recover the latest final text for 60 seconds;
+  it is cleared on profile change or quit
+- **Settings…** (⌘,)
 - **Quit Speakeasy** (⌘Q)
 
 ## Profiles: teach it your words
@@ -154,7 +162,7 @@ dictates without corrections. The active profile is shown with a checkmark.
 
 ### Training
 
-Choose **Train Profile…** from the menu bar to open the training window.
+Choose **Train My Voice…** from the menu bar to open the training window.
 Instead of asking you to think up words, Speakeasy suggests short sessions to
 read aloud — everyday phrases first, then the words the model most often
 mishears (tech jargon, names, numbers, tricky words):
@@ -189,7 +197,7 @@ content ships offline; progress is saved as you go.
 
 ## Meeting transcription
 
-Click **Begin Meeting** in the menu bar to start recording. On macOS 14.2+,
+Click **Start Meeting** in the menu bar to start recording. On macOS 14.2+,
 Speakeasy records your microphone and outgoing system audio as separate
 temporary tracks, so remote participants are captured while you wear
 headphones. Meetings capture **All system audio** by default. The engine can instead
@@ -211,7 +219,7 @@ and Speakeasy processes the recording entirely on-device:
 
 A 2-hour meeting takes several minutes to process; **Cancel Processing** in
 the menu discards it. When it finishes, the transcript is saved to the
-meeting library (below) and appears under **Meetings…**, where you can:
+meeting library (below) and appears under **Open Meetings**, where you can:
 
 - **Search** across every saved meeting — transcript text and speaker names,
   plus notes (summary and action items) — with ranked, highlighted results,
@@ -344,8 +352,11 @@ have already added to it) to show your day and to name and label recordings.
   "access denied" card, the cached events are cleared, and Claude's
   `get_calendar` returns nothing. In Settings you can also untick individual
   calendars; Birthdays and Holidays start unticked.
-- **Today view:** today's events with a now-line, attendee counts and a
-  **Recorded ✓** mark once a meeting is linked. **Upcoming** shows the next
+- **Today view:** a hero card for the event that is on **Now** or **Up next**
+  (with a Record button), the next three events, **Show all N events** for the
+  rest, an **Earlier today** fold, attendee counts, a **Recorded ✓** mark once a
+  meeting is linked, and a banner when the microphone failed or a meeting could
+  not start. **Upcoming** shows the next
   seven days. Click Record on a row to start a meeting for that event.
 - **Recordings:** a meeting started during an event, or up to 10 minutes
   before it, is linked to it. It takes the event's title and its attendees
@@ -379,7 +390,7 @@ stopped from a banner follows a click on that banner's button.
   ignored until they release it, as is an app whose call offer you dismissed
   (or that timed out). So a game launcher or voice app that keeps the
   microphone open only asks once. A call already running then, or when call offers
-  are switched on, isn't offered; Begin Meeting still works.
+  are switched on, isn't offered; Start Meeting still works.
 - **Call ended:** while you record a call, 60 seconds without that other
   app's microphone use shows "Call ended — Stop recording?". Stop ends the
   meeting; Keep Recording hides it, and it hides itself if the microphone use
@@ -759,7 +770,7 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 ```
 
 ```
-Begin Meeting ─► mic + system audio spool separately (dictation disabled)
+Start Meeting ─► mic + system audio spool separately (dictation disabled)
 End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system track
                   ─► apply first-buffer offsets ─► chronological merge
                   ─► save transcript ─► delete both temporary WAVs

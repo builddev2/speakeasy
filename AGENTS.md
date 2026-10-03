@@ -11,7 +11,7 @@ Silicon): hold Right ⌘, speak, release → transcribe on-device (Parakeet on M
 → paste at the cursor. It runs as a menu-bar app (`python -m speakeasy`) with a
 terminal front end (`--cli` / `--train`). Both drive the same `DictationEngine`.
 
-It also transcribes whole **meetings**: "Begin Meeting" in the menu bar
+It also transcribes whole **meetings**: "Start Meeting" in the menu bar
 records (up to three hours) to spooled temporary WAVs; "End Meeting" runs
 chunked transcription + speaker diarization (sherpa-onnx, on-device) and saves
 a speaker-labelled transcript. Only the transcript is persisted — audio is

@@ -172,7 +172,7 @@ class DictationEngine:
     def can_train(self) -> bool:
         """Training needs a loaded model, a named (non-Guest) profile, and no
         meeting in flight — training and meetings both want the hotkey and
-        the mic. Single source of truth for the menu item and pill."""
+        the mic. Single source of truth for the menu item."""
         return (
             self.transcriber is not None
             and self._diagnostic_cancel is None

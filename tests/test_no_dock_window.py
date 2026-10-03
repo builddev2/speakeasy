@@ -16,7 +16,7 @@ def test_nothing_references_the_dock_window():
         assert "main_window" not in text and "dock.html" not in text, path
 
 
-def test_dock_click_opens_meetings_only_without_visible_windows():
+def test_dock_click_always_opens_meetings():
     from types import SimpleNamespace
     from speakeasy.ui.menubar import AppDelegate
 
@@ -24,7 +24,8 @@ def test_dock_click_opens_meetings_only_without_visible_windows():
     delegate = AppDelegate.alloc().initWithProfileName_(None)
     delegate.controller = SimpleNamespace(open_meetings=lambda view: opened.append(view))
     assert delegate.applicationShouldHandleReopen_hasVisibleWindows_(None, True) is True
-    assert opened == []
+    assert opened == [None]
+    opened.clear()
     assert delegate.applicationShouldHandleReopen_hasVisibleWindows_(None, False) is True
     assert opened == [None]
 

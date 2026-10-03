@@ -302,7 +302,14 @@ class StatusItemController(NSObject):
             if outcome in {"focus_changed", "clipboard_changed", "permission_or_focus_unavailable",
                            "secure_or_unknown_field", "delivery_unknown"}:
                 text = "Text retained for 60 seconds — use Copy Last Dictation"
-            if self.engine.meeting_processing_error:
+            start_error = getattr(self.engine, "meeting_start_error", None)
+            if start_error:
+                text = (
+                    "Microphone is still being released. Wait, then try again."
+                    if start_error == "microphone_busy"
+                    else "Meeting could not start. Restart Speakeasy, then try again."
+                )
+            elif self.engine.meeting_processing_error:
                 text = "Meeting could not finish — check saved meetings"
         elif state is State.MIC_FAILED:
             if self.engine.recorder.state == "permission_blocked":
@@ -664,43 +671,12 @@ class AppDelegate(NSObject):
         controller = self.controller
         pill = self.pill
 
-        def on_state_changed(state):
-            pill.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"engineStateChanged:", state.value, False
-            )
-            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"engineStateChanged:", state.value, False
-            )
-            if record_prompt is not None:
-                record_prompt.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    b"engineStateChanged:", state.value, False
-                )
+        callbacks = _engine_callbacks(controller, pill, record_prompt)
 
-        def on_meeting_progress(text):
-            pill.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"meetingProgress:", text, False
-            )
-            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"meetingProgress:", text, False
-            )
-
-        def on_meeting_saved(meeting_id):
-            pill.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"meetingSaved:", meeting_id, False
-            )
-            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"meetingSaved:", meeting_id, False
-            )
-
-        def on_library_status(status):
-            controller.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"libraryStatus:", json.dumps(status), False
-            )
-
-        engine.on_state_changed = on_state_changed
-        engine.on_meeting_progress = on_meeting_progress
-        engine.on_meeting_saved = on_meeting_saved
-        engine.on_library_status = on_library_status
+        engine.on_state_changed = callbacks.on_state_changed
+        engine.on_meeting_progress = callbacks.on_meeting_progress
+        engine.on_meeting_saved = callbacks.on_meeting_saved
+        engine.on_library_status = callbacks.on_library_status
 
         # Start first: the model warms up on its worker thread while the
         # user reads the (modal) first-run permissions guidance.
@@ -738,11 +714,43 @@ class AppDelegate(NSObject):
         return False
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, sender, has_visible_windows):
-        # Dock-icon click with no window open: a way back in when the status
-        # item is hidden/overflowed.
-        if not has_visible_windows:
-            self.controller.open_meetings(None)
+        # Dock-icon click always opens Meetings (a way back in when the status
+        # item is hidden); the pill panel may count as a visible window.
+        self.controller.open_meetings(None)
         return True
+
+
+def _engine_callbacks(controller, pill, record_prompt):
+    """The engine's thread-hopping callbacks, fanning out to the menu
+    controller, the pill and (state only) the record prompt."""
+    from types import SimpleNamespace
+
+    def post(target, selector, arg):
+        target.performSelectorOnMainThread_withObject_waitUntilDone_(selector, arg, False)
+
+    def on_state_changed(state):
+        post(pill, b"engineStateChanged:", state.value)
+        post(controller, b"engineStateChanged:", state.value)
+        if record_prompt is not None:
+            post(record_prompt, b"engineStateChanged:", state.value)
+
+    def on_meeting_progress(text):
+        post(pill, b"meetingProgress:", text)
+        post(controller, b"meetingProgress:", text)
+
+    def on_meeting_saved(meeting_id):
+        post(pill, b"meetingSaved:", meeting_id)
+        post(controller, b"meetingSaved:", meeting_id)
+
+    def on_library_status(status):
+        post(controller, b"libraryStatus:", json.dumps(status))
+
+    return SimpleNamespace(
+        on_state_changed=on_state_changed,
+        on_meeting_progress=on_meeting_progress,
+        on_meeting_saved=on_meeting_saved,
+        on_library_status=on_library_status,
+    )
 
 
 def _build_main_menu(quit_target) -> NSMenu:

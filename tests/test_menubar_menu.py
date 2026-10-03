@@ -91,3 +91,48 @@ def test_mic_failed_state_shows_retry(ctl):
     engine.state = State.READY
     c.engineStateChanged_("ready")
     assert c._retry_item.isHidden()
+
+
+def test_start_error_shows_in_status_line(ctl):
+    c, engine = ctl
+    engine.meeting_start_error = "microphone_busy"
+    c.engineStateChanged_("ready")
+    assert c._status_line.title() == "Microphone is still being released. Wait, then try again."
+    engine.meeting_start_error = "other"
+    c.engineStateChanged_("ready")
+    assert c._status_line.title() == "Meeting could not start. Restart Speakeasy, then try again."
+    engine.meeting_start_error = None
+    c.engineStateChanged_("ready")
+    assert c._status_line.title().startswith("Ready")
+
+
+class _Target:
+    def __init__(self):
+        self.calls = []
+
+    def performSelectorOnMainThread_withObject_waitUntilDone_(self, sel, obj, wait):
+        self.calls.append((sel, obj, wait))
+
+
+def test_engine_callbacks_reach_controller_pill_and_prompt():
+    controller, pill, prompt = _Target(), _Target(), _Target()
+    cbs = menubar._engine_callbacks(controller, pill, prompt)
+    cbs.on_state_changed(State.READY)
+    for t in (controller, pill, prompt):
+        assert t.calls == [(b"engineStateChanged:", "ready", False)]
+    controller.calls.clear()
+    pill.calls.clear()
+    cbs.on_meeting_progress("Transcribing")
+    cbs.on_meeting_saved("m1")
+    for t in (controller, pill):
+        assert t.calls == [(b"meetingProgress:", "Transcribing", False),
+                           (b"meetingSaved:", "m1", False)]
+    controller.calls.clear()
+    cbs.on_library_status({"a": 1})
+    assert controller.calls == [(b"libraryStatus:", '{"a": 1}', False)]
+
+
+def test_engine_callbacks_tolerate_missing_prompt():
+    controller, pill = _Target(), _Target()
+    menubar._engine_callbacks(controller, pill, None).on_state_changed(State.READY)
+    assert controller.calls and pill.calls

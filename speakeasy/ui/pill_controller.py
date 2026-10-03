@@ -11,6 +11,7 @@ from .pill_model import (PillMachine, audio_indicator, clamp_origin, default_ori
 
 SIZE = (360.0, 36.0)
 SAVED_SECONDS = 6.0
+DEFAULT_FRAME = (0.0, 0.0, 1440.0, 900.0)
 
 
 def _make_panel(target):
@@ -32,7 +33,8 @@ def _mouse_screen():
         if NSMouseInRect(point, s.frame(), False):
             f = s.visibleFrame()
             return (f.origin.x, f.origin.y, f.size.width, f.size.height)
-    return _screens()[0]
+    screens = _screens()
+    return screens[0] if screens else DEFAULT_FRAME
 
 
 def _today_events():

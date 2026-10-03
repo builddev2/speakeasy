@@ -84,6 +84,12 @@ export function TodayView({
   const recordingActive = recording.recording || recording.processing;
   const split = useMemo(() => splitAgenda(agenda, nowMs, recordingActive), [agenda, nowMs, recordingActive]);
   const banner = engineBanner(recording);
+  const bannerNode = banner && (
+    <div className={styles.banner} role="status">
+      <span className={styles.bannerText}>{banner.text}</span>
+      {banner.action === 'retry' && <ActionButton onClick={onRetryMicrophone}>Retry Microphone</ActionButton>}
+    </div>
+  );
   const [openDays, setOpenDays] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
   const [showEarlier, setShowEarlier] = useState(false);
@@ -134,6 +140,7 @@ export function TodayView({
     return (
       <div className={styles.view}>
         {header}
+        {bannerNode}
         <EmptyState
           title="See your meetings here."
           body="Speakeasy reads Calendar on this Mac to title recordings and offer to record. Nothing leaves your Mac."
@@ -151,6 +158,7 @@ export function TodayView({
     return (
       <div className={styles.view}>
         {header}
+        {bannerNode}
         <EmptyState
           title="Calendar access is off."
           action={
@@ -170,12 +178,7 @@ export function TodayView({
     <div className={styles.view}>
       {header}
 
-      {banner && (
-        <div className={styles.banner} role="status">
-          <span className={styles.bannerText}>{banner.text}</span>
-          {banner.action === 'retry' && <ActionButton onClick={onRetryMicrophone}>Retry Microphone</ActionButton>}
-        </div>
-      )}
+      {bannerNode}
 
       {recordingActive && (
         <div className={styles.hero}>
@@ -202,7 +205,11 @@ export function TodayView({
               {split.hero.attendeeCount > 0 && ` · ${peopleLabel(split.hero.attendeeCount)}`}
             </div>
           </div>
-          <span className={styles.statusCell}>{statusCell(split.hero, onRecord)}</span>
+          <span className={styles.statusCell}>
+            {split.heroKind === 'next' && split.hero.status === 'none'
+              ? statusCell({ ...split.hero, status: 'record' }, onRecord)
+              : statusCell(split.hero, onRecord)}
+          </span>
         </div>
       )}
       {!recordingActive && !split.hero && nothingToday && <EmptyState title="Nothing on your calendar today." />}

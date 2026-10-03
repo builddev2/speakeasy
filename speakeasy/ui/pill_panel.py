@@ -39,7 +39,7 @@ from AppKit import (
 from Foundation import NSArray, NSMakePoint, NSMakeRect, NSObject
 
 from .glass import ClickyButton, make_label
-from .record_prompt_panel import CORAL, ON_ACCENT, STOP_RED  # noqa: F401  (CORAL re-exported for callers)
+from .record_prompt_panel import ON_ACCENT, STOP_RED
 
 PILL_W, PILL_H, PILL_RADIUS = 360.0, 36.0, 18.0
 DRAWER_W, DRAWER_RADIUS, DRAWER_GAP = 300.0, 12.0, 6.0

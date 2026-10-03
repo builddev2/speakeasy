@@ -485,7 +485,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }, [refreshCalendar]);
 
   useEffect(() => {
-    // The now-line and Record buttons move with time.
+    // The Now/Up next hero and Record buttons move with time.
     const id = window.setInterval(() => {
       setNowMs(Date.now());
       refreshCalendar();

@@ -5,6 +5,7 @@ from Foundation import NSObject
 
 from speakeasy import meeting_export, meetings
 from speakeasy.meeting_library import utc_iso
+from speakeasy.ui import login_item
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
@@ -64,6 +65,7 @@ class MeetingsWindowController(NSObject):
             begin_meeting=engine.begin_meeting if engine is not None else None,
             recording_event_key=recording_event_key,
             recording_info=recording_info,
+            login_status=login_item.status, set_login=login_item.set_enabled,
             open_url=lambda url: NSWorkspace.sharedWorkspace().openURL_(
                 NSURL.URLWithString_(url)),
         )

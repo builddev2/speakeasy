@@ -46,8 +46,9 @@ from Foundation import NSMakeRect, NSMakeSize, NSObject, NSTimer
 
 from .. import config, settings
 from ..engine import DictationEngine, State
+from ..meeting_options import default_options
 from ..profiles import Profile, list_profiles, load_profiles
-from . import permissions
+from . import login_item, permissions
 
 _STATE_TEXT = {
     State.LOADING: "Loading model…",
@@ -159,26 +160,6 @@ def _skull_image() -> NSImage:
     image.setTemplate_(True)
     _skull_cache = image
     return image
-
-
-def _login_service():
-    """SMAppService for the running bundle, or None when not applicable.
-
-    Launch-at-login only makes sense for the packaged .app (a bare python
-    process has no bundle to register), and the API is macOS 13+.
-    """
-    if not getattr(sys, "frozen", False):
-        return None
-    try:
-        sm = {}
-        objc.loadBundle(
-            "ServiceManagement",
-            sm,
-            bundle_path="/System/Library/Frameworks/ServiceManagement.framework",
-        )
-        return objc.lookUpClass("SMAppService").mainAppService()
-    except Exception:
-        return None
 
 
 class StatusItemController(NSObject):
@@ -462,7 +443,7 @@ class StatusItemController(NSObject):
         if self.engine.state is State.MEETING_RECORDING:
             self.engine.end_meeting()
         else:
-            self.engine.begin_meeting()
+            self.engine.begin_meeting(default_options())
 
     def cancelProcessing_(self, sender):
         self.engine.cancel_meeting_processing()
@@ -532,28 +513,25 @@ class StatusItemController(NSObject):
 
     @objc.python_method
     def _sync_login_item(self):
-        service = _login_service()
-        if service is None:
+        current = login_item.status()
+        if current is None:
             self._login_item.setEnabled_(False)
             self._login_item.setToolTip_(
                 "Available in the installed Speakeasy.app (macOS 13+)."
             )
             return
         self._login_item.setEnabled_(True)
-        enabled = service.status() == 1  # SMAppServiceStatusEnabled
         self._login_item.setState_(
-            NSControlStateValueOn if enabled else NSControlStateValueOff
+            NSControlStateValueOn if current else NSControlStateValueOff
         )
 
     def toggleLogin_(self, sender):
-        service = _login_service()
-        if service is None:
+        current = login_item.status()
+        if current is None:
             return
-        if service.status() == 1:
-            ok, err = service.unregisterAndReturnError_(None)
-        else:
-            ok, err = service.registerAndReturnError_(None)
-        if not ok:
+        try:
+            login_item.set_enabled(not current)
+        except RuntimeError as err:
             self._error("Couldn't update login item", str(err))
         self._sync_login_item()
 

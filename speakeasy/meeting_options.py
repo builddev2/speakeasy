@@ -30,3 +30,21 @@ class MeetingOptions:
             or not 0 < len(self.calendar_event_key) <= 300
         ):
             raise ValueError("Unknown calendar event.")
+
+
+def default_options(calendar_event_key: str | None = None, *,
+                    identify_voices: bool | None = None,
+                    voice_names=None) -> MeetingOptions:
+    """Options for every UI start: all system audio, speakers Auto, and the
+    enrolled voices only when Settings > Identify enrolled voices is on."""
+    if identify_voices is None:
+        from . import settings
+        identify_voices = settings.get_identify_voices()
+    names: tuple[str, ...] = ()
+    if identify_voices:
+        if voice_names is None:
+            from .voice_profiles import VoiceProfileStore
+            voice_names = VoiceProfileStore().names()
+        names = tuple(str(n) for n in voice_names)
+    return MeetingOptions(expected_voice_profile_names=names,
+                          calendar_event_key=calendar_event_key)

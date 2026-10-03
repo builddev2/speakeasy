@@ -20,7 +20,7 @@ from speakeasy.summary_format import parse_summary
 from speakeasy.meeting_library import (
     LibraryWatcher, MeetingLibrary, MeetingNotFound, local_start,
 )
-from speakeasy.meeting_options import MeetingOptions
+from speakeasy.meeting_options import default_options
 from speakeasy.ui import calendar_payloads
 from speakeasy.ui.webbridge import day_label, segments_to_lines, snippet_parts
 
@@ -74,7 +74,7 @@ class BridgeError(Exception):
 class MeetingsBridge:
     def __init__(self, library=None, now=None, set_clipboard=None, open_path=None,
                  calendar=None, begin_meeting=None, recording_event_key=None, open_url=None,
-                 recording_info=None):
+                 recording_info=None, login_status=None, set_login=None):
         self.library = library or MeetingLibrary()
         # Opens a file/folder in its default app; AppKit-backed in the real
         # window, a no-op here so this module stays pure-Python.
@@ -93,6 +93,8 @@ class MeetingsBridge:
         self._recording_event_key = recording_event_key or (lambda: None)
         self._open_url = open_url or (lambda url: None)
         self._recording_info = recording_info or (lambda: dict(_NOT_RECORDING))
+        self._login_status = login_status
+        self._set_login = set_login
 
     def register(self, dispatcher) -> None:
         for method, fn in {
@@ -115,6 +117,7 @@ class MeetingsBridge:
             "calendar.requestAccess": self.calendar_request_access_payload,
             "calendar.openPrivacySettings": self.calendar_privacy_payload,
             "calendar.record": self.calendar_record_payload,
+            "meeting.start": self.start_meeting_payload,
             "meetings.linkEvent": self.link_event_payload,
             "meetings.eventsForDay": self.events_for_day_payload,
             "settings.meetings.get": self.settings_get_payload,
@@ -202,7 +205,13 @@ class MeetingsBridge:
             raise ValueError("Unknown calendar event.")
         if self._begin_meeting is None:
             raise BridgeError("recording_unavailable")
-        self._begin_meeting(MeetingOptions(calendar_event_key=key))
+        self._begin_meeting(default_options(calendar_event_key=key))
+        return True
+
+    def start_meeting_payload(self, params) -> bool:
+        if self._begin_meeting is None:
+            raise BridgeError("recording_unavailable")
+        self._begin_meeting(default_options())
         return True
 
     def link_event_payload(self, params) -> dict:
@@ -224,6 +233,8 @@ class MeetingsBridge:
         return {"offerToRecord": stored["offer_to_record"],
                 "detectCalls": stored["detect_calls"],
                 "appearance": settings.get_appearance(),
+                "identifyVoices": settings.get_identify_voices(),
+                "startAtLogin": self._login_status() if self._login_status else None,
                 "accounts": calendar_payloads.calendars_payload(
                     calendars, stored["calendar_choices"])}
 
@@ -231,6 +242,17 @@ class MeetingsBridge:
         if params.get("appearance") is not None:
             from . import appearance
             appearance.apply(settings.set_appearance(params["appearance"]))
+        if params.get("identifyVoices") is not None:
+            settings.set_identify_voices(params["identifyVoices"])
+        if params.get("startAtLogin") is not None:
+            if not isinstance(params["startAtLogin"], bool):
+                raise ValueError("Start at login must be on or off.")
+            if self._set_login is None or self._login_status is None or self._login_status() is None:
+                raise ValueError("Start at login is available in the installed app.")
+            try:
+                self._set_login(params["startAtLogin"])
+            except RuntimeError as err:
+                raise ValueError(str(err)) from err
         settings.set_meeting_settings(
             offer_to_record=params.get("offerToRecord"),
             detect_calls=params.get("detectCalls"),

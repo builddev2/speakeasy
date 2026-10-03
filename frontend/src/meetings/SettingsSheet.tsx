@@ -9,14 +9,14 @@ interface SettingsSheetProps {
   settings: MeetingSettings;
   /** "No calendars found." only makes sense once access is granted. */
   calendarConnected: boolean;
-  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; calendars?: Record<string, boolean> }) => void;
+  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean> }) => void;
   onClose: () => void;
   onExportAll: () => void;
 }
 
 /** Meetings section of Settings: record prompts, appearance, calendar checklist, export. */
 export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll }: SettingsSheetProps) {
-  const { offerToRecord, detectCalls, appearance, accounts } = settings;
+  const { offerToRecord, detectCalls, appearance, identifyVoices, startAtLogin, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -52,6 +52,24 @@ export function SettingsSheet({ settings, calendarConnected, onChange, onClose, 
             {choice === 'system' ? 'System' : choice === 'light' ? 'Light' : 'Dark'}
           </button>
         ))}
+      </div>
+
+      <div className={styles.sectionTitle}>Recording</div>
+      <div className={styles.toggleRow}>
+        <span id="identify-voices-label">
+          Identify enrolled voices
+          <span className={styles.hint}>Names people whose voices you've trained</span>
+        </span>
+        <Switch checked={identifyVoices} onChange={(value) => onChange({ identifyVoices: value })} ariaLabelledBy="identify-voices-label" />
+      </div>
+
+      <div className={styles.sectionTitle}>General</div>
+      <div className={styles.toggleRow}>
+        <span id="start-at-login-label">
+          Start at login
+          {startAtLogin === null && <span className={styles.hint}>Available in the installed app</span>}
+        </span>
+        <Switch checked={startAtLogin === true} disabled={startAtLogin === null} onChange={(value) => onChange({ startAtLogin: value })} ariaLabelledBy="start-at-login-label" />
       </div>
 
       <div className={styles.sectionTitle}>Calendars</div>

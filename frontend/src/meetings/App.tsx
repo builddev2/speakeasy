@@ -466,7 +466,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       });
   }, [embedded, settingsOpen]);
 
-  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; calendars?: Record<string, boolean> }) {
+  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean> }) {
     if (embedded) {
       bridge
         .call<MeetingSettings>('settings.meetings.set', patch)
@@ -480,6 +480,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             offerToRecord: patch.offerToRecord ?? prev.offerToRecord,
             detectCalls: patch.detectCalls ?? prev.detectCalls,
             appearance: patch.appearance ?? prev.appearance,
+            identifyVoices: patch.identifyVoices ?? prev.identifyVoices,
+            startAtLogin: prev.startAtLogin === null ? null : (patch.startAtLogin ?? prev.startAtLogin),
             accounts: prev.accounts.map((account) => ({
               ...account,
               calendars: account.calendars.map((cal) =>

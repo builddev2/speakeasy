@@ -122,3 +122,33 @@ def test_prompted_events_ignore_corrupt_file(tmp_path, monkeypatch):
     (tmp_path / "settings.json").write_text(
         '{"record_prompted": {"day": "2026-10-02", "keys": ["a", 3, null]}}')
     assert settings.get_prompted_events("2026-10-02") == {"a"}
+
+
+import math
+
+
+def test_identify_voices_defaults_off_and_round_trips():
+    assert settings.get_identify_voices() is False
+    assert settings.set_identify_voices(True) is True
+    assert settings.get_identify_voices() is True
+
+
+def test_identify_voices_rejects_non_bool():
+    with pytest.raises(ValueError, match="Identify voices must be on or off."):
+        settings.set_identify_voices("yes")
+
+
+def test_pill_origin_round_trips_and_rejects_bad_values():
+    assert settings.get_pill_origin() is None
+    settings.set_pill_origin(120.5, 800.0)
+    assert settings.get_pill_origin() == (120.5, 800.0)
+    for bad in ((math.nan, 1.0), (1.0, math.inf), ("1", 2.0), (True, 2.0)):
+        with pytest.raises(ValueError, match="Pill position must be two numbers."):
+            settings.set_pill_origin(*bad)
+
+
+def test_corrupt_pill_origin_reads_as_none():
+    data = settings._read()
+    data["pill_origin"] = ["x", 3]
+    settings._write(data)
+    assert settings.get_pill_origin() is None

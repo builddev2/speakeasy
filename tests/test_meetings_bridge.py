@@ -11,12 +11,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from speakeasy.meeting_library import MeetingLibrary, MeetingNotFound, NewMeeting
+from speakeasy.meeting_options import MeetingOptions
 from speakeasy.meetings import MeetingSegment
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 
 TZ = timezone(timedelta(hours=-4))
 NOW = lambda: datetime(2026, 9, 24, 15, 0, tzinfo=TZ)  # noqa: E731 — Today
+
+
+def make_bridge(tmp_path, **kw):
+    return MeetingsBridge(library=MeetingLibrary(tmp_path / "l.sqlite"), **kw)
 
 
 def _call(dispatcher, method, params=None):
@@ -696,3 +701,34 @@ def test_null_markdown_is_empty_not_the_word_none(library_path):
     _bcall(bridge, "notes.draft.finish", {"id": mid, "markdown": None, "stamps": [],
                                          "startedAt": "2026-09-24T17:17:00Z"})
     assert lib.get_user_notes(mid) is None or lib.get_user_notes(mid).markdown == ""
+
+
+def test_meeting_start_uses_default_options(tmp_path):
+    started = []
+    bridge = make_bridge(tmp_path, begin_meeting=started.append)
+    assert bridge.start_meeting_payload({}) is True
+    assert started == [MeetingOptions()]
+
+
+def test_calendar_record_uses_default_options(tmp_path):
+    started = []
+    bridge = make_bridge(tmp_path, begin_meeting=started.append)
+    bridge.calendar_record_payload({"key": "ev-9"})
+    assert started == [MeetingOptions(calendar_event_key="ev-9")]
+
+
+def test_settings_include_identify_voices_and_login(tmp_path):
+    state = {"login": False}
+    bridge = make_bridge(tmp_path, login_status=lambda: state["login"],
+                         set_login=lambda on: state.update(login=on))
+    got = bridge.settings_get_payload({})
+    assert got["identifyVoices"] is False and got["startAtLogin"] is False
+    got = bridge.settings_set_payload({"identifyVoices": True, "startAtLogin": True})
+    assert got["identifyVoices"] is True and got["startAtLogin"] is True
+
+
+def test_login_unavailable_reads_null_and_refuses_set(tmp_path):
+    bridge = make_bridge(tmp_path)
+    assert bridge.settings_get_payload({})["startAtLogin"] is None
+    with pytest.raises(ValueError, match="Start at login is available in the installed app."):
+        bridge.settings_set_payload({"startAtLogin": True})

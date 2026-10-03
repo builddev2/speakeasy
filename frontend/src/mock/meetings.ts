@@ -33,7 +33,7 @@ export interface UpcomingDay { dayLabel: string; events: AgendaEvent[] }
 export interface CalendarToggle { id: string; name: string; enabled: boolean }
 export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
 export type Appearance = 'system' | 'light' | 'dark';
-export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; accounts: CalendarAccountSettings[] }
+export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; identifyVoices: boolean; startAtLogin: boolean | null; accounts: CalendarAccountSettings[] }
 
 export type SummaryBlock =
   | { kind: 'tldr'; text: string }
@@ -660,6 +660,8 @@ export const MOCK_MEETING_SETTINGS: MeetingSettings = {
   offerToRecord: true,
   detectCalls: true,
   appearance: 'system',
+  identifyVoices: false,
+  startAtLogin: false,
   accounts: [
     {
       name: 'iCloud',

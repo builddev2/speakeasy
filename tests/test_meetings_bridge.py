@@ -228,11 +228,13 @@ def test_copy_payload_registers_and_renders_via_injected_clipboard(library_path)
     bridge.register(d)
     assert "meetings.copy" in d._methods
 
+    lib.set_user_notes(mid, "remember the deck", [])
     js = _call(d, "meetings.copy", {"id": mid})
     assert "_resolve" in js
     assert len(captured) == 1
     assert "Copy Me" in captured[0]
     assert "hi there" in captured[0]
+    assert "## My notes" in captured[0] and "remember the deck" in captured[0]
 
 
 def test_copy_payload_missing_meeting_is_not_found_error(library_path):

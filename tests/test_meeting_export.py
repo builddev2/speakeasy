@@ -204,3 +204,20 @@ def test_export_skips_meeting_deleted_between_list_and_get(tmp_path):
     assert export_all(out, library=fake) == 2
     names = sorted(p.name for p in out.iterdir())
     assert names == ["2026-09-24 Meeting 0.md", "2026-09-24 Meeting 2.md"]
+
+
+def test_format_elapsed():
+    from speakeasy.meeting_export import format_elapsed
+    assert [format_elapsed(s) for s in (3, 760, 3735)] == ["0:03", "12:40", "1:02:15"]
+
+
+def test_export_puts_my_notes_after_the_summary_with_stamps(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 4, "hi there")], duration_seconds=900,
+        started_at=datetime(2026, 10, 2, 9, 0, tzinfo=EDT), title="Planning"))
+    lib.save_notes(mid, summary="TL;DR: planned.")
+    lib.set_user_notes(mid, "## Plan\n- [ ] send deck\nplain", [(1, 760.0)])
+    md = render_export_md(lib.get_meeting(mid))
+    assert md.index("## Summary") < md.index("## My notes") < md.index("## Transcript")
+    assert "## Plan\n- [ ] [12:40] send deck\nplain" in md

@@ -3,7 +3,7 @@
 import objc
 from Foundation import NSObject
 
-from speakeasy import meetings
+from speakeasy import meeting_export, meetings
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
@@ -147,7 +147,8 @@ class MeetingsWindowController(NSObject):
             try:
                 if response == NSModalResponseOK:
                     path = str(panel.URL().path())
-                    render = meetings.render_md if path.endswith(".md") else meetings.render_txt
+                    render = (meeting_export.render_export_md if path.endswith(".md")
+                              else meetings.render_txt)
                     with open(path, "w", encoding="utf-8") as fh:
                         fh.write(render(meeting))
             except OSError as exc:

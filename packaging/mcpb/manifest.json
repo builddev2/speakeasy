@@ -22,11 +22,11 @@
     },
     {
       "name": "get_meeting",
-      "description": "Get one meeting's details, notes (summary, action items), tags, people and calendar event. No transcript: use get_transcript for that."
+      "description": "Get one meeting's details: the user's own notes (user_notes; read these first, they show what mattered to the user), Claude's notes (summary, action items), tags, people and calendar event. No transcript: use get_transcript for that."
     },
     {
       "name": "search_meetings",
-      "description": "Full-text search across transcripts and notes. Returns ranked snippets (matches in **bold**) with the meeting id and time offset. Meeting titles aren't searched: use list_meetings with title."
+      "description": "Full-text search across transcripts, summaries and the user's own notes (kind user_notes). Returns ranked snippets (matches in **bold**) with the meeting id and time offset. Meeting titles aren't searched: use list_meetings with title."
     },
     {
       "name": "get_transcript",

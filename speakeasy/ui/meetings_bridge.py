@@ -15,6 +15,7 @@ from pathlib import Path
 from speakeasy import mcp_setup
 from speakeasy import meetings as meeting_render
 from speakeasy import settings
+from speakeasy.meeting_export import render_export_md
 from speakeasy.summary_format import parse_summary
 from speakeasy.meeting_library import (
     LibraryWatcher, MeetingLibrary, MeetingNotFound, local_start,
@@ -352,7 +353,7 @@ class MeetingsBridge:
         instead of meetings_window.py's old bespoke (and untested)
         try/except MeetingNotFound."""
         meeting = self.library.get_meeting(str(params.get("id", "")))
-        self._set_clipboard(meeting_render.render_txt(meeting))
+        self._set_clipboard(render_export_md(meeting))
         return True
 
     def export_meeting(self, params):

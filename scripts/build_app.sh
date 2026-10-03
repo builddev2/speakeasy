@@ -76,8 +76,8 @@ fi
 echo "Building frontend…"
 npm --prefix frontend ci
 npm --prefix frontend run build
-if [ ! -f frontend/dist/dock.html ]; then
-    echo "error: frontend build produced no dist/dock.html"
+if [ ! -f frontend/dist/meetings.html ]; then
+    echo "error: frontend build produced no dist/meetings.html"
     exit 1
 fi
 
@@ -137,7 +137,7 @@ SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
 [ -f "$APP/Contents/Resources/diarization/segmentation.onnx" ] \
     && [ -f "$APP/Contents/Resources/diarization/embedding.onnx" ] \
     || { echo "error: diarization models missing from bundle"; exit 1; }
-[ -f "$APP/Contents/Resources/frontend/dock.html" ] || { echo "error: frontend missing from bundle"; exit 1; }
+[ -f "$APP/Contents/Resources/frontend/meetings.html" ] || { echo "error: frontend missing from bundle"; exit 1; }
 [ -x "$APP/Contents/Resources/native/SpeakeasySystemAudioCapture" ] \
     || { echo "error: system-audio helper missing from bundle"; exit 1; }
 [ -f "$APP/Contents/Resources/Speakeasy.mcpb" ] || { echo "error: Claude extension missing from bundle"; exit 1; }

@@ -44,7 +44,10 @@ a = Analysis(
             "speakeasy.ui.menubar",
             "speakeasy.ui.training_window",
             "speakeasy.ui.meetings_window",
-            "speakeasy.ui.main_window",
+            "speakeasy.ui.pill_controller",
+            "speakeasy.ui.pill_panel",
+            "speakeasy.ui.next_up_view",
+            "speakeasy.ui.login_item",
             "speakeasy.ui.permissions",
             "speakeasy.ui.overlay",
             "speakeasy.ui.webwindow",
@@ -105,8 +108,8 @@ app = BUNDLE(
     bundle_identifier="com.jasonchiu.speakeasy",
     info_plist={
         # Regular (not agent/LSUIElement) app: normal Dock icon + app-switcher
-        # entry, so ui/main_window.py is reachable if the menu-bar status
-        # item is ever hidden by overflow. menubar.py's run_app() sets the
+        # entry, so the Meetings window (opened on launch and Dock click)
+        # is reachable if the menu-bar status item is ever hidden by overflow. menubar.py's run_app() sets the
         # same NSApplicationActivationPolicyRegular at runtime; setting it
         # here too avoids a Dock-icon flash/promotion right after launch.
         "LSUIElement": False,

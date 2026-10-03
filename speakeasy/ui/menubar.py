@@ -8,9 +8,9 @@ performSelectorOnMainThread pattern as the overlay.
 
 The app also has a normal Dock icon (NSApplicationActivationPolicyRegular) so
 there's a way back in if the status item ever ends up hidden by menu-bar
-overflow — see ui/main_window.py, opened from the Dock via
+overflow: launch and a Dock click open the Meetings window via
 applicationShouldHandleReopen_hasVisibleWindows_. The status item remains the
-primary interface; the Dock window is a fallback, not a replacement.
+primary interface.
 """
 
 import json
@@ -177,7 +177,6 @@ class StatusItemController(NSObject):
         self.training_window = None  # set lazily by openTraining:
         self.meetings_window = None  # set lazily by openMeetings:
         self._pending_library_status = None  # replayed into a window created later
-        self.dock_window = None  # set by AppDelegate once the dock exists
         self.diagnostic_window = None  # built lazily by openDiagnostic:
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
@@ -290,8 +289,6 @@ class StatusItemController(NSObject):
             clock = f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
             self._meeting_item.setTitle_(f"End Meeting ({clock})")
             self._status_line.setTitle_(_meeting_status_text(recorder))
-            if self.dock_window is not None:
-                self.dock_window._push_state()
 
     # -- engine state (arrives via performSelectorOnMainThread) ----------
 
@@ -402,11 +399,6 @@ class StatusItemController(NSObject):
         settings.set_last_profile(profile.name if profile else None)
         self._rebuild_profile_menu()
         self.engineStateChanged_(self.engine.state.value)
-        # Profile switches don't fire engine.on_state_changed, so push the
-        # dock's state (profileName/canTrain) by hand — we're already on the
-        # main thread here (menu action).
-        if self.dock_window is not None:
-            self.dock_window.engineStateChanged_(self.engine.state.value)
 
     def newProfile_(self, sender):
         alert = NSAlert.alloc().init()
@@ -527,9 +519,8 @@ class StatusItemController(NSObject):
     def openTraining_(self, sender):
         # This is now the single entry point for opening Training (the menu
         # item's own enabled state gates the native menu, but this is also
-        # reached by delegation from the dock window's JS button, which has
-        # no equivalent native disablement) — so the profile guard has to
-        # live here too, matching the old dock-side check exactly.
+        # reached by delegation from web pages, which have no equivalent native
+        # disablement) — so the profile guard has to live here too.
         if self.engine.profile is None or self.engine._diagnostic_cancel is not None:
             return
         from .training_window import TrainingWindowController
@@ -591,7 +582,6 @@ class AppDelegate(NSObject):
         self.calendar_sync = None
         self.ax_warmer = None
         self.controller = None
-        self.main_window = None
         self.record_prompt = None
         return self
 
@@ -652,15 +642,6 @@ class AppDelegate(NSObject):
         from .pill_controller import PillController
 
         self.pill = PillController.alloc().initWithEngine_opener_(engine, self.controller.open_meetings)
-
-        from .main_window import MainWindowController
-
-        self.main_window = MainWindowController.alloc().initWithEngine_(engine)
-        # Single shared owner of meetings/training windows: without this,
-        # opening Training from the Dock window builds a second
-        # TrainingWindowController alongside the status item's, doubling
-        # engine.pause() calls and hotkey event taps (see CLAUDE.md).
-        self.main_window.window_owner = self.controller
         from .record_prompt_controller import RecordPromptController
 
         # Offers to record when a calendar meeting starts or another app
@@ -671,9 +652,6 @@ class AppDelegate(NSObject):
             logging.getLogger(__name__).exception("record prompt unavailable")
             self.record_prompt = None
         record_prompt = self.record_prompt
-        # Reverse link: profile switches happen in the status-item menu but
-        # must refresh the dock too (no engine state change to ride on).
-        self.controller.dock_window = self.main_window
         NSApplication.sharedApplication().setMainMenu_(
             _build_main_menu(self.controller)
         )
@@ -684,7 +662,6 @@ class AppDelegate(NSObject):
             engine.overlay = Overlay()
 
         controller = self.controller
-        main_window = self.main_window
         pill = self.pill
 
         def on_state_changed(state):
@@ -692,9 +669,6 @@ class AppDelegate(NSObject):
                 b"engineStateChanged:", state.value, False
             )
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"engineStateChanged:", state.value, False
-            )
-            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
             )
             if record_prompt is not None:
@@ -709,18 +683,12 @@ class AppDelegate(NSObject):
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingProgress:", text, False
             )
-            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"meetingProgress:", text, False
-            )
 
         def on_meeting_saved(meeting_id):
             pill.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingSaved:", meeting_id, False
             )
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
-                b"meetingSaved:", meeting_id, False
-            )
-            main_window.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingSaved:", meeting_id, False
             )
 
@@ -740,13 +708,11 @@ class AppDelegate(NSObject):
         engine.upgrade_library()
         controller.engineStateChanged_(engine.state.value)
         pill.engineStateChanged_(engine.state.value)
-        main_window.engineStateChanged_(engine.state.value)
         if self.record_prompt is not None:
             self.record_prompt.engineStateChanged_(engine.state.value)
-        # Cold launch from the Dock counts as "the user clicked the icon" —
-        # show the fallback window right away rather than only on a later
-        # reopen click.
-        main_window.show()
+        # Cold launch from the Dock counts as "the user clicked the icon":
+        # open Meetings right away rather than only on a later reopen click.
+        self.controller.open_meetings(None)
         if not permissions.all_granted():
             permissions.show_guidance()
         hotkey_name = config.hotkey_name()
@@ -772,10 +738,10 @@ class AppDelegate(NSObject):
         return False
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, sender, has_visible_windows):
-        # Dock-icon click with no window open (the whole point of the main
-        # window: a way back in when the status item is hidden/overflowed).
-        if not has_visible_windows and self.main_window is not None:
-            self.main_window.show()
+        # Dock-icon click with no window open: a way back in when the status
+        # item is hidden/overflowed.
+        if not has_visible_windows:
+            self.controller.open_meetings(None)
         return True
 
 
@@ -847,8 +813,8 @@ def _initial_profile(preselected: str | None):
 def run_app(profile_name: str | None = None) -> None:
     app = NSApplication.sharedApplication()
     # Regular (not Accessory) policy: gives Speakeasy a normal Dock icon and
-    # app-switcher entry, so ui/main_window.py is reachable even if the menu
-    # bar status item is hidden by overflow. The status item is still the
+    # app-switcher entry, so the Meetings window is reachable even if the
+    # menu bar status item is hidden by overflow. The status item is still the
     # primary interface.
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
     delegate = AppDelegate.alloc().initWithProfileName_(profile_name)

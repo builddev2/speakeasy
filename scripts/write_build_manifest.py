@@ -11,7 +11,7 @@ assets = ['model/config.json', 'model/model.safetensors',
           'diarization/segmentation.onnx', 'diarization/embedding.onnx',
           'native/SpeakeasySystemAudioCapture', 'Speakeasy.mcpb']
 assets += [str(path.relative_to(resources)) for path in sorted((resources / 'frontend').rglob('*')) if path.is_file()]
-for name in ('dock', 'meetings', 'training', 'diagnostic'):
+for name in ('meetings', 'training', 'diagnostic'):
     if not (resources / 'frontend' / f'{name}.html').is_file():
         raise SystemExit('missing frontend entrypoint')
 hashes = {}

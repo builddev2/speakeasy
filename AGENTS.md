@@ -45,8 +45,8 @@ sweep at next launch). Meetings persist to a SQLite library at
   offsets) so replies are not listed after the remote speech they answered.
 On macOS 14.2+, meetings capture microphone and outgoing system audio as
 separate temporary tracks through a bundled Core Audio process-tap helper.
-Global system audio is the default; the Dock can instead select one eligible
-application process (a browser selection means the browser, not one tab). The
+Global system audio is the default; the engine option to select one eligible
+application process still exists (a browser selection means the browser, not one tab) but no UI currently sets it. The
 mic is the known local user (`You`); only the system track is diarized, then
 both transcripts are shifted by their first-buffer offsets and merged. Mic
 sentences that echo system-track words within the bleed window are removed
@@ -202,7 +202,7 @@ checks `PRAGMA data_version` on one main-thread-only connection.
 
 UI objects are main-thread only; engine callbacks hop threads via
 `performSelectorOnMainThread` (see `ui/overlay.py`, `ui/menubar.py`).
-The Dock and menu poll a fixed, privacy-safe capture-health schema: buffer and
+The recording pill's drawer and the menu poll a fixed, privacy-safe capture-health schema: buffer and
 nonzero-signal state, dropped-frame counts, writer lag/failure, helper exit,
 outcome/fallback, mode, scope, output-route category, and mic echo removal
 count. Never add transcript text, audio, app or
@@ -283,16 +283,18 @@ rebuilds.
 - **The app runs `NSApplicationActivationPolicyRegular`** (normal Dock icon +
   app switcher), not `LSUIElement`/Accessory — set both at runtime
   (`run_app()` in `ui/menubar.py`) and in the packaging spec's `info_plist`,
-  to avoid a Dock-icon flash on launch. The status item is still the primary
-  interface; `ui/main_window.py` is a Dock-reachable fallback with the same
-  core actions, for when the status item is hidden by menu-bar overflow. While
-  a meeting is processing it shows a Cancel button (`app.cancelProcessing`)
-  with a Discard/Keep confirm.
+  to avoid a Dock-icon flash on launch. There is no separate Dock window:
+  the status item menu (with its Next-up card) is the primary interface, and
+  the Meetings window is the Dock-reachable window, opened on launch and on a
+  Dock click via `open_meetings(None)`. Recordings show the native
+  non-activating floating pill (`ui/pill_panel.py` view,
+  `ui/pill_controller.py` controller, pure rules in `ui/pill_model.py`); the
+  pill's Cancel has a Discard/Keep confirm.
   `AppDelegate.applicationShouldTerminateAfterLastWindowClosed_` returns
-  `False` so closing that window doesn't quit the background service, and
-  `applicationShouldHandleReopen_hasVisibleWindows_` reopens it on a Dock
+  `False` so closing the window doesn't quit the background service, and
+  `applicationShouldHandleReopen_hasVisibleWindows_` reopens Meetings on a Dock
   click.
-- **The four windows (Dock, meetings, training, and microphone check) are web-rendered** (`ui/webwindow.py` hosts the built
+- **The three windows (meetings, training, and microphone check) are web-rendered** (`ui/webwindow.py` hosts the built
   `frontend/` pages in transparent WKWebViews over the usual glass windows;
   `ui/webbridge.py` is the pure-logic bridge half, tested without WebKit).
   All webview calls are main-thread only — engine callbacks keep hopping via

@@ -915,7 +915,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             />
           ) : visibleMetas.length === 0 ? (
             libraryStatus.state !== 'upgrading' ? (
-              <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+              <EmptyState title="No meetings yet." body="Record a meeting from the menu bar to see it here." />
             ) : (
               <div />
             )

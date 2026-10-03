@@ -8,10 +8,13 @@ MLX); nothing ever leaves your Mac.
 Speakeasy lives in the menu bar as a small skull icon — it turns into a mic
 while recording and a waveform while transcribing. Click its status item to
 see the current state, switch profiles, train, record a meeting, or quit.
-Speakeasy also has a normal Dock icon; clicking it opens a small window with
-the same core actions, as a fallback for when the status item is hidden by
-menu-bar overflow (common with many menu-bar apps installed) or just hard to
-spot — the status item stays the primary, full-featured interface.
+The menu shows a Next-up card for your next calendar meeting. While a meeting
+is recording, a small floating pill shows the elapsed time and lets you stop,
+cancel (with a Discard/Keep confirm) or open a drawer with capture health.
+Speakeasy also has a normal Dock icon; launching it or clicking it opens the
+Meetings window, whose Today home shows what is on now and next. That is the
+way back in when the status item is hidden by menu-bar overflow (common with
+many menu-bar apps installed) or just hard to spot.
 
 It can also transcribe whole **meetings** (up to three hours): start a
 recording from the menu bar and, when you end it, Speakeasy produces a
@@ -188,10 +191,9 @@ content ships offline; progress is saved as you go.
 Click **Begin Meeting** in the menu bar to start recording. On macOS 14.2+,
 Speakeasy records your microphone and outgoing system audio as separate
 temporary tracks, so remote participants are captured while you wear
-headphones. The Dock window defaults to **All system audio** and can instead
-target one currently eligible audio process. Application names and PIDs are
-used only in the live selector; they are never logged or saved. Browser choices
-capture the selected browser process, not an individual tab. The status
+headphones. Meetings capture **All system audio** by default. The engine can instead
+target one eligible audio process, but no screen currently offers that choice.
+Application names and PIDs are never logged or saved. The status
 explicitly says **microphone + system audio**, **microphone + selected
 application**, or **microphone only**. Meetings capture up to three hours;
 the menu shows the elapsed time. Click **End Meeting** when you're done,
@@ -297,7 +299,7 @@ capture never silently widens to the global tap: if that process exits,
 restarts, or cannot be resolved, the meeting reports the selected application
 as unavailable and continues microphone-only until you reselect it next time.
 
-During recording, the Dock and menu expose privacy-safe capture health: whether
+During recording, the recording pill and menu expose privacy-safe capture health: whether
 each track has produced a first buffer, whether system audio has a nonzero
 signal, dropped-frame counts, writer lag/failure, helper exit, and the explicit
 fallback outcome. Saved meetings retain only that fixed metadata schema plus
@@ -346,14 +348,13 @@ have already added to it) to show your day and to name and label recordings.
   seven days. Click Record on a row to start a meeting for that event.
 - **Recordings:** a meeting started during an event, or up to 10 minutes
   before it, is linked to it. It takes the event's title and its attendees
-  as people. The Dock shows "Recording · <title>" and lets you change or
-  unlink the event.
+  as people. The pill shows the event title while recording.
 - **Speaker count:** the number of attendees caps how many remote voices
   diarization may report (with dual-track capture the cap is the other
   attendees; in mic-only fallback it also counts you). Speakeasy folds the
   quietest and most similar voices together until the count fits. This is an
   upper bound only if everyone who speaks was invited: an uninvited guest can
-  be merged into another voice. Setting the remote-speaker count in the Dock
+  be merged into another voice. An explicit remote-speaker count
   overrides the cap.
 
 ### Record prompts
@@ -490,7 +491,7 @@ tooling (pytest, pyinstaller) lives in `requirements-dev.txt`.
 
 ### 2. Run it
 
-The dock, meetings, and training windows are WKWebViews hosting a built
+The meetings, training, and microphone-check windows are WKWebViews hosting a built
 frontend — build it once (needs Node.js/npm; rebuild after editing anything
 under `frontend/`):
 
@@ -558,7 +559,7 @@ read but never copied. A 16 kHz mono WAV is required:
 .venv/bin/python -m speakeasy --import-vocabulary Jason terms.txt
 ```
 
-The dock meeting panel can optionally use the enrolled profiles and an expected
+Meeting recording can optionally use the enrolled profiles and an expected
 speaker count. Speaker labels in saved meetings can be clicked and corrected;
 the correction can apply to one segment or every matching segment. Identification
 is deliberately conservative: weak, ambiguous, or duplicate matches keep their
@@ -613,7 +614,7 @@ in the take. Secure or indeterminate AX security metadata also blocks insertion.
 
 ### Consented microphone correctness checks
 
-Open Speakeasy from the Dock and click **Check Microphone**, then **Begin
+Open **Check Microphone…** from the menu-bar menu, then **Begin
 30-prompt check**. The app displays each reference with **Start recording** and
 **Stop & compare** buttons. No Terminal, reading-sheet switching, or separate
 model process is needed. Allow approximately 12–18 minutes. Cancel or close the
@@ -816,10 +817,10 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   (custom template image; macOS has no `skull` SF Symbol) that swaps to
   `mic.fill`/`waveform` while active
 - **`ui/webwindow.py` + `ui/webbridge.py`** — the common transparent WKWebView
-  host and pure-Python bridge for the Dock, meetings, and training pages. Pages
+  host and pure-Python bridge for the meetings, training, and microphone-check pages. Pages
   load only built local assets; WebKit calls remain main-thread-only, and the
   bridge queues early state pushes until navigation completes
-- **`ui/main_window.py`, `ui/meetings_window.py`, `ui/training_window.py`** —
+- **`ui/meetings_window.py`, `ui/training_window.py`** —
   thin native controllers around those web-rendered pages. They expose live
   engine/capture state, meeting actions and speaker relabeling, and the guided
   training lifecycle while preserving the existing executor boundaries

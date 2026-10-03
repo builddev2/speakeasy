@@ -1097,7 +1097,7 @@ def test_upgrade_library_survives_count_meetings_error_at_queue_time(
     # Spec: upgrade_library()'s count_meetings() check runs on the main
     # thread from applicationDidFinishLaunching_ (ui/menubar.py) -- the
     # app's very first DB touch at launch, ahead of engineStateChanged_,
-    # main_window.show(), the permissions guidance, and the hotkey. A DB
+    # the Meetings window, the permissions guidance, and the hotkey. A DB
     # error there must not raise and abort the rest of launch: skip the
     # queued placeholder and still submit the worker job, which re-checks
     # count_meetings() inside its own try and publishes "failed".

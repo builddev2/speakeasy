@@ -9,7 +9,6 @@ import pytest
 from speakeasy.ui.webbridge import (
     BridgeDispatcher,
     EvalQueue,
-    capture_application_options,
     day_label,
     format_timestamp,
     segments_to_lines,
@@ -20,22 +19,6 @@ Seg = namedtuple("Seg", "speaker start end text")
 
 TZ = timezone(timedelta(hours=-4))
 NOW = datetime(2026, 9, 24, 15, 0, tzinfo=TZ)  # Thursday
-
-
-class RunningApplication:
-    def __init__(self, process_id, name, terminated=False):
-        self._process_id = process_id
-        self._name = name
-        self._terminated = terminated
-
-    def processIdentifier(self):
-        return self._process_id
-
-    def localizedName(self):
-        return self._name
-
-    def isTerminated(self):
-        return self._terminated
 
 
 def _parse_js(js):
@@ -161,22 +144,6 @@ class TestFormatting:
         lines = segments_to_lines(segs)
         assert [l["speakerNumber"] for l in lines] == [1, 2]
         assert [l["speakerLabel"] for l in lines] == ["Alice", "Bob"]
-
-    def test_capture_picker_lists_only_live_audio_processes_transiently(self):
-        applications = [
-            RunningApplication(40, "Browser"),
-            RunningApplication(20, "Teams"),
-            RunningApplication(30, "Zoom", terminated=True),
-            RunningApplication(10, "Speakeasy"),
-            RunningApplication(50, "No Audio"),
-        ]
-
-        assert capture_application_options(
-            applications, {10, 20, 30, 40}, own_pid=10
-        ) == [
-            {"pid": 40, "name": "Browser"},
-            {"pid": 20, "name": "Teams"},
-        ]
 
 
 @pytest.mark.parametrize("when,label", [

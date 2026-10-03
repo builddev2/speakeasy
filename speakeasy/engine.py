@@ -734,7 +734,7 @@ class DictationEngine:
         #
         # This runs on the main thread, inside applicationDidFinishLaunching_
         # (ui/menubar.py) — the app's very first DB touch at launch, well
-        # before engineStateChanged_, main_window.show(), the permissions
+        # before engineStateChanged_, the Meetings window, the permissions
         # guidance, or the hotkey are wired up. A DB error here (corrupt,
         # locked past the busy timeout, permissions, schema) must not abort
         # the rest of launch, so it's swallowed: skip the placeholder and

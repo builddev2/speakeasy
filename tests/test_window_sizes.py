@@ -7,7 +7,6 @@ UI = Path(__file__).resolve().parents[1] / "speakeasy" / "ui"
 
 def test_pinned_defaults_minimums_and_autosave_names():
     assert {k: (v.default, v.minimum, v.autosave) for k, v in SIZES.items()} == {
-        "dock": ((360, 430), (340, 400), "SpeakeasyDockFrame"),
         "training": ((640, 440), (560, 400), "SpeakeasyTrainingFrame"),
         "diagnostic": ((660, 600), (560, 520), "SpeakeasyDiagnosticFrame"),
     }
@@ -16,7 +15,7 @@ def test_pinned_defaults_minimums_and_autosave_names():
 
 
 def test_every_web_window_is_resizable_and_remembers_its_frame():
-    for module, key in (("main_window.py", "dock"), ("training_window.py", "training"),
+    for module, key in (("training_window.py", "training"),
                         ("diagnostic_window.py", "diagnostic"), ("meetings_window.py", None)):
         text = (UI / module).read_text()
         assert "resizable=True" in text, module

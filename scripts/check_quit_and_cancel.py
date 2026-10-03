@@ -7,9 +7,9 @@ real ~/Library/Application Support/Speakeasy.
 
 Three runs on the same audio:
   keep     no cancel: processing completes and the meeting is saved
-           (the dock's Keep button makes no backend call, so this is its
+           (the pill's Keep button makes no backend call, so this is its
            backend outcome)
-  discard  the main window's app.cancelProcessing handler is called while the
+  discard  the pill's Discard path is run while the
            diarization child is working: nothing is saved
   quit     in a separate process, Engine.shutdown() (the body every quit
            path runs) is called while the diarization child is working, and
@@ -106,15 +106,19 @@ def build_engine(root: Path):
 
 
 def cancel_handler(engine):
-    """The real main-window app.cancelProcessing handler, bound to engine."""
-    from speakeasy.ui import main_window
-    handlers = {}
-    main_window.BridgeDispatcher = lambda: SimpleNamespace(
-        register=lambda name, handler: handlers.__setitem__(name, handler))
-    main_window.WebWindow = lambda *a, **k: SimpleNamespace(
-        window=SimpleNamespace(setDelegate_=lambda d: None))
-    main_window.MainWindowController.alloc().initWithEngine_(engine)
-    return handlers["app.cancelProcessing"]
+    """The real pill Discard path, bound to engine."""
+    from speakeasy.ui import pill_controller
+    pill_controller._make_panel = lambda target: SimpleNamespace(
+        render=lambda v: None, show=lambda o: None, hide=lambda: None,
+        frame_origin=lambda: None, set_drawer=lambda rows: None,
+        is_drawer_visible=lambda: False, event_menu=lambda items: None)
+    pill = pill_controller.PillController.alloc().initWithEngine_opener_(engine, lambda view: None)
+
+    def handler(params, respond):
+        pill.machine.phase = "confirm_discard"
+        pill.pillDiscard_(None)
+        respond(True)
+    return handler
 
 
 def alive(pid: int) -> bool:

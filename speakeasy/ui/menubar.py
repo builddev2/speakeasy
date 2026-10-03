@@ -624,6 +624,9 @@ class AppDelegate(NSObject):
         if front is not None:
             self.ax_warmer.app_activated(front.processIdentifier())
         self.controller = StatusItemController.alloc().initWithEngine_(engine)
+        from .pill_controller import PillController
+
+        self.pill = PillController.alloc().initWithEngine_opener_(engine, self.controller.open_meetings)
 
         from .main_window import MainWindowController
 
@@ -657,8 +660,12 @@ class AppDelegate(NSObject):
 
         controller = self.controller
         main_window = self.main_window
+        pill = self.pill
 
         def on_state_changed(state):
+            pill.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"engineStateChanged:", state.value, False
+            )
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"engineStateChanged:", state.value, False
             )
@@ -671,6 +678,9 @@ class AppDelegate(NSObject):
                 )
 
         def on_meeting_progress(text):
+            pill.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingProgress:", text, False
+            )
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingProgress:", text, False
             )
@@ -679,6 +689,9 @@ class AppDelegate(NSObject):
             )
 
         def on_meeting_saved(meeting_id):
+            pill.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"meetingSaved:", meeting_id, False
+            )
             controller.performSelectorOnMainThread_withObject_waitUntilDone_(
                 b"meetingSaved:", meeting_id, False
             )
@@ -701,6 +714,7 @@ class AppDelegate(NSObject):
         engine.start()
         engine.upgrade_library()
         controller.engineStateChanged_(engine.state.value)
+        pill.engineStateChanged_(engine.state.value)
         main_window.engineStateChanged_(engine.state.value)
         if self.record_prompt is not None:
             self.record_prompt.engineStateChanged_(engine.state.value)
@@ -716,6 +730,8 @@ class AppDelegate(NSObject):
         print(f"Speakeasy in the menu bar{profile_tag}. Hold [{hotkey_name}] to dictate.")
 
     def applicationWillTerminate_(self, notification):
+        if getattr(self, "pill", None) is not None:
+            self.pill.shutdown()
         if getattr(self, "record_prompt", None) is not None:
             self.record_prompt.shutdown()
         if getattr(self, "calendar_sync", None) is not None:

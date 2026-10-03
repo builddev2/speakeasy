@@ -2,7 +2,7 @@
 
 The status icon mirrors engine state (skull at rest → mic.fill while recording
 → waveform while transcribing); the menu offers profile switching, training,
-launch-at-login and quit. Engine state changes arrive on worker/control
+settings and quit. Engine state changes arrive on worker/control
 threads and are marshaled to the main thread with the same
 performSelectorOnMainThread pattern as the overlay.
 
@@ -48,7 +48,10 @@ from .. import config, settings
 from ..engine import DictationEngine, State
 from ..meeting_options import default_options
 from ..profiles import Profile, list_profiles, load_profiles
-from . import login_item, permissions
+from . import permissions
+from .menu_model import menu_flags
+from .next_up import next_up
+from .next_up_view import NextUpView
 
 _STATE_TEXT = {
     State.LOADING: "Loading model…",
@@ -175,6 +178,7 @@ class StatusItemController(NSObject):
         self.meetings_window = None  # set lazily by openMeetings:
         self._pending_library_status = None  # replayed into a window created later
         self.dock_window = None  # set by AppDelegate once the dock exists
+        self.diagnostic_window = None  # built lazily by openDiagnostic:
 
         self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
             NSVariableStatusItemLength
@@ -200,6 +204,38 @@ class StatusItemController(NSObject):
         menu.addItem_(self._event_line)
         menu.addItem_(NSMenuItem.separatorItem())
 
+        def add(title, action, key="", tooltip=None):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+            item.setTarget_(self)
+            if tooltip:
+                item.setToolTip_(tooltip)
+            menu.addItem_(item)
+            return item
+
+        # Next-up card: a custom view, shown only while idle with an event due.
+        self._next_up = NextUpView.alloc().initWithTarget_(self)
+        self._next_up_key = None
+        self._next_up_item = NSMenuItem.alloc().init()
+        self._next_up_item.setView_(self._next_up.view())
+        self._next_up_item.setHidden_(True)
+        menu.addItem_(self._next_up_item)
+
+        self._meeting_item = add("Start Meeting", b"toggleMeeting:", "", _MEETING_TOOLTIP)
+        self._meeting_item.setEnabled_(False)  # enabled once the model is up
+        self._cancel_item = add(
+            "Cancel Processing", b"cancelProcessing:", "",
+            "Discards this meeting. Cancellation is checked between "
+            "transcription chunks and speaker-identification passes.")
+        self._cancel_item.setHidden_(True)
+        self._retry_item = add("Retry Microphone", b"retryMicrophone:")
+        self._retry_item.setHidden_(True)
+        menu.addItem_(NSMenuItem.separatorItem())
+
+        self._meetings_item = add("Open Meetings", b"openMeetings:", "o")
+        self._notes_item = add("Meeting Notes", b"openMeetingNotes:")
+        self._notes_item.setHidden_(True)
+        menu.addItem_(NSMenuItem.separatorItem())
+
         profile_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Profile", None, ""
         )
@@ -209,68 +245,24 @@ class StatusItemController(NSObject):
         menu.addItem_(profile_item)
         self._rebuild_profile_menu()
 
-        self._train_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Train Profile…", b"openTraining:", ""
-        )
-        self._train_item.setTarget_(self)
-        menu.addItem_(self._train_item)
-        self._correct_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Correct Last Dictation…", b"correctLastDictation:", ""
-        )
-        self._correct_item.setTarget_(self)
-        menu.addItem_(self._correct_item)
+        self._train_item = add("Train My Voice…", b"openTraining:")
+        self._diagnostic_item = add("Check Microphone…", b"openDiagnostic:")
+        self._correct_item = add("Correct Last Dictation…", b"correctLastDictation:")
         self._recovery_items = []
         for title, action in (
             ("Copy Last Dictation", b"copyLastDictation:"),
             ("Paste Last Dictation (may duplicate)", b"pasteLastDictation:"),
         ):
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, "")
-            item.setTarget_(self)
+            item = add(title, action)
             item.setEnabled_(False)
             self._recovery_items.append(item)
-            menu.addItem_(item)
         self._sync_train_item()
 
         menu.addItem_(NSMenuItem.separatorItem())
-        self._meeting_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Begin Meeting", b"toggleMeeting:", ""
-        )
-        self._meeting_item.setTarget_(self)
-        self._meeting_item.setToolTip_(_MEETING_TOOLTIP)
-        self._meeting_item.setEnabled_(False)  # enabled once the model is up
-        menu.addItem_(self._meeting_item)
+        add("Settings…", b"openSettings:", ",")
+        add("Quit Speakeasy", b"quitApp:", "q")
 
-        self._cancel_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Cancel Processing", b"cancelProcessing:", ""
-        )
-        self._cancel_item.setTarget_(self)
-        self._cancel_item.setToolTip_(
-            "Discards this meeting. Cancellation is checked between "
-            "transcription chunks and speaker-identification passes."
-        )
-        self._cancel_item.setHidden_(True)
-        menu.addItem_(self._cancel_item)
-
-        self._meetings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Meetings…", b"openMeetings:", ""
-        )
-        self._meetings_item.setTarget_(self)
-        menu.addItem_(self._meetings_item)
-
-        menu.addItem_(NSMenuItem.separatorItem())
-        self._login_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Start at Login", b"toggleLogin:", ""
-        )
-        self._login_item.setTarget_(self)
-        menu.addItem_(self._login_item)
-        self._sync_login_item()
-
-        menu.addItem_(NSMenuItem.separatorItem())
-        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Quit Speakeasy", b"quitApp:", "q"
-        )
-        quit_item.setTarget_(self)
-        menu.addItem_(quit_item)
+        menu.setDelegate_(self)
 
         self._item.setMenu_(menu)
 
@@ -334,6 +326,7 @@ class StatusItemController(NSObject):
             and state is State.READY
         )
         self._sync_meeting_items(state)
+        self._apply_flags(menu_flags(state.value))
 
     @objc.python_method
     def _sync_meeting_items(self, state):
@@ -345,9 +338,8 @@ class StatusItemController(NSObject):
             self._meeting_item.setTitle_("End Meeting (00:00)")
             self._meeting_item.setEnabled_(True)
         else:
-            self._meeting_item.setTitle_("Begin Meeting")
+            self._meeting_item.setTitle_("Start Meeting")
             self._meeting_item.setEnabled_(state is State.READY)
-        self._cancel_item.setHidden_(state is not State.MEETING_PROCESSING)
 
     def meetingProgress_(self, text):
         # Live "Transcribing meeting… 42%" line from the worker thread.
@@ -461,6 +453,65 @@ class StatusItemController(NSObject):
     def openMeetings_(self, sender):
         self.open_meetings(None)
 
+    def openMeetingNotes_(self, sender):
+        self.open_meetings("recording")
+
+    def openSettings_(self, sender):
+        self.open_meetings("settings")
+
+    def retryMicrophone_(self, sender):
+        self.engine.retry_microphone()
+
+    def openDiagnostic_(self, sender):
+        if getattr(self, "diagnostic_window", None) is None:
+            from .diagnostic_window import DiagnosticWindowController
+            self.diagnostic_window = DiagnosticWindowController.alloc().initWithEngine_(self.engine)
+        self.diagnostic_window.show()
+
+    @objc.python_method
+    def _apply_flags(self, flags):
+        self._notes_item.setHidden_(not flags["meeting_notes"])
+        self._retry_item.setHidden_(not flags["retry_mic"])
+        self._cancel_item.setHidden_(not flags["cancel"])
+        if not flags["next_up"]:
+            self._next_up_item.setHidden_(True)
+
+    def menuWillOpen_(self, menu):
+        # Must never raise: a library or calendar failure just hides the card.
+        try:
+            flags = menu_flags(self.engine.state.value)
+            self._apply_flags(flags)
+            card = None
+            if flags["next_up"]:
+                from datetime import datetime
+
+                from ..meeting_library import MeetingLibrary
+                from . import services
+
+                sync = services.calendar_sync
+                if sync is not None and sync.access() == "connected":
+                    now = datetime.now().astimezone()
+                    today = now.date().isoformat()
+                    card = next_up(MeetingLibrary().calendar_events_between(today, today), now, None)
+            if card is None:
+                self._next_up_key = None
+                self._next_up_item.setHidden_(True)
+            else:
+                self._next_up_key = card["key"]
+                self._next_up.set_event(card["title"], card["subtitle"])
+                self._next_up_item.setHidden_(False)
+        except Exception:
+            logging.getLogger(__name__).exception("menu open failed")
+            try:
+                self._next_up_key = None
+                self._next_up_item.setHidden_(True)
+            except Exception:
+                pass
+
+    def nextUpRecord_(self, sender):
+        self._item.menu().cancelTracking()
+        self.engine.begin_meeting(default_options(calendar_event_key=self._next_up_key))
+
     # -- training window (wired in training_window.py phase) --------------
 
     @objc.python_method
@@ -512,32 +563,6 @@ class StatusItemController(NSObject):
             if not self.engine.correct_last_dictation(field.stringValue()):
                 self._error("Correction not saved", "The correction was empty or conflicted with the profile.")
         self.engineStateChanged_(self.engine.state.value)
-
-    # -- launch at login ----------------------------------------------------
-
-    @objc.python_method
-    def _sync_login_item(self):
-        current = login_item.status()
-        if current is None:
-            self._login_item.setEnabled_(False)
-            self._login_item.setToolTip_(
-                "Available in the installed Speakeasy.app (macOS 13+)."
-            )
-            return
-        self._login_item.setEnabled_(True)
-        self._login_item.setState_(
-            NSControlStateValueOn if current else NSControlStateValueOff
-        )
-
-    def toggleLogin_(self, sender):
-        current = login_item.status()
-        if current is None:
-            return
-        try:
-            login_item.set_enabled(not current)
-        except RuntimeError as err:
-            self._error("Couldn't update login item", str(err))
-        self._sync_login_item()
 
     # -- misc ---------------------------------------------------------------
 

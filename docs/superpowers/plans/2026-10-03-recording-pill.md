@@ -1741,4 +1741,53 @@ def cancel_handler(engine):
 
 ## Execution notes
 
-(Empty. Record per-task model, commit range, review result and mutation counts; rulings with their cost if wrong; test counts; the user's on-screen check result or waiver.)
+Executed 3 Oct 2026, subagent-driven, in `.claude/worktrees/recording-pill` (branch `recording-pill`, base 23f142b). Every implementer was Sonnet 5.5; every reviewer, re-reviewer, the final reviewer and the Task 9 evaluator were Opus 5.5. Each task needed exactly one fix round. Fix-round findings were mostly test gaps that the mutation checks exposed.
+
+Baseline: build OK; pytest 1065 passed. Final: pytest **1182 passed**; node tests **31 passed**; build OK.
+
+| Task | Commits | Review (mutations caught / survived first pass) | Fix round 1 |
+|---|---|---|---|
+| 1 Default options + settings | 9154bc7..02954f9 | 3 / 1 (start paths not proven to use default_options) | 3 new tests; all caught |
+| 2 Navigation hand-off | 643111f..e3f9943 | 3 / 1 (takeNavigation registration) | dispatcher tests; caught |
+| 3 Pill model | 67631fb..00b9b6c | 3 / 2 (mid-meeting pause hid the pill; cancel+cleanup_failed) | pause guard + tests; 3 caught |
+| 4 Pill panels | dfc8da3..6821d9e | 3 / 7 (focus test vacuous; hide; drag) | tests + hitTest_ fix; 5 caught |
+| 5 Pill controller | 9edaf51..20668e3 | 5 / 5 (timers; re-show) | timer/re-show tests; 5 caught |
+| 6 Menu + Next-up | 3d7252b..e1578f5 | 4 / 3 (menu wiring) | menubar tests, midnight + 60-min fixes; 5 caught |
+| 7 Today | ed606e1..ca38219 | 6 / 2 (retryMicrophone registration) | test + Processing hero; 2 caught |
+| 8 Remove Dock window | 788ac43..402f696 | 1 / 2 (launch/reopen; spec hidden imports) | tests, README, tokens, comments; 3 caught |
+| Final review fixes | 13d3f75 | 0 Critical, 4 Important, 7 Minor | engine→pill fan-out test, start error in menu, hero Record, README/AGENTS; 4 caught |
+
+Task 7 visual check (controller, mock dev server in the browser pane): `today`, `today-recording` and `today-micfailed` in dark mode, and `today` in light mode with both folds open. The layout was as specified. The overflow check returned `[]` at 820 × 520 and 1440 × 900 for all three states. The processing hero and the hero Record button (both added later) were checked by reading the code only.
+
+Task 9 (Opus evaluator, temp HOME):
+- Build OK (no `--install`).
+- The app stayed up for 15 s and exited cleanly on SIGTERM; lsof showed nothing open under the real App Support.
+- No `pill_origin` (no settings.json was written).
+- `--mcp` listed 11 tools.
+- `check_quit_and_cancel.py` reported ALL PASS in 87.5 s: keep saved 1 meeting; the discard child was gone in 0.08 s and nothing was saved; quit took 0.005 s with exit code 0. It needs `HF_HOME=~/.cache/huggingface` under a temp HOME.
+- The pill, drawer, menu card and Today were **not seen on screen** by any agent.
+- Step 3 (the user's on-screen checks): **pending**.
+
+Rulings (decided by the controller; cost if wrong):
+1. Worktree made with EnterWorktree, the branch renamed, and `.venv`/`node_modules` symlinked instead of `npm ci`. Cost: a dependency mismatch would show up as a build failure.
+2. Comment-only edits allowed in engine.py (the Dock references at ~175, ~737, ~822, ~943) and in tests/test_engine_meeting.py. Cost: comment lines in engine.py.
+3. Fix rounds 4–5 would stay on Sonnet (never used). Cost: none.
+4. PillMachine ignores `paused` during a meeting phase, because `engine.pause()` (the training window) sets PAUSED mid-meeting. mic_failed/mic_recovering/loading still end a recording. Cost: if the engine ever ended a meeting on PAUSED, the pill would linger until the next state.
+5. Parked: the drawer says "All apps" even when `capture_scope == "selected"`, because no UI sets single-app capture any more. Cost: a wrong label if a future UI brings it back.
+6. next_up shows an in-progress event that started yesterday, and rounds minutes before the 60-minute cutoff, so it never says "Starts in 60 min". Cost: two lines differ from the plan's code.
+7. The duplicated microphoneFailureText resolved itself when the dock was deleted. Cost: none.
+8. "Earlier today · 1 meeting" uses the singular. Cost: a one-word copy difference from the plan.
+9. The final review ran before the Task 9 build. Cost: none.
+10. The Today hero shows Record for a later event (status 'none'), matching the menu's Next-up card. Cost: an early recording can be linked to a far-off event.
+11. A Dock click always opens Meetings, because the pill panel may count as a visible window. Cost: none beyond bringing Meetings forward.
+12. Parked: `meeting_start_error` persists until the next meeting start, and it outranks the "Text retained for 60 seconds" hint in the menu status line. This is the same precedence `meeting_processing_error` already had before this branch. Cost: after a failed meeting start, a later failed paste's recovery hint is hidden in the menu until the next meeting starts.
+
+Deferred minors, all triaged "fine to leave" by the final reviewer:
+- the Switch control has no disabled style;
+- App-level navigation edge cases (a failed recording.get loses the request; search text is not cleared; another sheet may already be open);
+- MeetingLibrary() is opened on each menu open;
+- the drawer is rebuilt every second while open;
+- pill_origin is stored in global coordinates, not screen-relative;
+- Today rows can be stale for up to 30 s around a recording's start or stop;
+- Start Meeting gives no feedback when the engine refuses it;
+- some checks are source-text tests only.

@@ -15,7 +15,19 @@ const SAMPLES = [
   '\\- not a list\n\\# not a heading\n\\  indented',
   'stars \\* and slash \\\\',
   '- item with **bold**\n  1. inner number\n  - [ ] inner task',
+  '\\*x',
+  '\\* a',
+  '\\\\x',
 ];
+
+test('paragraphs starting with * or backslash round-trip from the doc side', () => {
+  for (const text of ['*x', '* a', '\\x']) {
+    const doc: DocNode = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] };
+    const back = notesToDoc(docToNotes(doc));
+    assert.equal(back.content![0].content![0].text, text, text);
+    assert.equal(docToNotes(back).markdown, docToNotes(doc).markdown, text);
+  }
+});
 
 test('canonical markdown round-trips', () => {
   for (const md of SAMPLES) {

@@ -13,7 +13,7 @@ export interface DocNode {
 
 export const STAMPED_TYPES = ['paragraph', 'heading', 'listItem', 'taskItem'];
 const LIST_TYPES = ['bulletList', 'orderedList', 'taskList'];
-const MARKER = /^(\s|#{1,2} |[-*] |\d+\. |\\)/;
+const MARKER = /^(\s|#{1,2} |[-*] |\d+\. )/;
 
 function escapeText(text: string): string {
   return text.replace(/[\\*]/g, (c) => `\\${c}`);

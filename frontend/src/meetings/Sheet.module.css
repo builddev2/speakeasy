@@ -10,6 +10,9 @@
 }
 
 .sheet {
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   border-radius: 14px;
   background: var(--surface-elevated);
   border: 0.5px solid var(--hairline);

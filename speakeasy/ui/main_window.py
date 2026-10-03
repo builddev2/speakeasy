@@ -17,6 +17,7 @@ from speakeasy.ui import calendar_payloads, services
 from speakeasy.system_audio import eligible_process_ids
 from speakeasy.ui.webbridge import BridgeDispatcher, capture_application_options
 from speakeasy.ui.webwindow import WebWindow
+from speakeasy.ui.window_sizes import SIZES
 
 
 class MainWindowController(NSObject):
@@ -47,7 +48,11 @@ class MainWindowController(NSObject):
         dispatcher.register("app.cancelProcessing", self._cancel_processing)
         dispatcher.register("app.meetingEvents", self._meeting_events)
         dispatcher.register("app.linkMeetingEvent", self._link_meeting_event)
-        self._web = WebWindow("Speakeasy", 360, 430, "dock", dispatcher)
+        size = SIZES["dock"]
+        self._web = WebWindow("Speakeasy", *size.default, "dock", dispatcher,
+                              resizable=True, min_size=size.minimum)
+        # Overrides the centred default frame when a saved one exists.
+        self._web.window.setFrameAutosaveName_(size.autosave)
         self._web.window.setDelegate_(self)
         return self
 

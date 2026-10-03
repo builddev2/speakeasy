@@ -39,8 +39,9 @@
 }
 
 .captureOption select {
-  min-width: 190px;
-  max-width: 240px;
+  min-width: 0;
+  flex: 1 1 190px;
+  max-width: none;
   padding: 4px 6px;
   color: var(--text-soft);
   background: var(--glass-fill);
@@ -57,8 +58,9 @@
 }
 
 .row {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
   margin-top: 10px;
 }
 
@@ -229,7 +231,7 @@
   top: 26px;
   right: 0;
   z-index: 10;
-  width: 230px;
+  width: min(230px, calc(100vw - 24px));
   padding: 4px;
   border-radius: 9px;
   background: var(--surface-elevated);

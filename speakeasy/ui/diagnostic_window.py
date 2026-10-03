@@ -9,6 +9,7 @@ from ..diagnostic_followup import latest_report, short_followup, save_reviewed_r
 from ..engine import State
 from .webbridge import BridgeDispatcher
 from .webwindow import WebWindow
+from .window_sizes import SIZES
 
 
 class DiagnosticWindowController(NSObject):
@@ -29,7 +30,11 @@ class DiagnosticWindowController(NSObject):
         dispatcher.register("diagnostic.next", self._next)
         dispatcher.register("diagnostic.cancel", self._cancel)
         dispatcher.register("diagnostic.report", self._report)
-        self._web = WebWindow("Microphone Check", 660, 600, "diagnostic", dispatcher)
+        size = SIZES["diagnostic"]
+        self._web = WebWindow("Microphone Check", *size.default, "diagnostic", dispatcher,
+                              resizable=True, min_size=size.minimum)
+        # Overrides the centred default frame when a saved one exists.
+        self._web.window.setFrameAutosaveName_(size.autosave)
         self._web.window.setDelegate_(self)
         return self
 

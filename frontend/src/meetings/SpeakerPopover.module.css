@@ -6,7 +6,7 @@
 
 .popover {
   position: absolute;
-  width: 260px;
+  width: min(260px, calc(100vw - 24px));
   padding: 12px;
   border-radius: 12px;
   background: var(--surface-elevated);

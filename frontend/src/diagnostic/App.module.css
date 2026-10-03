@@ -3,7 +3,7 @@
 .eyebrow { color: var(--text-mid); font-size: 10px; letter-spacing: 1.5px; }
 .notice, .prompt { background: var(--glass-fill); border: 1px solid var(--hairline-lo); border-radius: 14px; padding: 18px; margin: 18px 0; }
 .notice p { margin: 9px 0 0; }
-.prompt { font-size: 19px; line-height: 1.55; max-height: 255px; overflow: auto; }
+.prompt { font-size: 19px; line-height: 1.55; max-height: min(255px, 40vh); overflow: auto; }
 .muted { color: var(--text-mid); font-size: 12px; }
 .condition { color: var(--amber); font-weight: 600; }
 .status { color: var(--text-mid); margin: 12px 0; }

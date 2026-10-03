@@ -4,7 +4,7 @@
 }
 
 .sidebar {
-  width: 222px;
+  width: clamp(180px, 30%, 260px);
   flex-shrink: 0;
   padding: 12px 8px;
   border-right: 0.5px solid var(--hairline-lo);
@@ -78,6 +78,7 @@
 .headline {
   margin: 16px 0 0;
   max-width: 340px;
+  min-width: 0;
   font: 600 22px/1.3 var(--sans);
   letter-spacing: -0.4px;
   color: var(--text-title);
@@ -130,6 +131,7 @@
 .phrase {
   margin: 14px 0 0;
   max-width: 360px;
+  min-width: 0;
   font: 600 22px/1.3 var(--sans);
   letter-spacing: -0.4px;
   color: var(--text-title);

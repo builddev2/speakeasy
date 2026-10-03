@@ -1,5 +1,5 @@
 .sheet {
-  width: 380px;
+  width: min(380px, calc(100vw - 48px));
   max-height: calc(100% - 80px);
   overflow-y: auto;
   padding: 16px 22px 20px;
@@ -81,7 +81,7 @@
 }
 
 .doneWrap {
-  width: 104px;
+  min-width: 104px;
 }
 
 .exportButton:focus-visible,

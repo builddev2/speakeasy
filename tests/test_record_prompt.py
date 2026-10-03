@@ -368,3 +368,24 @@ def test_calls_disabled_is_not_waving_off_a_call():
     observe(c, True, at(0, 10))
     c.calls_disabled()
     assert c.banner is None and c.take_call_waved_off() is False
+
+
+def test_banner_text_tone_and_kind():
+    from speakeasy.record_prompt import CallEnded, Offer, banner_text
+    ended = banner_text(CallEnded(), T0)
+    assert (ended.tone, ended.kind, ended.primary) == ("stop", "call", "Stop")
+    call = banner_text(Offer("call", (), T0), T0)
+    assert (call.tone, call.kind) == ("record", "call")
+    cal = banner_text(Offer("calendar", (ev("k1"),), T0), T0)
+    assert (cal.tone, cal.kind) == ("record", "calendar")
+
+
+def test_calendar_disabled_drops_only_calendar_offers_and_marks_nothing():
+    from speakeasy.record_prompt import Offer, RecordPromptCoordinator
+    c = RecordPromptCoordinator(set())
+    c.banner = Offer("calendar", (ev("k1"),), T0)
+    c.calendar_disabled()
+    assert c.banner is None and c.prompted == set()
+    c.banner = Offer("call", (), T0)
+    c.calendar_disabled()
+    assert c.banner is not None

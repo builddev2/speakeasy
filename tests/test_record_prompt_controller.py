@@ -21,10 +21,17 @@ class FakePanel:
     def __init__(self):
         self.calls = []
         self.subtitles = []
+        self.offs = []
+        self.tones = []
 
-    def show(self, title, subtitle, primary, secondary, more):
+    def show(self, title, subtitle, primary, secondary, more, tone="record", off_title=""):
         self.subtitles.append(subtitle)
         self.calls.append(("show", title, primary, secondary, tuple(more)))
+        self.offs.append(off_title)
+        self.tones.append(tone)
+
+    def show_notice(self, title, subtitle, action):
+        self.calls.append(("notice", title, subtitle, action))
 
     def show_confirmation(self, text):
         self.calls.append(("confirm", text))
@@ -293,4 +300,49 @@ def test_starting_a_recording_forgives_waved_off_apps(monkeypatch):
     assert probe.forgiven == before
     c.engineStateChanged_("meeting_recording")
     assert probe.forgiven == before + 1
+    c.shutdown()
+
+
+def test_turn_off_calendar_prompts_from_the_banner_and_undo(monkeypatch):
+    c, panel, _, _ = make(monkeypatch, FakeEngine(events=[ev("k1")]))
+    c.tick_(None)
+    assert panel.offs[-1] == "Turn off calendar prompts"
+    c.bannerTurnOff_(None)
+    assert settings.get_meeting_settings()["offer_to_record"] is False
+    assert panel.calls[-1] == ("notice", "Calendar prompts are off",
+                               "Turn back on in Meetings › Settings", "Undo")
+    assert c.engine.begun == [] and c.engine.ended == 0
+    c.bannerUndo_(None)
+    assert settings.get_meeting_settings()["offer_to_record"] is True
+    assert panel.calls[-1] == ("hide",)
+    c.shutdown()
+
+
+def test_turning_off_call_prompts_during_recording_never_ends_it(monkeypatch):
+    engine = FakeEngine(state="meeting_recording")
+    c, panel, _, times = make(monkeypatch, engine)
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=15)
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=20)
+    c.callObserved_(False)
+    times[0] = NOW + timedelta(seconds=90)
+    c.callObserved_(False)
+    assert panel.calls[-1][:2] == ("show", "Call ended") and panel.tones[-1] == "stop"
+    assert panel.offs[-1] == "Turn off call prompts"
+    c.bannerTurnOff_(None)
+    assert settings.get_meeting_settings()["detect_calls"] is False
+    assert panel.calls[-1][1] == "Call prompts are off"
+    assert engine.ended == 0 and engine.begun == []
+    assert c.probe_wanted is False
+    c.shutdown()
+
+
+def test_undo_after_the_notice_is_gone_does_nothing(monkeypatch):
+    c, panel, _, _ = make(monkeypatch, FakeEngine(events=[ev("k1")]))
+    c.tick_(None)
+    c.bannerTurnOff_(None)
+    c.noticeExpired()
+    c.bannerUndo_(None)
+    assert settings.get_meeting_settings()["offer_to_record"] is False
     c.shutdown()

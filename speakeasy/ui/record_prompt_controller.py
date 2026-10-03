@@ -21,6 +21,9 @@ TICK_SECONDS = 30.0
 # (start −10 min … end).
 _EVENT_WINDOW = timedelta(minutes=15)
 _PROBED_STATES = {"ready", "meeting_recording"}
+_OFF_TITLES = {"calendar": "Turn off calendar prompts", "call": "Turn off call prompts"}
+_OFF_NOTICES = {"calendar": "Calendar prompts are off", "call": "Call prompts are off"}
+NOTICE_HINT = "Turn back on in Meetings › Settings"
 
 
 def _now() -> datetime:
@@ -54,6 +57,7 @@ class RecordPromptController(NSObject):
         self._saved_prompted = set(self.coordinator.prompted)
         self._shown = None
         self._shown_text = None
+        self._undo_kind = None
         self.probe_wanted = False
         self.panel = _make_panel(self)
         self.probe = _make_probe(self)
@@ -116,6 +120,38 @@ class RecordPromptController(NSObject):
             if self._engine_ready():
                 self._record(int(item.tag()))
 
+    def bannerTurnOff_(self, sender):
+        banner = self.coordinator.banner
+        if banner is None:
+            return
+        kind = banner_text(banner, _now()).kind
+        if kind == "calendar":
+            settings.set_meeting_settings(offer_to_record=False)
+            self.coordinator.calendar_disabled()
+        else:
+            settings.set_meeting_settings(detect_calls=False)
+            self.coordinator.calls_disabled()
+        self._update_probe(self.engine.state.value, settings.get_meeting_settings())
+        self._shown = None
+        self._shown_text = None
+        self._undo_kind = kind
+        self.panel.show_notice(_OFF_NOTICES[kind], NOTICE_HINT, "Undo")
+
+    def bannerUndo_(self, sender):
+        kind, self._undo_kind = self._undo_kind, None
+        if kind == "calendar":
+            settings.set_meeting_settings(offer_to_record=True)
+        elif kind == "call":
+            settings.set_meeting_settings(detect_calls=True)
+        else:
+            return
+        self._update_probe(self.engine.state.value, settings.get_meeting_settings())
+        self.panel.hide()
+
+    @objc.python_method
+    def noticeExpired(self):
+        self._undo_kind = None
+
     @objc.python_method
     def shutdown(self):
         self._timer.invalidate()
@@ -164,6 +200,8 @@ class RecordPromptController(NSObject):
             self.probe.ignore_current()
         banner = self.coordinator.banner
         if banner is None:
+            if self._undo_kind is not None:
+                return   # an Undo notice is showing; leave it be
             if self._shown is not None:
                 self.panel.hide()
             self._shown = None
@@ -172,6 +210,8 @@ class RecordPromptController(NSObject):
         text = banner_text(banner, _now())
         if banner is self._shown and text == self._shown_text:
             return
+        self._undo_kind = None   # a new banner replaces any notice
         self._shown = banner
         self._shown_text = text
-        self.panel.show(text.title, text.subtitle, text.primary, text.secondary, list(text.more))
+        self.panel.show(text.title, text.subtitle, text.primary, text.secondary,
+                        list(text.more), tone=text.tone, off_title=_OFF_TITLES[text.kind])

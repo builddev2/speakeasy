@@ -40,6 +40,8 @@ class BannerText:
     primary: str
     secondary: str
     more: tuple[str, ...] = ()
+    tone: str = "record"        # "record" (coral) or "stop" (recording red)
+    kind: str = "calendar"      # which setting the ⋯ menu turns off
 
 
 def _with_people(events) -> list[CalendarEvent]:
@@ -58,12 +60,14 @@ def _when(event: CalendarEvent, now: datetime) -> str:
 
 def banner_text(banner, now: datetime) -> BannerText:
     if isinstance(banner, CallEnded):
-        return BannerText("Call ended", "Stop recording?", "Stop", "Keep Recording")
+        return BannerText("Call ended", "Stop recording?", "Stop", "Keep Recording",
+                          tone="stop", kind="call")
     if banner.kind == "call":
         if banner.events:
-            return BannerText(banner.events[0].title, "Call in progress", "Record", "Not Now")
+            return BannerText(banner.events[0].title, "Call in progress", "Record", "Not Now",
+                              kind="call")
         return BannerText("Record this call?", "Another app is using the microphone",
-                          "Record", "Not Now")
+                          "Record", "Not Now", kind="call")
     first = banner.events[0]
     return BannerText(first.title, f"{_when(first, now)} · {len(first.people)} invited",
                       "Record", "Not Now", tuple(e.title for e in banner.events[1:]))
@@ -143,6 +147,11 @@ class RecordPromptCoordinator:
         """Call detection was turned off: drop call banners (nothing is marked)."""
         if isinstance(self.banner, CallEnded) or (
                 isinstance(self.banner, Offer) and self.banner.kind == "call"):
+            self.banner = None
+
+    def calendar_disabled(self) -> None:
+        """Calendar offers were turned off: drop a calendar banner (nothing is marked)."""
+        if isinstance(self.banner, Offer) and self.banner.kind == "calendar":
             self.banner = None
 
     # -- clicks ---------------------------------------------------------------

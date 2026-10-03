@@ -18,6 +18,12 @@ class Target:
     def bannerMore_(self, item):
         self.calls.append(("more", item.tag()))
 
+    def bannerTurnOff_(self, sender):
+        self.calls.append("off")
+
+    def bannerUndo_(self, sender):
+        self.calls.append("undo")
+
 
 def test_panel_never_takes_focus_and_forwards_clicks():
     target = Target()
@@ -73,3 +79,34 @@ def test_banner_code_never_takes_focus():
         text = Path(module.__file__).read_text()
         assert "makeKeyAndOrderFront" not in text
         assert "activateIgnoringOtherApps" not in text
+
+
+def test_more_button_notice_and_title_never_overlap():
+    from speakeasy.ui import record_prompt_panel as rpp
+    assert rpp.NOTICE_SECONDS == 5.0
+    target = Target()
+    p = RecordPromptPanel.alloc().initWithTarget_(target)
+    p.show("A very long meeting title that will not fit in the banner at all, really",
+           "Starting now · 3 invited", "Record", "Not Now", [], off_title="Turn off calendar prompts")
+    assert not p._off.isHidden()
+    assert p._title.frame().origin.x + p._title.frame().size.width <= p._off.frame().origin.x - 4
+    p.offChosen_(None)
+    p.show_notice("Calendar prompts are off", "Turn back on in Meetings › Settings", "Undo")
+    assert p._secondary.title() == "Undo" and not p._secondary.isHidden()
+    assert p._primary.isHidden() and p._off.isHidden() and p._more.isHidden()
+    p.secondaryClicked_(None)
+    assert target.calls[-2:] == ["off", "undo"]
+    p.show("Call ended", "Stop recording?", "Stop", "Keep Recording", [], tone="stop", off_title="")
+    assert p._off.isHidden()
+    p.hide()
+
+
+def test_every_banner_button_title_fits_its_button():
+    p = RecordPromptPanel.alloc().initWithTarget_(Target())
+    for primary, secondary in (("Record", "Not Now"), ("Stop", "Keep Recording")):
+        p.show("T", "S", primary, secondary, ["One", "Two"], off_title="Turn off call prompts")
+        for button in (p._primary, p._secondary, p._more):
+            assert button.fittingSize().width <= button.frame().size.width + 0.5, button.title()
+    p.show_notice("Call prompts are off", "Turn back on in Meetings › Settings", "Undo")
+    assert p._secondary.fittingSize().width <= p._secondary.frame().size.width + 0.5
+    p.hide()

@@ -308,6 +308,19 @@ rebuilds.
   `frontend/src/**/*.module.css`; use `var(--…)` from `tokens.css`
   (`tests/test_frontend_tokens.py` enforces it, with contrast checks in both
   modes). Pure helpers are tested with `node --test` on `.ts` files.
+- **Meeting notes (notepad).** Schema v5: `user_notes` (`id` PK, `meeting_id`
+  UNIQUE, Markdown, FTS-indexed via `notes_fts`) and the single-row `note_draft`
+  for the "Recording now" notepad. `MeetingLibrary.save_meeting` adopts a draft
+  whose start is within meeting start − 10 min .. start + duration, shifting its
+  time stamps. Limit 200,000 characters (`Notes are too long to save`); the
+  editor autosaves 500 ms after the last change and retries every 5 s. Claude
+  can read notes through MCP (`get_meeting`, search) but nothing lets it write
+  them; `save_notes` is unchanged. Never edit a shipped migration.
+- **TipTap is pinned exactly (3.31.4) and bundled.** `@tiptap/core`, `pm`,
+  `react`, `starter-kit` and `extension-list` have no `^`/`~` in
+  `frontend/package.json`. The frontend build ends with
+  `frontend/scripts/check-offline.mjs`, which fails the build if the bundle
+  references any remote URL; keep the app fully offline.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.

@@ -304,6 +304,24 @@ fallback outcome. Saved meetings retain only that fixed metadata schema plus
 the transcript and timing offsets — never application/device names, PIDs,
 window titles, audio samples, or other provenance that could reveal content.
 
+### Notes
+
+Each meeting has a **Notes** tab for your own notes: headings (levels 1–2),
+bold, italic, bullet and numbered lists, and checklists. They save by
+themselves 500 ms after you stop typing (retrying every 5 seconds if a save
+fails), up to 200,000 characters. Notes are stored as Markdown in the local
+library and are searched along with transcripts; search results are labelled
+Summary or Notes. Copy and Markdown export include a **My notes** section.
+
+While a meeting records, a **Recording now** row appears at the top of the
+sidebar. Open it to type notes before the meeting is saved. Each line gets a
+time stamp in the gutter; once the meeting is saved the stamps jump to that
+moment in the transcript. When the meeting is saved, the notes you typed join
+it, provided the notepad was started between 10 minutes before the meeting
+began and its end. Notes from a recording that wasn't saved stay available
+until you discard them. Claude can read your notes (`get_meeting` and
+`search_meetings`) but never write them.
+
 ### Calendar
 
 Speakeasy can read Calendar.app (including Exchange and iCloud calendars you

@@ -111,6 +111,8 @@ def test_rebuild_derived_keeps_user_notes_searchable(library_path):
     mid = lib.save_meeting(_new())
     lib.set_user_notes(mid, "vendor contract", [])
     conn = meeting_store.connect()
+    conn.execute("INSERT INTO user_notes_fts(user_notes_fts) VALUES ('delete-all')")
+    conn.commit()
     meeting_store.rebuild_derived(conn)
     conn.close()
     assert [h.kind for h in lib.search("vendor")] == ["user_notes"]
@@ -119,3 +121,23 @@ def test_rebuild_derived_keeps_user_notes_searchable(library_path):
 def test_notes_plain_text_strips_markdown():
     md = "# Title\n- [x] **done** item\n  1. *one*\n\\- not a list\n\nend \\*star\\*"
     assert notes_plain_text(md) == "Title\ndone item\none\n- not a list\nend *star*"
+
+
+def test_replacing_notes_updates_the_search_index(library_path):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(_new())
+    lib.set_user_notes(mid, "vendor contract", [])
+    lib.set_user_notes(mid, "hiring plan", [])
+    assert lib.search("vendor") == []
+    assert [(h.meeting_id, h.kind) for h in lib.search("hiring")] == [(mid, "user_notes")]
+
+
+def test_blanked_notes_leave_no_stale_index_entries(library_path):
+    lib = MeetingLibrary()
+    a = lib.save_meeting(_new())
+    b = lib.save_meeting(_new(started=START + timedelta(days=1)))
+    lib.set_user_notes(a, "vendor contract", [])
+    lib.set_user_notes(a, "", [])
+    lib.set_user_notes(b, "hiring plan", [])
+    assert lib.search("vendor") == []
+    assert [(h.meeting_id, h.kind) for h in lib.search("hiring")] == [(b, "user_notes")]

@@ -86,9 +86,13 @@ class MeetingsWindowController(NSObject):
         self._web.window.setDelegate_(self)
         return self
 
-    def show(self):
+    def show(self, view=None):
+        if view is not None:
+            self._bridge.set_navigation(view)
         self._bridge.poll_changed()  # baseline; the emit below re-lists anyway
         self._web.emit("meetings.changed")  # page re-lists (old reload()-on-show)
+        if view is not None:
+            self._web.emit("meetings.navigate")
         self._web.show()
         if self._poll_timer is None:
             from Foundation import NSTimer

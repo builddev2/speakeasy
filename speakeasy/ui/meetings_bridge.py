@@ -95,6 +95,19 @@ class MeetingsBridge:
         self._recording_info = recording_info or (lambda: dict(_NOT_RECORDING))
         self._login_status = login_status
         self._set_login = set_login
+        self._navigation = None  # page the next window open should land on
+
+    def set_navigation(self, view) -> None:
+        ok = view in ("recording", "settings") or (
+            isinstance(view, dict) and set(view) == {"meeting"}
+            and isinstance(view["meeting"], str) and 0 < len(view["meeting"]) <= 200)
+        if not ok:
+            raise ValueError("Unknown page.")
+        self._navigation = view
+
+    def take_navigation_payload(self, params):
+        view, self._navigation = self._navigation, None
+        return view
 
     def register(self, dispatcher) -> None:
         for method, fn in {
@@ -128,6 +141,7 @@ class MeetingsBridge:
             "notes.draft.discard": self.draft_discard_payload,
             "notes.draft.finish": self.draft_finish_payload,
             "recording.get": self.recording_payload,
+            "meetings.takeNavigation": self.take_navigation_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 

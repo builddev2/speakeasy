@@ -448,14 +448,18 @@ class StatusItemController(NSObject):
     def cancelProcessing_(self, sender):
         self.engine.cancel_meeting_processing()
 
-    def openMeetings_(self, sender):
+    @objc.python_method
+    def open_meetings(self, view=None):
         from .meetings_window import MeetingsWindowController
 
         if self.meetings_window is None:
             self.meetings_window = MeetingsWindowController.alloc().init()
             if self._pending_library_status is not None:
                 self.meetings_window.libraryStatus_(self._pending_library_status)
-        self.meetings_window.show()
+        self.meetings_window.show(view)
+
+    def openMeetings_(self, sender):
+        self.open_meetings(None)
 
     # -- training window (wired in training_window.py phase) --------------
 

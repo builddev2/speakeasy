@@ -754,3 +754,24 @@ def test_login_unavailable_reads_null_and_refuses_set(tmp_path):
     assert bridge.settings_get_payload({})["startAtLogin"] is None
     with pytest.raises(ValueError, match="Start at login is available in the installed app."):
         bridge.settings_set_payload({"startAtLogin": True})
+
+
+def test_take_navigation_returns_once(tmp_path):
+    bridge = make_bridge(tmp_path)
+    assert bridge.take_navigation_payload({}) is None
+    bridge.set_navigation("recording")
+    assert bridge.take_navigation_payload({}) == "recording"
+    assert bridge.take_navigation_payload({}) is None
+
+
+def test_latest_navigation_wins(tmp_path):
+    bridge = make_bridge(tmp_path)
+    bridge.set_navigation("settings")
+    bridge.set_navigation({"meeting": "m-1"})
+    assert bridge.take_navigation_payload({}) == {"meeting": "m-1"}
+
+
+@pytest.mark.parametrize("bad", ["today", {"meeting": ""}, {"meeting": "x" * 201}, {"other": "m"}, 3])
+def test_unknown_navigation_is_refused(tmp_path, bad):
+    with pytest.raises(ValueError, match="Unknown page."):
+        make_bridge(tmp_path).set_navigation(bad)

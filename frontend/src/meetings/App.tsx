@@ -18,6 +18,8 @@ import { SettingsSheet } from './SettingsSheet';
 import { RecordingNotes } from './RecordingNotes';
 import { draftApi } from './draftApi';
 import { trackRecording } from './recordingState';
+import { navigationAction } from './navigation';
+import type { Navigation } from './navigation';
 import { formatElapsed } from './transcriptTurns';
 import {
   MOCK_METAS,
@@ -290,6 +292,41 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     });
   }, [embedded]);
 
+  // Another surface (pill, menu, Settings...) opened this window on a page.
+  const applyNavigationRef = useRef<() => void>(() => {});
+  applyNavigationRef.current = () => {
+    Promise.all([
+      bridge.call<Navigation>('meetings.takeNavigation'),
+      bridge.call<RecordingInfo>('recording.get'),
+    ])
+      .then(([nav, rec]) => {
+        const action = navigationAction(nav, rec);
+        if (action.kind === 'recording') { setRecording(rec); onSelectRecording(); }
+        else if (action.kind === 'today') onSelectToday();
+        else if (action.kind === 'settings') setSettingsOpen(true);
+        else if (action.kind === 'meeting') {
+          userNavigatedRef.current = true;
+          setRecordingView(false);
+          setToday(false);
+          setSearching(false);
+          // Pin the selection first so a list load in flight keeps it, and
+          // list under "all" so the meeting is in the list being shown.
+          selectedIdRef.current = action.id;
+          filterRef.current = { type: 'all' };
+          setFilter({ type: 'all' });
+          select(action.id);
+          void refreshList({}, true);
+        }
+      })
+      .catch((err) => console.error('navigation failed', err));
+  };
+  useEffect(() => {
+    if (!embedded) return;
+    const apply = () => applyNavigationRef.current();
+    apply();
+    return bridge.on('meetings.navigate', apply);
+  }, [embedded]);
+
   useEffect(() => {
     if (!embedded || homeAppliedRef.current) return;
     if (!filters.features.calendar || calendar.access !== 'connected') return;
@@ -393,7 +430,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       .call<Filters>('meetings.filters')
       .then(setFilters)
       .catch((err) => console.error('meetings.filters failed', err));
-    void refreshList(filterParams(filterRef.current), false);
+    // keepSelection: a meeting chosen by navigation before this list lands stays selected.
+    void refreshList(filterParams(filterRef.current), true);
     void bridge
       .call<LibraryStatus>('library.status')
       .then(setEmbeddedStatus)

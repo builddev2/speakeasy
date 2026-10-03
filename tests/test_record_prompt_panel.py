@@ -98,6 +98,12 @@ def test_more_button_notice_and_title_never_overlap():
     assert target.calls[-2:] == ["off", "undo"]
     p.show("Call ended", "Stop recording?", "Stop", "Keep Recording", [], tone="stop", off_title="")
     assert p._off.isHidden()
+    assert p._primary.bezelColor() == rpp.STOP_RED
+    p.show("T", "S", "Record", "Not Now", [], tone="record", off_title="Turn off call prompts")
+    assert p._primary.bezelColor() == rpp.CORAL
+    assert not p._off.isHidden()
+    p.show_confirmation("Recording")
+    assert p._off.isHidden()
     p.hide()
 
 

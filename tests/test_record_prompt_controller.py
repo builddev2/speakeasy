@@ -346,3 +346,20 @@ def test_undo_after_the_notice_is_gone_does_nothing(monkeypatch):
     c.bannerUndo_(None)
     assert settings.get_meeting_settings()["offer_to_record"] is False
     c.shutdown()
+
+
+def test_new_banner_during_notice_clears_the_pending_undo(monkeypatch):
+    c, panel, _, times = make(monkeypatch, FakeEngine(events=[ev("k1")]))
+    c.tick_(None)
+    c.bannerTurnOff_(None)
+    assert c._undo_kind == "calendar"
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=15)
+    c.callObserved_(True)
+    assert panel.calls[-1][0] == "show"
+    assert c._undo_kind is None
+    c.bannerUndo_(None)
+    assert settings.get_meeting_settings()["offer_to_record"] is False
+    c.bannerSecondary_(None)
+    assert panel.calls[-1] == ("hide",)
+    c.shutdown()

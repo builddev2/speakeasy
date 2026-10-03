@@ -27,7 +27,7 @@ from pathlib import Path
 from . import settings
 from .tag_names import tag_slug
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -267,7 +267,47 @@ PRAGMA user_version = 4;
 COMMIT;
 """
 
-_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3), (4, _SCHEMA_V4)]
+# v5: the user's own notes per meeting (Markdown; `text` is the plain copy
+# the FTS index reads) and the single draft being typed during a recording.
+# Kept apart from `notes` (Claude's summary) so neither can overwrite the other.
+# `id INTEGER PRIMARY KEY` (not meeting_id) because the FTS table is keyed on
+# a stable rowid, as notes_fts is.
+_SCHEMA_V5 = f"""
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS user_notes (
+    id INTEGER PRIMARY KEY,
+    meeting_id TEXT NOT NULL UNIQUE REFERENCES meetings(id) ON DELETE CASCADE,
+    markdown TEXT NOT NULL,
+    text TEXT NOT NULL,
+    stamps_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS user_notes_fts USING fts5(
+    text, content='user_notes', content_rowid='id',
+    {_TOKENIZE}
+);
+CREATE TRIGGER IF NOT EXISTS user_notes_ai AFTER INSERT ON user_notes BEGIN
+    INSERT INTO user_notes_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS user_notes_ad AFTER DELETE ON user_notes BEGIN
+    INSERT INTO user_notes_fts(user_notes_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
+CREATE TRIGGER IF NOT EXISTS user_notes_au AFTER UPDATE ON user_notes BEGIN
+    INSERT INTO user_notes_fts(user_notes_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO user_notes_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TABLE IF NOT EXISTS note_draft (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    markdown TEXT NOT NULL,
+    stamps_json TEXT NOT NULL DEFAULT '[]',
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+PRAGMA user_version = 5;
+COMMIT;
+"""
+
+_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3), (4, _SCHEMA_V4), (5, _SCHEMA_V5)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05
@@ -359,4 +399,5 @@ def rebuild_derived(conn: sqlite3.Connection) -> None:
     with conn:
         conn.execute("INSERT INTO segments_fts(segments_fts) VALUES ('rebuild')")
         conn.execute("INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')")
+        conn.execute("INSERT INTO user_notes_fts(user_notes_fts) VALUES ('rebuild')")
         conn.execute("DELETE FROM calendar_events")

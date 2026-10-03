@@ -25,6 +25,15 @@
 - Record the model used for each dispatch in Execution notes (one line per task).
 - Long Bash calls (full pytest ≈ 2 min, builds) get `timeout: 600000`. Never run app code on the real `~/Library/Application Support/Speakeasy`; pytest's conftest isolates HOME, and real-app checks use a temp HOME.
 
+## Usage-limit handoff (user requirement, 2 Oct 2026)
+
+The user may be away from the computer (on the phone) while this runs. When a usage-limit notice arrives, or the session is about to stop for any other reason before the plan is finished:
+
+1. Finish only the piece in hand (do not start a new task); let a running subagent finish if the allowance permits, otherwise note which task it was on.
+2. Checkpoint: append a dated **Progress** block to Execution notes in this plan file (tasks complete with commit ranges, the task in progress and its last fix round, open findings, rulings), and commit it on the feature branch. The SDD ledger lives in the worktree's `.superpowers/sdd/2026-10-02-meeting-notepad/progress.md`.
+3. Nothing left running: stop dev servers and test apps.
+4. End the message with `Safe to /clear: yes` (or what is missing) and a **fresh-session prompt** the user can paste at home, naming the plan file, the worktree path, the branch and the first task without a `complete` line, e.g. `Execute docs/superpowers/plans/2026-10-02-meeting-notepad.md, subagent-driven, resuming at Task N in worktree .claude/worktrees/meeting-notepad (ledger .superpowers/sdd/2026-10-02-meeting-notepad/progress.md).`
+
 ## Setup (once, before Task 1)
 
 - [ ] `git worktree add .claude/worktrees/meeting-notepad -b meeting-notepad master`; in it `ln -s ../../../.venv .venv`, `ln -s ../../../models models`, `npm --prefix frontend ci`.

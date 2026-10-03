@@ -1582,7 +1582,9 @@ git commit -m "Search: label summary and notes matches, open notes hits on the N
 - Tell the user at the end: a cancelled recording's notes are adopted by the next recording if it starts within 10 minutes (the spec's window); Copy is now Markdown.
 - Deferred minors for the final review (details in the ledger): `_check_stamps` should reject NaN/inf and non-lists with ValueError; `finish_draft` should reject naive `startedAt` with ValueError and truncate sub-seconds like adoption does; null markdown saved as "None"; `recording.get` should drop `startedAt` when idle; draft window edges and finish shift untested; export test should stamp nested/heading lines; stale docstrings.
 
-### Execution record (3 Oct 2026) — all tasks complete, awaiting the user's UI checks and merge
+### Execution record (3 Oct 2026) — all tasks complete; merged to master with UI checks waived
+
+**UI checks waived by the user (3 Oct 2026).** The user chose to skip the UI checks listed below and merge. The notepad has therefore been tested in code (unit/node/build suites) and at data level only (temp-HOME run of the built app); **no person or agent has looked at it on screen.** Treat the UI checks below as still open: run them before relying on the Notes tab, Recording now row, stamps, or light/dark legibility.
 
 Every task: Sonnet implementer, Opus reviewer with mutation checks.
 
@@ -1611,7 +1613,7 @@ Final suite at 58e5637: pytest 1065 passed, node tests 20 passed, frontend build
 
 **Real-app evaluation (Opus, Task 9 Step 3):** screen access was declined, so the agent checked only at data level, against a temp HOME with the built `dist/` app. Passed: schema v5 created; `recording.get` idle/recording/processing; a real 60 s synthetic meeting (Parakeet ASR + diarization) adopted the draft with correct stamps; `notes.draft.finish` hand-off; stamps fall inside the transcript; every autosave triggers `meetings.changed`; notes survive quit/relaunch (read via the built binary's MCP); bundle offline. No bugs found.
 
-**Still for the user (UI, not seen by any agent)** — in Terminal.app from the worktree, with a test HOME:
+**Still for the user (UI, not seen by any agent; waived at merge, still open)** — in Terminal.app with a test HOME (the worktree is deleted after merge, so build `dist/` from master first with `scripts/build_app.sh`):
 ```
 mkdir -p /tmp/se-notes-home
 HOME=/tmp/se-notes-home dist/Speakeasy.app/Contents/MacOS/Speakeasy

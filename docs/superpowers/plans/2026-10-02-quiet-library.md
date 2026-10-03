@@ -1401,7 +1401,7 @@ git commit -m "Windows: all resizable with remembered frames; layouts adapt with
 
 ## Follow-up plan (not in this plan)
 
-Recording pill with a capture drawer; menu-bar popover replacing the Dock (touches `menubar.py` — coordinate with the Codex `latency-cancellation` worktree first); meeting notepad; "Summary written by Claude · edited by you" provenance (needs `updated_by` in the `meetings.get` payload); a "Live" state on sidebar rows if Task 7 Step 4 had to skip it.
+Recording pill with a capture drawer; menu-bar popover replacing the Dock (touches `menubar.py`; the Codex `latency-cancellation` worktree was abandoned and removed on 3 Oct 2026, so there is nothing to coordinate with); meeting notepad (done, merged 3 Oct 2026); "Summary written by Claude · edited by you" provenance (needs `updated_by` in the `meetings.get` payload); a "Live" state on sidebar rows if Task 7 Step 4 had to skip it.
 
 ## Execution notes
 

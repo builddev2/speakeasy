@@ -1407,9 +1407,12 @@ Recording pill with a capture drawer; menu-bar popover replacing the Dock (touch
 
 (Empty. Record decisions, deviations, test counts and live-check results here as tasks complete.)
 
-### Progress (2 Oct 2026, paused at usage limit)
-- Tasks 1–7 complete and reviewed (implementers Sonnet, reviewers Opus, mutation-checked), branch `quiet-library`, worktree `.claude/worktrees/quiet-library`, head cb775b6. Next: Task 8 (brief already extracted).
-- Full ledger with every ruling and deferred minor: `.superpowers/sdd/2026-10-02-quiet-library/progress.md` (git-ignored, in the worktree).
-- Rulings: highlights/search marks use `--amber`, not coral; non-Record coral removed (popover, Connect Claude, library banner); day headers flat and non-sticky; reviewers may mutate temporarily.
-- For the final fix wave: Switch.module.css on-state is still coral; no test for `apply_saved()` at launch; token lint doesn't check that `var(--x)` names exist; add a test for two speaker numbers sharing a label; `--surface-sticky` is unused; ⌘K fires while a sheet is open.
-- "Live" sidebar row skipped: MeetingMeta has no recording state.
+### Execution record (2 Oct 2026)
+- All 10 tasks done on branch `quiet-library` (worktree `.claude/worktrees/quiet-library`). Each task: Sonnet 5.5 implementer, Opus 5.5 reviewer with mutation checks. Fix rounds: T2, T6, T7, T8 (one each). Final whole-branch review (Opus): 5 Important + 2 Minor fixed in b0e83c0, scoped re-review clean.
+- Tests: pytest 1024 passed; `npm --prefix frontend test` 8 passed; frontend build OK.
+- Task 9 overflow check: `[]` for all 9 pages × 4 sizes × 2 appearances (run in same-size iframes, since the pane emulates a phone below 768 px). No minimums raised.
+- "Live" sidebar row skipped: `MeetingMeta` has no recording state (follow-up plan).
+- Rulings (spec over plan): find/search highlights use `--amber`, not coral; all non-Record coral removed (speaker rename, Connect Claude, library banner, summary dot, title input, Switch on-state now neutral `--text-mid`); day headers flat and non-sticky; ⌘⌫ moved to the detail key handler; ⌘K ignored while a sheet is open; Settings sheet opens at the top.
+- Agent launch check: `dist/Speakeasy.app` built and launched with a temp HOME and `"appearance": "light"`; it stayed up, the Dock window opened at 360×430 and the 360×92 banner panel was created. No screen access, so nothing was looked at in the real app.
+- **Still the user's (not done by the agent):** (1) look at Meetings, Dock, Training and Microphone Check in Light/Dark/System, switching in Meetings › Settings with windows open; (2) drag each window to its minimum and large, quit, relaunch, confirm sizes are remembered; (3) check the 34 px drag inset above the sidebar; (4) banner: on a call, ⋯ → "Turn off call prompts" → "Call prompts are off" + Undo → Undo → Settings switch back on; banner colours in light and dark; ⋯ menu position. Record-prompts checks 2, 4 and 6 remain open.
+- Deferred (CAN WAIT per final review): token lint doesn't check `var(--x)` names exist; `test_window_sizes` is source-grep only; groupTurns speaker-number test; Appearance radios lack arrow-key roving focus; switch names include hint text; Tags/People collapsed can hide the active filter; appearance saved before other patch fields are validated; near-duplicate text-alpha tokens.

@@ -110,8 +110,8 @@ class WebWindow:
         window, effect = glass.make_glass_window(
             title, width, height, resizable=resizable, min_size=min_size
         )
-        # The app-level appearance (System/Light/Dark) is applied once, before
-        # the first window, so every window and page follow it.
+        # Re-apply the saved app-level appearance (System/Light/Dark) on every
+        # WebWindow init, before the window is shown, so pages follow it.
         appearance.apply_saved()
         self.window = window
 

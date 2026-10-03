@@ -34,3 +34,16 @@ def test_apply_sets_the_app_appearance():
 def test_web_windows_no_longer_force_dark():
     text = Path(__file__).resolve().parents[1].joinpath("speakeasy/ui/webwindow.py").read_text()
     assert "DarkAqua" not in text and "setAppearance_" not in text
+
+
+def test_webwindow_init_applies_the_saved_appearance():
+    # Constructing a real WebWindow needs a live WKWebView, so pin the call in
+    # the source instead: __init__ must call appearance.apply_saved().
+    import inspect
+    import re
+
+    from speakeasy.ui import webwindow
+
+    src = inspect.getsource(webwindow.WebWindow.__init__)
+    code = "\n".join(re.sub(r"#.*", "", line) for line in src.splitlines())
+    assert "appearance.apply_saved()" in code

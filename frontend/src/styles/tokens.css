@@ -43,7 +43,6 @@
 
   --surface-elevated: #262A28;
   --scrim: rgba(0,0,0,0.5);
-  --surface-sticky: rgba(12,15,14,0.82);
   --ring-on-glass: rgba(12,15,14,0.9);
 
   /* Component roles (dark values are the former literals) */
@@ -146,7 +145,6 @@
     --hairline-lo: rgba(0,0,0,0.07);
     --surface-elevated: #FFFFFF;
     --scrim: rgba(0,0,0,0.25);
-    --surface-sticky: rgba(251,251,250,0.88);
     --ring-on-glass: rgba(255,255,255,0.9);
     --sp-1:#237A5B; --sp-2:#946200; --sp-3:#7D55BD; --sp-4:#2F6FD6;
     --sp-5:#357A35; --sp-6:#A94B22; --sp-7:#B04E80;

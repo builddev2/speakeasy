@@ -180,7 +180,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }, [embedded, filters.features.calendar, calendar.access]);
 
   // Cmd/Ctrl+K focuses the sidebar search from anywhere in the window.
+  const sheetOpen = settingsOpen || confirmOpen || connectClaudeOpen;
   useEffect(() => {
+    if (sheetOpen) return;
     function onWindowKeyDown(e: globalThis.KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -189,7 +191,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     }
     window.addEventListener('keydown', onWindowKeyDown);
     return () => window.removeEventListener('keydown', onWindowKeyDown);
-  }, []);
+  }, [sheetOpen]);
 
   const mockLibraryStatus: LibraryStatus =
     mockState === 'empty'

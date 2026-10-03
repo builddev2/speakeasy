@@ -11,8 +11,8 @@
 }
 
 .on {
-  background: var(--coral-1);
-  border-color: var(--coral-1);
+  background: var(--text-mid);
+  border-color: var(--text-mid);
 }
 
 .thumb {
@@ -28,11 +28,12 @@
 }
 
 .on .thumb {
+  background: var(--surface-elevated);
   transform: translateX(14px);
 }
 
 .switch:focus-visible {
-  outline: 2px solid var(--coral-1);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

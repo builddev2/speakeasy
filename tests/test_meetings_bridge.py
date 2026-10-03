@@ -67,6 +67,7 @@ def test_list_and_get_shapes(library_path):
         "id": mid, "title": "1:1 Alex", "dayLabel": "Today", "time": "1:17 PM",
         "duration": "23 min", "subtitle": "You, Speaker 1", "speakerCount": 2,
         "hasSummary": True, "approximate": False, "tags": ["VFA"], "people": [],
+        "hasUserNotes": False, "userNotes": {"markdown": "", "stamps": []},
         # MeetingDetail.tsx composes "date · time · duration" from these
         # three separate fields (metaLine), so `date` carries no time/year
         # of its own — controller ruling; mock uses e.g. "Thu 24 Sep".
@@ -633,3 +634,52 @@ def test_get_payload_never_looks_up_a_missing_event_key(library_path, monkeypatc
     monkeypatch.setattr(lib, "calendar_event",
                         lambda key: pytest.fail("looked up an unlinked meeting's event"))
     assert MeetingsBridge(library=lib).get_payload({"id": mid})["event"] is None
+
+
+def test_user_notes_round_trip_through_the_bridge(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    got = _bcall(bridge, "notes.user.set", {"id": mid, "markdown": "deck", "stamps": [[0, 12.5]]})
+    assert got["e"] is None and got["r"]["updatedAt"]
+    detail = bridge.get_payload({"id": mid})
+    assert detail["hasUserNotes"] is True
+    assert detail["userNotes"] == {"markdown": "deck", "stamps": [[0, 12.5]]}
+    assert _bcall(bridge, "notes.user.set", {"id": mid, "markdown": "x" * 200_001, "stamps": []})["e"] \
+        == "Notes are too long to save"
+    assert _bcall(bridge, "notes.user.set", {"id": "20260101-000000-abcd", "markdown": "x",
+                                             "stamps": []})["e"] == "not_found"
+
+
+def test_meeting_without_user_notes(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    detail = bridge.get_payload({"id": mid})
+    assert detail["hasUserNotes"] is False
+    assert detail["userNotes"] == {"markdown": "", "stamps": []}
+
+
+def test_draft_calls(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    assert _bcall(bridge, "notes.draft.get")["r"] is None
+    _bcall(bridge, "notes.draft.set", {"markdown": "live", "stamps": [[0, 5]],
+                                      "startedAt": "2026-09-24T17:17:00Z"})
+    assert _bcall(bridge, "notes.draft.get")["r"] == {
+        "markdown": "live", "stamps": [[0, 5.0]], "startedAt": "2026-09-24T17:17:00Z"}
+    got = _bcall(bridge, "notes.draft.finish", {"id": mid, "markdown": "live!", "stamps": [],
+                                               "startedAt": "2026-09-24T17:17:00Z"})
+    assert got["e"] is None
+    assert lib.get_user_notes(mid).markdown == "live!" and lib.get_draft() is None
+    _bcall(bridge, "notes.draft.set", {"markdown": "x", "stamps": [], "startedAt": "2026-09-24T17:17:00Z"})
+    assert _bcall(bridge, "notes.draft.discard")["r"] is True
+    assert lib.get_draft() is None
+
+
+def test_recording_get_defaults_and_uses_the_injected_reader(library_path):
+    assert _bcall(MeetingsBridge(), "recording.get")["r"] == {
+        "recording": False, "processing": False, "startedAt": None, "title": None}
+    info = {"recording": True, "processing": False, "startedAt": "2026-09-24T17:17:00Z", "title": "1:1"}
+    assert _bcall(MeetingsBridge(recording_info=lambda: info), "recording.get")["r"] == info
+
+
+def test_search_reports_user_notes_kind(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    lib.set_user_notes(mid, "vendor contract", [])
+    assert [r["kind"] for r in bridge.search_payload({"query": "vendor"})] == ["user_notes"]

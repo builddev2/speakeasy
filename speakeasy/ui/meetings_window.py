@@ -4,6 +4,7 @@ import objc
 from Foundation import NSObject
 
 from speakeasy import meeting_export, meetings
+from speakeasy.meeting_library import utc_iso
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 from speakeasy.ui.webwindow import WebWindow
@@ -41,6 +42,20 @@ class MeetingsWindowController(NSObject):
             event = engine.meeting_event if engine is not None else None
             return event.event_key if event is not None else None
 
+        def recording_info():
+            # Read-only view of the engine for the notepad; engine.py is not
+            # changed. _meeting_started_at is private, so read it defensively;
+            # the page falls back to the time it first saw recording on.
+            if engine is None:
+                return None
+            state = getattr(engine.state, "value", "")
+            event = engine.meeting_event
+            started = getattr(engine, "_meeting_started_at", None)
+            return {"recording": state == "meeting_recording",
+                    "processing": state == "meeting_processing",
+                    "startedAt": utc_iso(started) if started is not None else None,
+                    "title": event.title if event is not None else None}
+
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
         self._bridge = MeetingsBridge(
@@ -48,6 +63,7 @@ class MeetingsWindowController(NSObject):
             calendar=services.calendar_sync,
             begin_meeting=engine.begin_meeting if engine is not None else None,
             recording_event_key=recording_event_key,
+            recording_info=recording_info,
             open_url=lambda url: NSWorkspace.sharedWorkspace().openURL_(
                 NSURL.URLWithString_(url)),
         )
@@ -97,6 +113,7 @@ class MeetingsWindowController(NSObject):
 
     def meetingSaved_(self, meeting_id):
         self._web.emit("meetings.changed")
+        self._web.emit("meetings.saved", {"id": str(meeting_id)})
 
     def calendarChanged_(self, _):
         self._web.emit("calendar.changed")

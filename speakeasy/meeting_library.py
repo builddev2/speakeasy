@@ -220,6 +220,23 @@ class UserNotes:
     updated_at: str
 
 
+DRAFT_EARLY_WINDOW = timedelta(minutes=10)
+
+
+@dataclass
+class NoteDraft:
+    markdown: str
+    stamps: list[tuple[int, float]]   # seconds since started_at
+    started_at: str                   # UTC ISO, the recording's start
+    updated_at: str
+
+
+def _adopt_stamps(stamps, drafted: datetime, meeting_start: datetime) -> list[tuple[int, float]]:
+    """Re-base draft stamps (seconds since the draft's start) onto the meeting."""
+    shift = (drafted - meeting_start).total_seconds()
+    return [(line, max(0.0, round(s + shift, 1))) for line, s in stamps]
+
+
 @dataclass
 class StoredMeeting:
     meeting_id: str
@@ -397,7 +414,69 @@ class MeetingLibrary:
 
     def save_meeting(self, new: NewMeeting) -> str:
         with self._transaction() as conn:
-            return self._insert(conn, new)
+            meeting_id = self._insert(conn, new)
+            self._adopt_draft(conn, meeting_id, new)
+            return meeting_id
+
+    def _adopt_draft(self, conn, meeting_id: str, new: NewMeeting) -> None:
+        """Attach the notes typed during this recording (engine.py stays untouched:
+        the library is the one place every saved recording passes through)."""
+        row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
+        if row is None:
+            return
+        drafted = datetime.fromisoformat(row["started_at"])
+        start = new.started_at
+        if not (start - DRAFT_EARLY_WINDOW <= drafted
+                <= start + timedelta(seconds=float(new.duration_seconds))):
+            return
+        stamps = _adopt_stamps([tuple(s) for s in json.loads(row["stamps_json"])], drafted, start)
+        self._write_user_notes(conn, meeting_id, row["markdown"], stamps)
+        conn.execute("DELETE FROM note_draft WHERE id = 1")
+
+    def get_draft(self) -> NoteDraft | None:
+        with self._transaction() as conn:
+            row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
+        if row is None:
+            return None
+        return NoteDraft(row["markdown"], [tuple(s) for s in json.loads(row["stamps_json"])],
+                         row["started_at"], row["updated_at"])
+
+    def set_draft(self, markdown: str, stamps, started_at: str) -> NoteDraft:
+        markdown = str(markdown)
+        if len(markdown) > USER_NOTES_MAX_CHARS:
+            raise ValueError("Notes are too long to save")
+        checked = _check_stamps(stamps)
+        drafted = utc_iso(datetime.fromisoformat(str(started_at)))
+        now = _now_iso()
+        with self._transaction() as conn:
+            conn.execute(
+                "INSERT INTO note_draft (id, markdown, stamps_json, started_at, updated_at)"
+                " VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET"
+                " markdown = excluded.markdown, stamps_json = excluded.stamps_json,"
+                " started_at = excluded.started_at, updated_at = excluded.updated_at",
+                (markdown, json.dumps([list(s) for s in checked]), drafted, now))
+        return NoteDraft(markdown, checked, drafted, now)
+
+    def discard_draft(self) -> None:
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM note_draft WHERE id = 1")
+
+    def finish_draft(self, meeting_id: str, markdown: str, stamps, started_at: str) -> UserNotes | None:
+        """The page's last word when the meeting it was drafting is saved:
+        overwrite that meeting's notes with the editor's text and drop the draft."""
+        _check_id(meeting_id)
+        with self._transaction() as conn:
+            m = conn.execute("SELECT started_at FROM meetings WHERE id = ?",
+                             (meeting_id,)).fetchone()
+            if m is None:
+                raise MeetingNotFound(meeting_id)
+            shifted = _adopt_stamps(_check_stamps(stamps),
+                                    datetime.fromisoformat(str(started_at)),
+                                    datetime.fromisoformat(m["started_at"]))
+            self._touch(conn, meeting_id)
+            notes = self._write_user_notes(conn, meeting_id, markdown, shifted)
+            conn.execute("DELETE FROM note_draft WHERE id = 1")
+            return notes
 
     def _insert(self, conn, new: NewMeeting) -> str:
         if new.started_at.tzinfo is None:

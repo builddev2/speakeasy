@@ -15,6 +15,10 @@ import { TodayView } from './TodayView';
 import type { TodayConnection } from './TodayView';
 import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
+import { RecordingNotes } from './RecordingNotes';
+import { draftApi } from './draftApi';
+import { trackRecording } from './recordingState';
+import { formatElapsed } from './transcriptTurns';
 import {
   MOCK_METAS,
   MOCK_DETAILS,
@@ -26,6 +30,7 @@ import {
   MOCK_CLAUDE_SETUP,
   MOCK_EVENTS_FOR_DAY,
   MOCK_MEETING_SETTINGS,
+  MOCK_LEFTOVER_DRAFT,
 } from '../mock/meetings';
 import type {
   MeetingMeta,
@@ -42,6 +47,7 @@ import type {
   EventChip,
   Appearance,
   MeetingSettings,
+  RecordingInfo,
 } from '../mock/meetings';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
@@ -61,7 +67,9 @@ type MockState =
   | 'today-unconnected'
   | 'connect-claude'
   | 'settings'
-  | 'notes';
+  | 'notes'
+  | 'recording'
+  | 'recording-leftover';
 
 const KNOWN_STATES: MockState[] = [
   'default',
@@ -79,6 +87,8 @@ const KNOWN_STATES: MockState[] = [
   'connect-claude',
   'settings',
   'notes',
+  'recording',
+  'recording-leftover',
 ];
 
 const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected'];
@@ -106,6 +116,9 @@ function minutesNow(): number {
 // still recording (started 3:30) and the 4:30 Roadmap Review Record row, so
 // both make sense next to the now-line.
 const MOCK_NOW_MINUTES = 16 * 60 + 29;
+
+const IDLE_RECORDING: RecordingInfo = { recording: false, processing: false, startedAt: null, title: null };
+const HANDOFF_GRACE_MS = 10_000;
 
 const IDLE_STATUS: LibraryStatus = { state: 'idle', done: 0, total: 0, skipped: [] };
 
@@ -138,7 +151,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
+  const mockRecording = isMock && (mockState === 'recording' || mockState === 'recording-leftover');
   const [today, setToday] = useState(TODAY_STATES.includes(mockState));
+  const [recording, setRecording] = useState<RecordingInfo>(() =>
+    mockRecording
+      ? { recording: true, processing: false, startedAt: new Date(Date.now() - 12 * 60_000).toISOString(), title: null }
+      : IDLE_RECORDING,
+  );
+  // The last known start time stays after the row goes, so the draft keeps its stamps' origin.
+  const [recordingStartedAt, setRecordingStartedAt] = useState<string | null>(
+    () => (mockRecording ? new Date(Date.now() - 12 * 60_000).toISOString() : null),
+  );
+  const [recordingView, setRecordingView] = useState(mockRecording);
+  const [forcedNotesId, setForcedNotesId] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
   const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
@@ -166,6 +192,11 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // Today is the home view, but only if the user hasn't picked anything before the calendar loads.
   const userNavigatedRef = useRef(false);
   const homeAppliedRef = useRef(false);
+  const recordingFirstSeenRef = useRef<string | null>(null);
+  const editorRef = useRef<(() => NotesValue) | null>(null);
+  const recordingViewRef = useRef(recordingView);
+  const recordingStartedAtRef = useRef(recordingStartedAt);
+  const recordingActive = recording.recording || recording.processing;
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -174,6 +205,90 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   useEffect(() => {
     filterRef.current = filter;
   }, [filter]);
+
+  useEffect(() => {
+    recordingViewRef.current = recordingView;
+  }, [recordingView]);
+
+  useEffect(() => {
+    recordingStartedAtRef.current = recordingStartedAt;
+  }, [recordingStartedAt]);
+
+  // Mock: leftover draft for `?state=recording-leftover`, none otherwise (set before the editor mounts).
+  useState(() => {
+    if (isMock) draftApi.seedMock(mockState === 'recording-leftover' ? MOCK_LEFTOVER_DRAFT : null);
+  });
+
+  // Poll the engine for a recording in progress (embedded only).
+  useEffect(() => {
+    if (!embedded) return;
+    let cancelled = false;
+    const poll = () => {
+      bridge
+        .call<RecordingInfo>('recording.get')
+        .then((info) => {
+          if (cancelled) return;
+          const t = trackRecording(info, recordingFirstSeenRef.current, new Date().toISOString());
+          recordingFirstSeenRef.current = t.firstSeen;
+          setRecording(info);
+          if (t.startedAt) setRecordingStartedAt(t.startedAt);
+        })
+        .catch((err) => console.error('recording.get failed', err));
+    };
+    poll();
+    const id = window.setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [embedded]);
+
+  // The elapsed time on the row ticks each second while it shows.
+  useEffect(() => {
+    if (!recordingActive) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [recordingActive]);
+
+  // If the row goes and no saved meeting arrives to take its place, leave the empty view.
+  useEffect(() => {
+    if (!recordingView || recordingActive) return;
+    const id = window.setTimeout(() => {
+      setRecordingView(false);
+      onSelectFilter({ type: 'all' });
+    }, HANDOFF_GRACE_MS);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingView, recordingActive]);
+
+  // A saved meeting while the draft is open: hand the notes over and open it on Notes.
+  function onMeetingSaved(id: string) {
+    if (!recordingViewRef.current) return; // save_meeting already adopted the draft
+    const startedAt = recordingStartedAtRef.current;
+    const value = editorRef.current?.(); // takes the final value: no draft save can follow
+    const open = () => {
+      setRecordingView(false);
+      select(id);
+      setForcedNotesId(id);
+      selectedIdRef.current = id;
+      if (embedded) void refreshList(filterParams(filterRef.current), true);
+    };
+    if (!value || !startedAt) { open(); return; }
+    draftApi
+      .finish({ id, ...value, startedAt })
+      .then(() => { if (!embedded) void onSaveNotes(id, value); })
+      .catch((err) => console.error('notes.draft.finish failed', err))
+      .finally(open);
+  }
+  const onMeetingSavedRef = useRef(onMeetingSaved);
+  onMeetingSavedRef.current = onMeetingSaved;
+  useEffect(() => {
+    if (!embedded) return;
+    return bridge.on('meetings.saved', (payload) => {
+      const id = (payload as { id?: string } | null)?.id;
+      if (id) onMeetingSavedRef.current(id);
+    });
+  }, [embedded]);
 
   useEffect(() => {
     if (!embedded || homeAppliedRef.current) return;
@@ -453,6 +568,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // Step 2: selecting a row calls meetings.get. A not_found rejection
   // (row deleted/renamed elsewhere) re-lists and selects the first row.
   function select(id: string | null) {
+    setForcedNotesId(null);
     setSelectedId(id);
     setPopover(null);
     setJumpTarget(null);
@@ -469,6 +585,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
   function onSelectFilter(next: SidebarFilter) {
     userNavigatedRef.current = true;
+    setRecordingView(false);
     setFilter(next);
     setSearching(false);
     setToday(false);
@@ -485,13 +602,25 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
   function onSelectToday() {
     userNavigatedRef.current = true;
+    setRecordingView(false);
     setToday(true);
     setSearching(false);
     setPopover(null);
     setConfirmOpen(false);
   }
 
+  function onSelectRecording() {
+    userNavigatedRef.current = true;
+    setRecordingView(true);
+    setToday(false);
+    setSearching(false);
+    setSearchQuery('');
+    setPopover(null);
+    setConfirmOpen(false);
+  }
+
   function onSelectTodayMeeting(meetingId: string) {
+    setRecordingView(false);
     setToday(false);
     select(meetingId);
   }
@@ -556,6 +685,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
   function onSelectResult(result: SearchResult) {
     userNavigatedRef.current = true;
+    setRecordingView(false);
     setToday(false);
     setSearching(false);
     setSearchQuery('');
@@ -694,7 +824,18 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   const selectedDetail = selectedId ? details[selectedId] ?? null : null;
-  const forcedTab = mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : mockState === 'notes' ? 'notes' : undefined;
+  const forcedTab =
+    selectedId !== null && selectedId === forcedNotesId
+      ? 'notes'
+      : mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : mockState === 'notes' ? 'notes' : undefined;
+  void tick; // re-render each second so the elapsed time on the row advances
+  const recordingRow =
+    recordingActive && recordingStartedAt
+      ? {
+          elapsed: formatElapsed((Date.now() - Date.parse(recordingStartedAt)) / 1000),
+          live: recording.recording,
+        }
+      : null;
 
   return (
     <GlassPanel width={1040} height={660}>
@@ -709,6 +850,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           }
           onSelectFilter={onSelectFilter}
           onSelectToday={onSelectToday}
+          recordingRow={recordingRow}
+          activeRecording={recordingView}
+          onSelectRecording={onSelectRecording}
           searchValue={searchQuery}
           onSearchChange={onSearchChange}
           searchFocusToken={searchFocusToken}
@@ -733,9 +877,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           ) : (
             <MeetingList
               metas={visibleMetas}
-              selectedId={today ? null : selectedId}
+              selectedId={today || recordingView ? null : selectedId}
               onSelect={(id) => {
                 userNavigatedRef.current = true;
+                setRecordingView(false);
                 setToday(false);
                 select(id);
               }}
@@ -745,7 +890,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           )}
         </Sidebar>
 
-        {today ? (
+        {recordingView && recordingStartedAt ? (
+          <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} />
+        ) : today ? (
           <TodayView
             connection={todayConnection}
             agenda={isMock ? MOCK_AGENDA : calendar.agenda}

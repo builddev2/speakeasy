@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
@@ -16,12 +16,15 @@ interface NotesEditorProps {
   now?: () => number | null;
   onStampClick?: (seconds: number) => void;
   notice?: ReactNode;
+  /** Set to "take the final value": cancels pending/retry saves, blocks further saves, returns the text. */
+  valueRef?: MutableRefObject<(() => NotesValue) | null>;
 }
 
-export function NotesEditor({ initial, save, now, onStampClick, notice }: NotesEditorProps) {
+export function NotesEditor({ initial, save, now, onStampClick, notice, valueRef }: NotesEditorProps) {
   const [status, setStatus] = useState<Status>('idle');
   const timer = useRef<number | null>(null);
   const pending = useRef<NotesValue | null>(null);
+  const closed = useRef(false);
   const saveRef = useRef(save);
   saveRef.current = save;
 
@@ -42,6 +45,7 @@ export function NotesEditor({ initial, save, now, onStampClick, notice }: NotesE
   });
 
   const flush = () => {
+    if (closed.current) return;
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
     const value = pending.current;
@@ -58,6 +62,7 @@ export function NotesEditor({ initial, save, now, onStampClick, notice }: NotesE
   };
 
   function schedule(value: NotesValue) {
+    if (closed.current) return;
     pending.current = value;
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_DELAY_MS);
@@ -68,6 +73,19 @@ export function NotesEditor({ initial, save, now, onStampClick, notice }: NotesE
     window.addEventListener('pagehide', onHide);
     return () => { window.removeEventListener('pagehide', onHide); flush(); };
   }, []);
+
+  useEffect(() => {
+    if (!valueRef || !editor) return;
+    const take = (): NotesValue => {
+      closed.current = true;
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = null;
+      pending.current = null;
+      return docToNotes(editor.getJSON());
+    };
+    valueRef.current = take;
+    return () => { if (valueRef.current === take) valueRef.current = null; };
+  }, [editor, valueRef]);
 
   const active = useEditorState({
     editor,

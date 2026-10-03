@@ -14,6 +14,10 @@ interface SidebarProps {
   todayCount?: number;
   onSelectFilter: (filter: SidebarFilter) => void;
   onSelectToday: () => void;
+  /** Shown above Today while a meeting is being recorded or processed. */
+  recordingRow?: { elapsed: string; live: boolean } | null;
+  activeRecording: boolean;
+  onSelectRecording: () => void;
   searchValue: string;
   onSearchChange: (value: string) => void;
   searchFocusToken?: number;
@@ -54,6 +58,9 @@ export function Sidebar({
   todayCount,
   onSelectFilter,
   onSelectToday,
+  recordingRow,
+  activeRecording,
+  onSelectRecording,
   searchValue,
   onSearchChange,
   searchFocusToken,
@@ -84,7 +91,7 @@ export function Sidebar({
   }
 
   function rowClass(filter: SidebarFilter): string {
-    return !activeToday && sameFilter(activeFilter, filter) ? `${styles.row} ${styles.rowActive}` : styles.row;
+    return !activeToday && !activeRecording && sameFilter(activeFilter, filter) ? `${styles.row} ${styles.rowActive}` : styles.row;
   }
 
   return (
@@ -111,6 +118,18 @@ export function Sidebar({
       </div>
 
       <div className={styles.nav}>
+        {recordingRow && (
+          <button
+            className={activeRecording ? `${styles.row} ${styles.rowActive}` : styles.row}
+            onClick={onSelectRecording}
+          >
+            <span className={styles.recLabel}>
+              <span className={recordingRow.live ? styles.recDot : `${styles.recDot} ${styles.recDotIdle}`} aria-hidden="true" />
+              <span className={styles.rowLabel}>Recording now</span>
+            </span>
+            <span className={styles.elapsed}>{recordingRow.elapsed}</span>
+          </button>
+        )}
         {filters.features.calendar && (
           <button
             className={activeToday ? `${styles.row} ${styles.rowActive}` : styles.row}

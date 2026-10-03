@@ -44,6 +44,9 @@ export type SummaryBlock =
 /** Same shape as notesMarkdown.ts (which must stay import-free). */
 export interface NotesValue { markdown: string; stamps: [number, number][] }
 
+export interface RecordingInfo { recording: boolean; processing: boolean; startedAt: string | null; title: string | null }
+export interface NotesDraft extends NotesValue { startedAt: string }
+
 export interface MeetingDetail extends MeetingMeta {
   date: string;
   lines: TranscriptLine[];
@@ -675,4 +678,11 @@ export const MOCK_MEETING_SETTINGS: MeetingSettings = {
       ],
     },
   ],
+};
+
+/** A draft left over from a recording that was never saved (mock `?state=recording-leftover`). */
+export const MOCK_LEFTOVER_DRAFT: NotesDraft = {
+  markdown: 'Agenda\n- [ ] ask about budget',
+  stamps: [[0, 41], [1, 95]],
+  startedAt: '2026-10-02T08:00:00.000Z',
 };

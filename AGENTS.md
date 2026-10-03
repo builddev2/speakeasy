@@ -215,6 +215,7 @@ whitelists the persisted keys; keep that boundary fixed when adding status UI.
 .venv/bin/python -m speakeasy            # run the menu-bar app from source
 .venv/bin/python -m speakeasy --cli      # terminal front end
 .venv/bin/python -m pytest               # tests (pure logic + recorder/hotkey/engine units)
+npm --prefix frontend test           # frontend pure-helper tests (node --test, no deps)
 scripts/fetch_diarization_models.sh      # one-time: download + checksum the 2 diarization ONNX models
 scripts/build_system_audio_helper.sh     # build the macOS 14.2+ process-tap helper
 scripts/build_app.sh                     # build dist/Speakeasy.app (PyInstaller + bundled model)
@@ -299,6 +300,14 @@ rebuilds.
   (and running from source) needs `npm --prefix frontend run build` first;
   node/npm is a build-time-only dependency, nothing web ships beyond the
   static files in `Resources/frontend/`.
+- **Appearance is app-level.** `speakeasy/ui/appearance.py` applies the
+  `appearance` setting (`system`/`light`/`dark`) with `NSApp.setAppearance_`;
+  `WebWindow` must not force an appearance. Pages follow `prefers-color-scheme`
+  and cache no theme in JS.
+- **Frontend CSS is tokens-only.** No literal colours in
+  `frontend/src/**/*.module.css`; use `var(--…)` from `tokens.css`
+  (`tests/test_frontend_tokens.py` enforces it, with contrast checks in both
+  modes). Pure helpers are tested with `node --test` on `.ts` files.
 - Match the surrounding code's comment density and style; comments here explain
   *why* a non-obvious constraint exists (threading, TCC, CoreAudio), not what
   the next line does.

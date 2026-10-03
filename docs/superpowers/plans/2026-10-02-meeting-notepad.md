@@ -1572,4 +1572,12 @@ git commit -m "Search: label summary and notes matches, open notes hits on the N
 
 ## Execution notes
 
-(Empty. Record rulings, deviations, models per dispatch, test counts and live-check results here as tasks complete.)
+### Progress (2 Oct 2026, paused by the user)
+
+- Branch `meeting-notepad`, worktree `.claude/worktrees/meeting-notepad`. Ledger with every ruling and deferred minor: `.superpowers/sdd/2026-10-02-meeting-notepad/progress.md` (git-ignored, in the worktree).
+- **Task 1 complete** (762eae3..1d6d31b; one fix round added FTS trigger-sync and real rebuild tests). **Task 2 complete** (..dfb0f93). **Task 3 complete** (..dd687dd). **Task 4 complete** (..22b1d9a). Each: Sonnet implementer, Opus reviewer with mutation checks.
+- **Task 5 implemented, NOT yet reviewed** (22b1d9a..8c4d34d). Next step: Opus task review of that range, then Task 6. Deviations to judge: offline-check test expects 6 hits (the CSS `@import url(...)` matches two patterns); `check-offline.mjs` uses `fileURLToPath` because the repo path has spaces; `npm audit` advisories were reported on install and not addressed.
+- Plan-time decision recorded: `user_notes` uses `id INTEGER PRIMARY KEY` + `meeting_id UNIQUE` (stable FTS rowid).
+- Carry into Task 7: (a) cancel the debounced draft save before `notes.draft.finish` and never send `notes.draft.set` after it; (b) read `recording.startedAt` only while `recording || processing` (the engine keeps the last start after a meeting ends).
+- Tell the user at the end: a cancelled recording's notes are adopted by the next recording if it starts within 10 minutes (the spec's window); Copy is now Markdown.
+- Deferred minors for the final review (details in the ledger): `_check_stamps` should reject NaN/inf and non-lists with ValueError; `finish_draft` should reject naive `startedAt` with ValueError and truncate sub-seconds like adoption does; null markdown saved as "None"; `recording.get` should drop `startedAt` when idle; draft window edges and finish shift untested; export test should stamp nested/heading lines; stale docstrings.

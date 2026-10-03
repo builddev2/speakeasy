@@ -30,6 +30,7 @@ import {
 import type {
   MeetingMeta,
   MeetingDetail as MeetingDetailType,
+  NotesValue,
   TranscriptLine,
   SearchResult,
   LibraryStatus,
@@ -59,7 +60,8 @@ type MockState =
   | 'today-denied'
   | 'today-unconnected'
   | 'connect-claude'
-  | 'settings';
+  | 'settings'
+  | 'notes';
 
 const KNOWN_STATES: MockState[] = [
   'default',
@@ -76,6 +78,7 @@ const KNOWN_STATES: MockState[] = [
   'today-unconnected',
   'connect-claude',
   'settings',
+  'notes',
 ];
 
 const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected'];
@@ -535,6 +538,22 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     setSearching(value.trim() !== '');
   }
 
+  function onSaveNotes(id: string, value: NotesValue): Promise<void> {
+    const remember = () => {
+      // Keep the cached detail current so leaving the meeting and coming back
+      // remounts the editor with what was typed.
+      setDetails((prev) => (prev[id]
+        ? { ...prev, [id]: { ...prev[id], hasUserNotes: value.markdown.trim() !== '', userNotes: value } }
+        : prev));
+    };
+    if (!embedded) {
+      if (MOCK_DETAILS[id]) MOCK_DETAILS[id].userNotes = value;
+      remember();
+      return Promise.resolve();
+    }
+    return bridge.call('notes.user.set', { id, ...value }).then(() => remember());
+  }
+
   function onSelectResult(result: SearchResult) {
     userNavigatedRef.current = true;
     setToday(false);
@@ -675,7 +694,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   const selectedDetail = selectedId ? details[selectedId] ?? null : null;
-  const forcedTab = mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : undefined;
+  const forcedTab = mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : mockState === 'notes' ? 'notes' : undefined;
 
   return (
     <GlassPanel width={1040} height={660}>
@@ -799,6 +818,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
                 console.log('request-summary', selectedId);
               }
             }}
+            onSaveNotes={onSaveNotes}
             jumpTarget={jumpTarget}
             onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
             onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}

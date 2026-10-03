@@ -41,6 +41,9 @@ export type SummaryBlock =
   | { kind: 'para'; text: string }
   | { kind: 'bullets'; items: string[] };
 
+/** Same shape as notesMarkdown.ts (which must stay import-free). */
+export interface NotesValue { markdown: string; stamps: [number, number][] }
+
 export interface MeetingDetail extends MeetingMeta {
   date: string;
   lines: TranscriptLine[];
@@ -49,6 +52,8 @@ export interface MeetingDetail extends MeetingMeta {
   summaryQueued: boolean;
   actionItems: string[];
   event: EventChip | null;
+  hasUserNotes: boolean;
+  userNotes: NotesValue;
 }
 
 export interface Filters {
@@ -63,7 +68,7 @@ export interface SearchResult {
   title: string;
   dayLabel: string;
   time: string;
-  kind: 'transcript' | 'notes';
+  kind: 'transcript' | 'notes' | 'user_notes';
   speaker: string | null;
   alsoSpeakers: string[];
   seconds: number | null;
@@ -257,11 +262,19 @@ export const MOCK_METAS: MeetingMeta[] = [
 // Meeting details (one per meta, keyed by id).
 // ---------------------------------------------------------------------------
 
-function detail(meta: MeetingMeta, extra: Omit<MeetingDetail, keyof MeetingMeta>): MeetingDetail {
-  return { ...meta, ...extra };
+type DetailExtra = Omit<MeetingDetail, keyof MeetingMeta | 'hasUserNotes' | 'userNotes'>
+  & Partial<Pick<MeetingDetail, 'hasUserNotes' | 'userNotes'>>;
+
+function detail(meta: MeetingMeta, extra: DetailExtra): MeetingDetail {
+  return { hasUserNotes: false, userNotes: { markdown: '', stamps: [] }, ...meta, ...extra };
 }
 
 const standupDetail = detail(standupMeta, {
+  hasUserNotes: true,
+  userNotes: {
+    markdown: '## Before Friday\n- [ ] Send the revised deck to **Priya**\n- [x] Book the review room\nOffline sync is now *P1*',
+    stamps: [[1, 754], [3, 1210]],
+  },
   date: 'Sun 27 Sep',
   event: { key: 'a1', title: 'Stand-up', time: '9:00 AM' },
   summary:
@@ -518,6 +531,22 @@ export const MOCK_RESULTS: SearchResult[] = [
       { text: 'The offline ', hit: false },
       { text: 'sync', hit: true },
       { text: ' bug took longer than planned.', hit: false },
+    ],
+  },
+  {
+    meetingId: standupDetail.id,
+    title: standupDetail.title,
+    dayLabel: standupDetail.dayLabel,
+    time: standupDetail.time,
+    kind: 'user_notes',
+    speaker: null,
+    alsoSpeakers: [],
+    seconds: null,
+    segmentIndex: null,
+    parts: [
+      { text: 'Send the revised ', hit: false },
+      { text: 'deck', hit: true },
+      { text: ' to Priya', hit: false },
     ],
   },
 ];

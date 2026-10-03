@@ -710,6 +710,28 @@ def test_meeting_start_uses_default_options(tmp_path):
     assert started == [MeetingOptions()]
 
 
+def _enrol_ana(monkeypatch):
+    import speakeasy.voice_profiles as vp
+    from speakeasy import settings
+    settings.set_identify_voices(True)
+    monkeypatch.setattr(vp.VoiceProfileStore, "names", lambda self: ["Ana"])
+
+
+def test_meeting_start_applies_identify_voices(tmp_path, monkeypatch):
+    _enrol_ana(monkeypatch)
+    started = []
+    make_bridge(tmp_path, begin_meeting=started.append).start_meeting_payload({})
+    assert started[0].expected_voice_profile_names == ("Ana",)
+
+
+def test_calendar_record_applies_identify_voices(tmp_path, monkeypatch):
+    _enrol_ana(monkeypatch)
+    started = []
+    make_bridge(tmp_path, begin_meeting=started.append).calendar_record_payload({"key": "ev-9"})
+    assert started[0].expected_voice_profile_names == ("Ana",)
+    assert started[0].calendar_event_key == "ev-9"
+
+
 def test_calendar_record_uses_default_options(tmp_path):
     started = []
     bridge = make_bridge(tmp_path, begin_meeting=started.append)

@@ -775,3 +775,24 @@ def test_latest_navigation_wins(tmp_path):
 def test_unknown_navigation_is_refused(tmp_path, bad):
     with pytest.raises(ValueError, match="Unknown page."):
         make_bridge(tmp_path).set_navigation(bad)
+
+
+def test_take_navigation_is_registered_on_the_dispatcher(tmp_path):
+    bridge = make_bridge(tmp_path)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    bridge.set_navigation("settings")
+    first = _call(d, "meetings.takeNavigation")
+    assert "_resolve" in first and "settings" in first
+    second = _call(d, "meetings.takeNavigation")
+    assert "_resolve" in second and "null" in second
+
+
+def test_meeting_start_is_registered_on_the_dispatcher(tmp_path):
+    started = []
+    bridge = make_bridge(tmp_path, begin_meeting=started.append)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    js = _call(d, "meeting.start")
+    assert "_resolve" in js and "true" in js
+    assert len(started) == 1

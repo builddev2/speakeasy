@@ -47,11 +47,20 @@ def setup(monkeypatch):
     monkeypatch.setattr(pc, "_screens", lambda: [(0, 0, 1440, 875)])
     monkeypatch.setattr(pc, "_mouse_screen", lambda: (0, 0, 1440, 875))
     monkeypatch.setattr(pc, "_today_events", lambda: [{"key": "e1", "title": "Weekly", "time": "9:00 AM"}])
-    monkeypatch.setattr(pc, "_start_timer", lambda target, seconds, selector, repeats: SimpleNamespace(invalidate=lambda: None))
+    timers = []
+
+    def start_timer(target, seconds, selector, repeats):
+        sel = selector.decode() if isinstance(selector, bytes) else selector
+        t = SimpleNamespace(spec=(seconds, sel, repeats), invalidated=0)
+        t.invalidate = lambda: setattr(t, "invalidated", t.invalidated + 1)
+        timers.append(t)
+        return t
+
+    monkeypatch.setattr(pc, "_start_timer", start_timer)
     engine, calls = make_engine()
     opened = []
     pill = pc.PillController.alloc().initWithEngine_opener_(engine, opened.append)
-    return SimpleNamespace(pill=pill, panel=panel, engine=engine, calls=calls, opened=opened)
+    return SimpleNamespace(pill=pill, panel=panel, engine=engine, calls=calls, opened=opened, timers=timers)
 
 
 def go(s, state, error=None):
@@ -170,3 +179,51 @@ def test_no_calendar_means_no_event_menu(setup, monkeypatch):
     go(setup, "meeting_recording")
     setup.pill.drawerEventClicked_(None)
     assert setup.panel.menus == []
+
+
+def live(s, spec):
+    return [t for t in s.timers if t.spec == spec and t.invalidated == 0]
+
+
+TICK = (1.0, "tick:", True)
+SAVED = (6.0, "savedExpired:", False)
+
+
+def test_single_ticker_while_recording_and_stopped_on_saved(setup):
+    go(setup, "meeting_recording")
+    for _ in range(3):
+        setup.pill.tick_(None)
+    setup.pill.pillBodyClicked_(None)
+    assert [t.spec for t in setup.timers] == [TICK]
+    go(setup, "meeting_processing")
+    assert [t.spec for t in setup.timers] == [TICK]
+    setup.pill.meetingSaved_("m-1")
+    assert not live(setup, TICK)
+    assert [t.spec for t in setup.timers if t.spec == SAVED] == [SAVED]
+    setup.pill.tick_(None)
+    assert len([t for t in setup.timers if t.spec == SAVED]) == 1
+
+
+def test_timers_stopped_on_hide_and_shutdown(setup):
+    go(setup, "meeting_processing")
+    setup.pill.meetingSaved_("m-1")
+    assert len(live(setup, SAVED)) == 1
+    setup.pill.pillClose_(None)
+    assert all(t.invalidated == 1 for t in setup.timers)
+    go(setup, "meeting_recording")
+    assert len(live(setup, TICK)) == 1
+    setup.pill.shutdown()
+    assert not [t for t in setup.timers if t.invalidated == 0]
+
+
+def test_hidden_invalidates_ticker(setup):
+    go(setup, "meeting_recording")
+    go(setup, "ready")
+    assert not live(setup, TICK) and setup.timers[0].invalidated == 1
+
+
+def test_pill_shows_again_after_hide(setup):
+    go(setup, "meeting_recording")
+    go(setup, "ready")
+    go(setup, "meeting_recording")
+    assert setup.panel.visible and len(setup.panel.shown) == 2

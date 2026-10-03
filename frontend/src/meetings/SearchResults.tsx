@@ -32,13 +32,19 @@ export function SearchResults({ results, pending = false, onSelect }: SearchResu
               {result.dayLabel} · {result.time}
             </span>
           </div>
-          {result.speaker && (
-            <div className={styles.speakerLine}>
-              {result.speaker}
-              {result.alsoSpeakers.length > 0 && (
-                <span className={styles.also}> · also: {result.alsoSpeakers.join(', ')}</span>
-              )}
-            </div>
+          {result.kind === 'notes' ? (
+            <div className={styles.speakerLine}>Summary</div>
+          ) : result.kind === 'user_notes' ? (
+            <div className={styles.speakerLine}>Notes</div>
+          ) : (
+            result.speaker && (
+              <div className={styles.speakerLine}>
+                {result.speaker}
+                {result.alsoSpeakers.length > 0 && (
+                  <span className={styles.also}> · also: {result.alsoSpeakers.join(', ')}</span>
+                )}
+              </div>
+            )
           )}
           <div className={styles.snippet}>
             {result.parts.map((part, j) =>

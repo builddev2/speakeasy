@@ -105,6 +105,14 @@ class PillBackground(NSView):
     def acceptsFirstMouse_(self, event):
         return True
 
+    def hitTest_(self, point):
+        # Only buttons keep their own clicks; the dots and labels resolve to the
+        # background so a first click on an inactive app is never swallowed.
+        hit = objc.super(PillBackground, self).hitTest_(point)
+        if hit is None or isinstance(hit, ClickyButton):
+            return hit
+        return self
+
     def mouseDown_(self, event):
         self._down_mouse = NSEvent.mouseLocation()
         origin = self.window().frame().origin

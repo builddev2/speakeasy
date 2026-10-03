@@ -181,7 +181,13 @@ export function TodayView({
         <div className={styles.hero}>
           <div className={styles.heroBody}>
             <div className={styles.heroTitle}>
-              <span className={styles.recordingDot} aria-hidden="true" /> Recording · {recording.title ?? 'Untitled meeting'} · {elapsedText}
+              {recording.recording ? (
+                <>
+                  <span className={styles.recordingDot} aria-hidden="true" /> Recording · {recording.title ?? 'Untitled meeting'} · {elapsedText}
+                </>
+              ) : (
+                <>Processing · {recording.title ?? 'Untitled meeting'}</>
+              )}
             </div>
           </div>
           <ActionButton onClick={onOpenNotes}>Open notes</ActionButton>

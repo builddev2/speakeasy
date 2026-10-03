@@ -810,3 +810,20 @@ def test_recording_get_defaults_include_engine_fields(tmp_path):
     got = make_bridge(tmp_path).recording_payload({})
     assert got["mode"] == "" and got["micFailure"] is None
     assert got["startError"] is None and got["processingError"] is None
+
+
+def test_meeting_retry_microphone_is_registered_on_the_dispatcher(tmp_path):
+    calls = []
+    bridge = make_bridge(tmp_path, retry_microphone=lambda: calls.append(1) or True)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    js = _call(d, "meeting.retryMicrophone")
+    assert "_resolve" in js and "true" in js
+    assert calls == [1]
+
+
+def test_retry_microphone_without_engine_is_unavailable(tmp_path):
+    from speakeasy.ui.meetings_bridge import BridgeError
+
+    with pytest.raises(BridgeError, match="recording_unavailable"):
+        make_bridge(tmp_path).retry_microphone_payload({})

@@ -153,3 +153,26 @@ def test_clamp_origin_rejects_offscreen():
 
 def test_default_origin_is_top_centre():
     assert default_origin((0, 0, 1440, 875), (360, 36)) == (540.0, 831.0)
+
+
+def test_pause_mid_recording_keeps_pill():
+    machine = m(("on_state", "meeting_recording", None), ("on_state", "paused", None))
+    assert machine.phase == "recording"
+
+
+def test_pause_mid_processing_keeps_pill_and_failure_shows():
+    machine = m(("on_state", "meeting_processing", None), ("on_state", "paused", None))
+    assert machine.phase == "processing"
+    machine.on_state("ready", "processing_failed")
+    assert machine.phase == "failed"
+
+
+def test_mic_failed_still_hides_recording():
+    machine = m(("on_state", "meeting_recording", None), ("on_state", "mic_failed", None))
+    assert machine.phase == "hidden"
+
+
+def test_confirmed_discard_with_cleanup_failure_stays_hidden():
+    machine = m(("on_state", "meeting_processing", None), ("cancel",), ("discard",),
+                ("on_state", "ready", "cleanup_failed"))
+    assert machine.phase == "hidden"

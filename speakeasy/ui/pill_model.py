@@ -96,6 +96,8 @@ class PillMachine:
         self.saved_id = None
 
     def on_state(self, state: str, processing_error):
+        if state == "paused" and self.phase in ("recording", "processing", "confirm_discard", "cancelling"):
+            return
         if state == "meeting_recording":
             self.phase, self.saved_id = "recording", None
         elif state == "meeting_processing":

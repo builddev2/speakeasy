@@ -679,9 +679,11 @@ def test_draft_calls(library_path):
 
 def test_recording_get_defaults_and_uses_the_injected_reader(library_path):
     assert _bcall(MeetingsBridge(), "recording.get")["r"] == {
-        "recording": False, "processing": False, "startedAt": None, "title": None}
+        "recording": False, "processing": False, "startedAt": None, "title": None,
+        "mode": "", "micFailure": None, "startError": None, "processingError": None}
     info = {"recording": True, "processing": False, "startedAt": "2026-09-24T17:17:00Z", "title": "1:1"}
-    assert _bcall(MeetingsBridge(recording_info=lambda: info), "recording.get")["r"] == info
+    got = _bcall(MeetingsBridge(recording_info=lambda: info), "recording.get")["r"]
+    assert {k: got[k] for k in info} == info and got["mode"] == ""
 
 
 def test_search_reports_user_notes_kind(library_path):
@@ -796,3 +798,15 @@ def test_meeting_start_is_registered_on_the_dispatcher(tmp_path):
     js = _call(d, "meeting.start")
     assert "_resolve" in js and "true" in js
     assert len(started) == 1
+
+
+def test_retry_microphone_calls_engine(tmp_path):
+    calls = []
+    bridge = make_bridge(tmp_path, retry_microphone=lambda: calls.append(1) or True)
+    assert bridge.retry_microphone_payload({}) is True and calls == [1]
+
+
+def test_recording_get_defaults_include_engine_fields(tmp_path):
+    got = make_bridge(tmp_path).recording_payload({})
+    assert got["mode"] == "" and got["micFailure"] is None
+    assert got["startError"] is None and got["processingError"] is None

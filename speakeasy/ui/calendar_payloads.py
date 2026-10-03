@@ -33,7 +33,8 @@ def agenda_row(e, now: datetime, recording_key: str | None) -> dict:
         status = "none"
     return {"key": e.event_key, "time": _clock(start), "endTime": _clock(end),
             "title": e.title, "attendeeCount": attendee_count(e), "status": status,
-            "meetingId": e.meeting_ids[-1] if e.meeting_ids else None}
+            "meetingId": e.meeting_ids[-1] if e.meeting_ids else None,
+            "start": start.isoformat(), "end": end.isoformat()}
 
 
 def agenda_payload(events, now: datetime, recording_key: str | None) -> list[dict]:

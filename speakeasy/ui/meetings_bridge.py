@@ -64,7 +64,8 @@ def _wallclock_lines(segments, meeting_local_start: datetime) -> list[dict]:
     return lines
 
 
-_NOT_RECORDING = {"recording": False, "processing": False, "startedAt": None, "title": None}
+_NOT_RECORDING = {"recording": False, "processing": False, "startedAt": None, "title": None,
+                  "mode": "", "micFailure": None, "startError": None, "processingError": None}
 
 
 class BridgeError(Exception):
@@ -74,7 +75,8 @@ class BridgeError(Exception):
 class MeetingsBridge:
     def __init__(self, library=None, now=None, set_clipboard=None, open_path=None,
                  calendar=None, begin_meeting=None, recording_event_key=None, open_url=None,
-                 recording_info=None, login_status=None, set_login=None):
+                 recording_info=None, login_status=None, set_login=None,
+                 retry_microphone=None):
         self.library = library or MeetingLibrary()
         # Opens a file/folder in its default app; AppKit-backed in the real
         # window, a no-op here so this module stays pure-Python.
@@ -90,6 +92,7 @@ class MeetingsBridge:
         # Calendar wiring (phase 3): all None in tests and the MCP server.
         self._calendar = calendar
         self._begin_meeting = begin_meeting
+        self._retry_microphone = retry_microphone
         self._recording_event_key = recording_event_key or (lambda: None)
         self._open_url = open_url or (lambda url: None)
         self._recording_info = recording_info or (lambda: dict(_NOT_RECORDING))
@@ -131,6 +134,7 @@ class MeetingsBridge:
             "calendar.openPrivacySettings": self.calendar_privacy_payload,
             "calendar.record": self.calendar_record_payload,
             "meeting.start": self.start_meeting_payload,
+            "meeting.retryMicrophone": self.retry_microphone_payload,
             "meetings.linkEvent": self.link_event_payload,
             "meetings.eventsForDay": self.events_for_day_payload,
             "settings.meetings.get": self.settings_get_payload,
@@ -221,6 +225,11 @@ class MeetingsBridge:
             raise BridgeError("recording_unavailable")
         self._begin_meeting(default_options(calendar_event_key=key))
         return True
+
+    def retry_microphone_payload(self, params) -> bool:
+        if self._retry_microphone is None:
+            raise BridgeError("recording_unavailable")
+        return bool(self._retry_microphone())
 
     def start_meeting_payload(self, params) -> bool:
         if self._begin_meeting is None:

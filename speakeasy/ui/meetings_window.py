@@ -55,7 +55,11 @@ class MeetingsWindowController(NSObject):
             return {"recording": state == "meeting_recording",
                     "processing": state == "meeting_processing",
                     "startedAt": utc_iso(started) if started is not None else None,
-                    "title": event.title if event is not None else None}
+                    "title": event.title if event is not None else None,
+                    "mode": state,
+                    "micFailure": getattr(engine.recorder, "last_failure", None),
+                    "startError": engine.meeting_start_error,
+                    "processingError": engine.meeting_processing_error}
 
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
@@ -63,6 +67,7 @@ class MeetingsWindowController(NSObject):
             set_clipboard=injector.set_clipboard, open_path=self._open_path,
             calendar=services.calendar_sync,
             begin_meeting=engine.begin_meeting if engine is not None else None,
+            retry_microphone=engine.retry_microphone if engine is not None else None,
             recording_event_key=recording_event_key,
             recording_info=recording_info,
             login_status=login_item.status, set_login=login_item.set_enabled,

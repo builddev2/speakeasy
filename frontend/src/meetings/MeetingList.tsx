@@ -89,8 +89,8 @@ export function MeetingList({
       return s !== null && !isOpen(s, openState, false);
     });
     if (closed.length) setOpen(closed, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on a new selection
-  }, [selectedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on a new selection or when expandAll flips
+  }, [selectedId, expandAll]);
 
   useEffect(() => {
     if (!pendingScroll.current || !selectedId) return;

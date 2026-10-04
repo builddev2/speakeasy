@@ -50,6 +50,8 @@
   --sidebar-shadow: none;
   --sidebar-divider: var(--hairline-lo);
   --sidebar-opaque: var(--surface-opaque);
+  /* Sticky section headers must hide rows scrolling under them; the sidebar itself is translucent. */
+  --section-header-bg: rgba(27,31,29,0.94);
   --row-active-bg: var(--selection);
   --row-active-shadow: none;
   --search-fill: var(--glass-fill-2);
@@ -163,6 +165,7 @@
     --sidebar-shadow: 0 0 0 0.5px rgba(0,0,0,0.08), 0 4px 14px -6px rgba(20,30,25,0.18);
     --sidebar-divider: transparent;
     --sidebar-opaque: #F7F7F6;
+    --section-header-bg: rgba(247,247,246,0.94);
     --row-active-bg: #FFFFFF;
     --row-active-shadow: 0 0 0 0.5px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
     --search-fill: rgba(0,0,0,0.045);

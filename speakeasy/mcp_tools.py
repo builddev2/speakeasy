@@ -20,6 +20,9 @@ from .meetings import _ID_RE
 from .summary_format import SUMMARY_INSTRUCTIONS
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# Diarization's placeholder labels ("Speaker 12"); same pattern as
+# voice_profiles._ANONYMOUS_RE. Listing them made a 100-row page ~74k chars.
+_ANONYMOUS_SPEAKER_RE = re.compile(r"Speaker [1-9][0-9]*", re.IGNORECASE)
 _MAX_CALENDAR_DAYS = 366
 
 
@@ -203,7 +206,10 @@ def build_tools(library) -> dict[str, Tool]:
                 "id": m.meeting_id, "title": m.title,
                 "start": _start(m.started_at, m.tz_offset_minutes),
                 "duration_minutes": _minutes(m.duration_seconds),
-                "speakers": m.speakers, "people": m.people, "tags": m.tags,
+                "named_speakers": [x for x in m.speakers
+                                   if not _ANONYMOUS_SPEAKER_RE.fullmatch(x)],
+                "speaker_count": m.speaker_count,
+                "people": m.people, "tags": m.tags,
                 "has_summary": m.has_summary,
                 "timestamps_approximate": m.timestamps_approximate,
             } for m in rows[:limit]],
@@ -344,9 +350,10 @@ def build_tools(library) -> dict[str, Tool]:
 
     specs = [
         ("list_meetings",
-         "List saved meetings, newest first, with date, duration, speakers, tags "
-         "and whether a summary exists. No transcript text. Filter by title words "
-         "to find a meeting by name.",
+         "List saved meetings, newest first, with date, duration, named speakers "
+         "(unnamed 'Speaker N' labels are only counted in speaker_count), people, "
+         "tags and whether a summary exists. No transcript text. Filter by title "
+         "words to find a meeting by name; use get_meeting for full detail.",
          {**_FILTERS,
           "title": {"type": "string", "description": "Words that must all appear in "
                     "the meeting title, any order, case-insensitive."},

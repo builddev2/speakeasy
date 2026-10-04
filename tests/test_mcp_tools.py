@@ -53,7 +53,8 @@ def test_list_meetings_shape_and_paging(lib, tools):
     assert m["id"] == ids[2]
     assert m["start"] == "2026-09-22T10:00-07:00"
     assert m["duration_minutes"] == 62.2
-    assert m["speakers"] == ["You", "Speaker 1"]
+    assert "speakers" not in m
+    assert m["named_speakers"] == ["You"] and m["speaker_count"] == 2
     assert m["has_summary"] is False and m["tags"] == [] and m["people"] == []
     last = tools["list_meetings"].run({"limit": 2, "offset": 2})
     assert [m["title"] for m in last["meetings"]] == ["M20"]
@@ -412,3 +413,19 @@ def test_summary_instructions_and_descriptions_point_claude_at_user_notes():
     tools = build_tools(None)
     assert "user_notes" in tools["get_meeting"].description
     assert "the user's own notes" in tools["search_meetings"].description
+
+
+def test_list_meetings_drops_anonymous_speaker_labels(lib, tools):
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("Speaker 12", 0, 2, "a"), MeetingSegment("Priya", 2, 4, "b"),
+                  MeetingSegment("speaker 3", 4, 6, "c"), MeetingSegment("Speaker Phone", 6, 8, "d"),
+                  MeetingSegment("You", 8, 9, "e")],
+        duration_seconds=600, title="Big", started_at=datetime(2026, 9, 20, 9, tzinfo=PDT)))
+    [m] = tools["list_meetings"].run({})["meetings"]
+    assert m["named_speakers"] == ["Priya", "Speaker Phone", "You"]
+    assert m["speaker_count"] == 5
+
+
+def test_list_meetings_description_mentions_named_speakers(tools):
+    d = tools["list_meetings"].definition()["description"]
+    assert "named speakers" in d and "get_meeting" in d

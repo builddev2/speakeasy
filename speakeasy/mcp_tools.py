@@ -129,6 +129,15 @@ def _str_list(args, key):
     return value
 
 
+def _bool(args, key, default=False):
+    value = args.get(key, default)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ToolError(f"{key} must be true or false.")
+    return value
+
+
 # -- formatting --------------------------------------------------------------
 
 def _start(started_at, tz_offset_minutes) -> str:
@@ -242,19 +251,37 @@ def build_tools(library) -> dict[str, Tool]:
             "user_notes": user_notes,
         }
 
+    def _snippet(h):
+        return {"kind": h.kind, "speaker": h.speaker, "at": _hms(h.start_seconds),
+                "start_seconds": h.start_seconds, "snippet": _markdown(h.snippet)}
+
     def search_meetings(args):
         query = _text(args, "query", required=True, max_len=500)
         start, end = _range(args)
-        hits = library.search(query, from_date=start, to_date=end,
-                              tag=_text(args, "tag"), person=_text(args, "person"),
-                              limit=_int(args, "limit", 10, 1, 50))
-        return {"results": [{
-            "meeting_id": h.meeting_id, "title": h.title,
-            "meeting_start": _start(h.started_at, h.tz_offset_minutes),
-            "kind": h.kind, "speaker": h.speaker, "also_speakers": h.also_speakers,
-            "at": _hms(h.start_seconds), "start_seconds": h.start_seconds,
-            "snippet": _markdown(h.snippet),
-        } for h in hits]}
+        limit = _int(args, "limit", 10, 1, 50)
+        offset = _int(args, "offset", 0, 0, 1000)
+        filters = dict(from_date=start, to_date=end, tag=_text(args, "tag"),
+                       person=_text(args, "person"), limit=limit + 1, offset=offset)
+        if _bool(args, "by_meeting"):
+            rows = library.search_grouped(query, **filters)
+            results = [{
+                "meeting_id": g.meeting_id, "title": g.title,
+                "meeting_start": _start(g.started_at, g.tz_offset_minutes),
+                "hit_count": g.hit_count, "first_at": _hms(g.first_seconds),
+                "last_at": _hms(g.last_seconds), "kinds": g.kinds,
+                "snippets": [_snippet(h) for h in g.best],
+            } for g in rows[:limit]]
+        else:
+            rows = library.search(query, **filters)
+            results = [{
+                "meeting_id": h.meeting_id, "title": h.title,
+                "meeting_start": _start(h.started_at, h.tz_offset_minutes),
+                "kind": h.kind, "speaker": h.speaker, "also_speakers": h.also_speakers,
+                "at": _hms(h.start_seconds), "start_seconds": h.start_seconds,
+                "snippet": _markdown(h.snippet),
+            } for h in rows[:limit]]
+        return {"results": results, "offset": offset,
+                "next_offset": offset + limit if len(rows) > limit else None}
 
     def get_transcript(args):
         meeting_id = _meeting_id(args)
@@ -373,7 +400,11 @@ def build_tools(library) -> dict[str, Tool]:
          "meeting; content matches return ranked snippets (matches in **bold**) with the "
          "meeting id and time offset.",
          {"query": {"type": "string"}, **_FILTERS,
-          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+          "by_meeting": {"type": "boolean", "default": False,
+                         "description": "One result per meeting (hit count, first/last "
+                                        "time, best 2 snippets) instead of per passage."},
+          "offset": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 0}},
          ["query"], search_meetings, True),
         ("get_transcript",
          "Read part of a meeting transcript as lines '[hh:mm:ss] Speaker: text'. "

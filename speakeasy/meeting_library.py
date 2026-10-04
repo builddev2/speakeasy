@@ -324,6 +324,23 @@ class SearchHit:
 
 
 @dataclass
+class MeetingHits:
+    """search_grouped: one meeting's matches, ranked by its best passage."""
+    meeting_id: str
+    title: str
+    started_at: str
+    tz_offset_minutes: int
+    hit_count: int
+    first_seconds: float | None   # earliest/latest transcript hit; None if none
+    last_seconds: float | None
+    kinds: list[str]              # in order first matched
+    best: list[SearchHit]         # top 2 passages, rank order
+
+
+GROUPED_FETCH = 2000   # passages per source considered by search_grouped
+
+
+@dataclass
 class CalendarEvent:
     event_key: str
     calendar_name: str
@@ -1211,8 +1228,38 @@ class MeetingLibrary:
     # -- search -------------------------------------------------------------
 
     def search(self, query: str, *, from_date=None, to_date=None, tag=None,
-               person=None, limit=10) -> list[SearchHit]:
-        limit = max(1, min(int(limit), 50))
+               person=None, limit=10, offset=0) -> list[SearchHit]:
+        limit = max(1, min(int(limit), 100))
+        offset = max(0, min(int(offset), 1000))
+        need = offset + limit
+        ranked = self._ranked_hits(query, from_date, to_date, tag, person,
+                                   title_limit=need, fetch=need * 4)
+        return ranked[offset:need]
+
+    def search_grouped(self, query: str, *, from_date=None, to_date=None, tag=None,
+                       person=None, limit=10, offset=0) -> list[MeetingHits]:
+        limit = max(1, min(int(limit), 100))
+        offset = max(0, min(int(offset), 1000))
+        groups: dict[str, MeetingHits] = {}
+        for h in self._ranked_hits(query, from_date, to_date, tag, person,
+                                   title_limit=GROUPED_FETCH, fetch=GROUPED_FETCH):
+            g = groups.get(h.meeting_id)
+            if g is None:
+                g = groups[h.meeting_id] = MeetingHits(
+                    h.meeting_id, h.title, h.started_at, h.tz_offset_minutes,
+                    0, None, None, [], [])
+            g.hit_count += 1
+            if h.kind not in g.kinds:
+                g.kinds.append(h.kind)
+            if len(g.best) < 2:
+                g.best.append(h)
+            if h.start_seconds is not None:
+                g.first_seconds = h.start_seconds if g.first_seconds is None else min(g.first_seconds, h.start_seconds)
+                g.last_seconds = h.start_seconds if g.last_seconds is None else max(g.last_seconds, h.start_seconds)
+        return list(groups.values())[offset:offset + limit]
+
+    def _ranked_hits(self, query, from_date, to_date, tag, person, *,
+                     title_limit, fetch) -> list[SearchHit]:
         # A falsy query (None, "") must short-circuit before fts_query ever
         # sees it: str(None) is the literal text "None", which would
         # otherwise become a real FTS match for any segment containing that
@@ -1233,16 +1280,16 @@ class MeetingLibrary:
             if not words:
                 if day is None:
                     return []
-                return self._meeting_hits(conn, where, params, [], "ASC", limit)
+                return self._meeting_hits(conn, where, params, [], "ASC", title_limit)
             title_where, title_params = meeting_filters(
                 from_date, to_date, tag, person, title=" ".join(words))
-            titled = self._meeting_hits(conn, title_where, title_params, words, "DESC", limit)
+            titled = self._meeting_hits(conn, title_where, title_params, words, "DESC", title_limit)
             hits = []
             for any_term in (False, True):
                 match = fts_query(" ".join(words), any_term=any_term)
                 if match is None:
                     break
-                hits = self._search(conn, match, where, params, limit * 4)
+                hits = self._search(conn, match, where, params, fetch)
                 if hits:
                     break
         # bm25 scores from the transcript and notes FTS tables are not comparable
@@ -1253,7 +1300,7 @@ class MeetingLibrary:
             of_kind = sorted((h for h in hits if h.kind == kind), key=lambda h: h.score)
             rank.update((id(h), i) for i, h in enumerate(of_kind))
         hits.sort(key=lambda h: (rank[id(h)], {"transcript": 0, "notes": 1, "user_notes": 2}[h.kind]))
-        return (titled + collapse_echoes(hits))[:limit]
+        return titled + collapse_echoes(hits)
 
     def _meeting_hits(self, conn, where, params, words, order, limit) -> list[SearchHit]:
         # Meeting-level hits: a title match (words highlighted) or, for a

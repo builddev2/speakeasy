@@ -433,3 +433,34 @@ def test_list_meetings_drops_anonymous_speaker_labels(lib, tools):
 def test_list_meetings_description_mentions_named_speakers(tools):
     d = tools["list_meetings"].definition()["description"]
     assert "named speakers" in d and "get_meeting" in d
+
+
+def test_search_meetings_offset_and_next_offset(lib, tools):
+    for d in range(1, 8):
+        _seed(lib, day=d, title=f"M{d}")
+    page = tools["search_meetings"].run({"query": "budget", "limit": 3})
+    assert len(page["results"]) == 3 and page["offset"] == 0 and page["next_offset"] == 3
+    tail = tools["search_meetings"].run({"query": "budget", "limit": 50, "offset": 3})
+    assert tail["next_offset"] is None
+    past = tools["search_meetings"].run({"query": "budget", "offset": 900})
+    assert past["results"] == [] and past["next_offset"] is None
+
+
+def test_search_meetings_by_meeting(lib, tools):
+    a = _seed(lib, day=20, title="Alpha")
+    _seed(lib, day=21, title="Beta")
+    out = tools["search_meetings"].run({"query": "budget", "by_meeting": True})
+    assert len(out["results"]) == 2
+    row = next(r for r in out["results"] if r["meeting_id"] == a)
+    assert set(row) == {"meeting_id", "title", "meeting_start", "hit_count", "first_at",
+                        "last_at", "kinds", "snippets"}
+    assert row["hit_count"] == 2 and row["first_at"] == "00:00:00" and row["last_at"] == "00:00:05"
+    assert row["kinds"] == ["transcript"]
+    assert [set(s) for s in row["snippets"]] == [{"kind", "speaker", "at", "start_seconds", "snippet"}] * 2
+    assert "**budget**" in row["snippets"][0]["snippet"].lower()
+    assert out["next_offset"] is None
+
+
+def test_search_meetings_rejects_non_boolean_by_meeting(tools):
+    with pytest.raises(ToolError):
+        tools["search_meetings"].run({"query": "x", "by_meeting": "yes"})

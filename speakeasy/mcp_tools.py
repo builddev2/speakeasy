@@ -400,7 +400,13 @@ def build_tools(library) -> dict[str, Tool]:
          "'3 October 2026', '2026-10-03', 'today', 'yesterday') limits results to that "
          "day; a date alone lists that day's meetings. Title matches come first as kind "
          "meeting; content matches return ranked snippets (matches in **bold**) with the "
-         "meeting id and time offset.",
+         "meeting id and time offset. Every word must appear in the same passage, so "
+         "search one or two distinctive terms at a time and try synonyms (e.g. API, "
+         "endpoint, REST, GraphQL) as separate searches. To answer 'when and why did we "
+         "decide X': search with by_meeting=true to see which meetings discussed it and "
+         "when, narrow with from/to, then read get_meeting (summary Decisions, the "
+         "user's notes) and get_transcript around start_seconds. Pass next_offset as "
+         "offset for more.",
          {"query": {"type": "string"}, **_FILTERS,
           "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
           "by_meeting": {"type": "boolean", "default": False,

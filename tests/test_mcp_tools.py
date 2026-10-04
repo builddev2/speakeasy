@@ -490,3 +490,10 @@ def test_pending_summaries_range_validation_and_description(tools):
     d = tools["pending_summaries"].definition()
     assert {"from", "to"} <= set(d["inputSchema"]["properties"])
     assert "catch up" in d["description"]
+
+
+def test_search_description_teaches_recall_strategy(tools):
+    d = tools["search_meetings"].definition()["description"]
+    for phrase in ("one or two distinctive terms", "synonyms", "by_meeting", "from/to",
+                   "get_meeting", "get_transcript", "next_offset"):
+        assert phrase in d, phrase

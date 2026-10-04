@@ -1774,7 +1774,16 @@ Task 9 (Opus evaluator, temp HOME):
     2. **Change:** the drawer is now the pill's width (360 pt) and aligned with it.
     3. **Change:** notes show and create no time stamps. Old stamp data is kept.
   - Sonnet implemented; Opus reviewed with mutations. Suite: 1192 passed, node 33 passed. Rebuilt.
-  - Run 2 (the rebuilt app, user): **pending**.
+  - Run 2 (the rebuilt app, user, 3 Oct 2026): **passed**.
+    - The pill returned to its saved spot, and the drawer matches the pill's width.
+    - Notes saved with formatting and without time stamps, and appeared on the saved meeting's Notes tab.
+    - Stop → Processing → Saved · Open worked; Settings and light/dark were checked.
+    - The user approved the merge.
+
+## Follow-ups (found during the on-screen checks; not part of this branch)
+
+- **Search ignores titles and dates.** Searching "meeting" or "Oct 3" finds nothing, even for "Test Meeting — Oct 3, 7:58 PM". `MeetingLibrary.search` queries only the transcript and notes FTS, never meeting titles or dates. This predates the branch. It needs a brainstorm: what should match, and how should results rank?
+- **The light-mode sidebar looks bad** ("gray side bar looks really bad", user, 3 Oct 2026). The sidebar is unchanged by this branch. It needs a design pass on the Quiet Library light sidebar.
 
 Rulings (decided by the controller; cost if wrong):
 1. Worktree made with EnterWorktree, the branch renamed, and `.venv`/`node_modules` symlinked instead of `npm ci`. Cost: a dependency mismatch would show up as a build failure.

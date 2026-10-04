@@ -1,4 +1,5 @@
 .sidebar {
+  position: relative;
   width: clamp(220px, 24vw, 300px);
   flex-shrink: 0;
   align-self: stretch;
@@ -11,6 +12,27 @@
   border-right: 0.5px solid var(--sidebar-divider);
   padding: 10px 0 10px;
   overflow: hidden;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resizeHandle:hover,
+.resizeHandle:active {
+  background: var(--glass-fill-2);
+}
+
+.resizeHandle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .searchWrap {

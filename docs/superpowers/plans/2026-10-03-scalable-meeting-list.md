@@ -1409,6 +1409,20 @@ target.
 - The open state survives a relaunch.
 - Afterwards, toggle Claude Desktop's Speakeasy connector off and on (installing stops it).
 
+Agent run on the installed build (75794fb), 4 Oct 2026, real library, dark mode only:
+- Pass: Today header at wide (1372 px) and narrow (~650 px) widths; "Today" 24 px from the pane
+  edge and Start Meeting on the right edge.
+- Pass: sections Yesterday 1, This week 8, Last week 4, September 8, August 43, July 37 (sum 101 =
+  All meetings); week and day subheadings correct for Sunday 4 Oct.
+- Pass (dark): pinned headers are solid, and no row text shows through. The band is visibly darker than the
+  sidebar, so judging how it looks is left to the user.
+- Pass (equivalent): no 2025 meetings exist, so a "July 15" search hit was used instead. It opened
+  collapsed July, scrolled to the meeting and selected it.
+- Not testable with current data: every tagged meeting is in This week, so the tag filter never had a
+  collapsed section to open. It showed the filtered section open.
+- Pass: the open/closed state (This week closed, July open) survived quitting and reopening the app.
+- Not done: light mode (it needs a system appearance change; left to the user).
+
 ## TODO (outside this plan)
 
 - Sections are built in row order (UTC), but `startDate` is each meeting's own local day, so a meeting recorded

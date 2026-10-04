@@ -886,4 +886,22 @@ git commit -m "Docs: search by title and date; light sidebar follow-ups done"
 
 ## Progress
 
-- [ ] Task 1 · [ ] Task 2 · [ ] Task 3 · [ ] Task 4 · [ ] Task 5 · [ ] Task 6
+- [x] Task 1 · [x] Task 2 · [x] Task 3 · [x] Task 4 · [x] Task 5 · [x] Task 6 (3 Oct 2026, branch `feature/search-light-sidebar`)
+
+Done = tests and installed build checked; the Meetings window's on-screen look in the
+installed app is still the user's check (screen access to Speakeasy was declined before).
+- Full suite: 1254 passed. Each task had an Opus review with mutation checks; the final branch review found no must-fix items.
+- Dev preview (mock data): the title hit renders with no second line and opens on the Summary tab. Dark computed styles match the pre-change baseline. Light shows the inset frosted panel with a white chip.
+- Installed `Speakeasy --mcp` with a temporary HOME: `meeting` returns the default-titled meeting with **Meeting** bold, `Oct 3` lists today's meeting, `standup Oct 3` returns nothing, and `stand-up` and `Retro` return title hits.
+
+### Changes from the plan made during execution
+- Task 4 also widened `JumpTarget.kind` (MeetingDetail.tsx) to include `'meeting'`, which tsc needs. A title hit opens the meeting on its default tab with no jump (early return). Without that return, a title hit would have forced the Transcript tab.
+- `SearchResults.tsx` uses a local `renderParts` helper for both the title and the snippet.
+- Extra tests: the day/year boundaries of the date parser, punctuation-only queries return `[]`, and `a.b` matches as a literal.
+
+### Loose ends
+- **Known limitation:** title matching is by substring, and default titles are "Meeting — Oct 3, 7:58 PM". So "meeting", "pm" or "oct" title-match almost every default-titled meeting and can fill the whole limit (10 in MCP, 50 in the app), which crowds out content hits. Spec-consistent. A possible later change is to cap title hits at `limit // 2`.
+- The title highlight uses `re.I` but the SQL filter uses `casefold`, so "Straße" vs "strasse" can match without a highlight. Cosmetic.
+- Flaky test: `tests/test_meeting_recorder.py::test_gap_fill_queue_full_is_retried_on_the_next_block` failed twice in full-suite runs (FlakyQueue thread error) and passed alone. It predates this branch.
+- The light `--sidebar-opaque` (reduced transparency) isn't included in the contrast test. It is lighter than the canvas, which passes.
+- No frontend unit test covers the title-hit default-tab behaviour. Only the preview check covers it.

@@ -221,8 +221,10 @@ A 2-hour meeting takes several minutes to process; **Cancel Processing** in
 the menu discards it. When it finishes, the transcript is saved to the
 meeting library (below) and appears under **Open Meetings**, where you can:
 
-- **Search** across every saved meeting — transcript text and speaker names,
-  plus notes (summary and action items) — with ranked, highlighted results,
+- **Search** across every saved meeting — titles, transcript text and speaker
+  names, plus notes (summary and action items) — with ranked, highlighted
+  results; a date in the query ("Oct 3", "yesterday") narrows to that day, and
+  a date alone lists that day's meetings,
 - **Copy** it to the clipboard and paste it into any notepad,
 - **Export…** it as a `.txt` or `.md` file,
 - **Rename…** or **Delete** it.
@@ -442,7 +444,7 @@ What Claude can do:
 
 - `list_meetings` — recent meetings, filterable by day, tag or person; no transcript text.
 - `get_meeting` — one meeting's details, notes, tags, people and calendar event.
-- `search_meetings` — full-text search of transcripts and notes, with snippets.
+- `search_meetings` — search by title, date and content (transcripts and notes), with snippets.
 - `get_transcript` — a transcript in pages, optionally limited to a time range.
 - `get_calendar` — cached calendar events between two days, linked to meetings.
 - `list_tags` — every tag with its meeting count, description and aliases.

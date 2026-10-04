@@ -92,13 +92,13 @@ def test_drawer_rows_and_close():
     p.hide()
 
 
-def test_drawer_sits_centred_six_points_below_the_pill():
+def test_drawer_is_as_wide_as_and_aligned_with_the_pill_six_points_below():
     p = PillPanel.alloc().initWithTarget_(Target())
     p.show((100.0, 700.0))
     p.set_drawer([DrawerRow("Event", "Link to event…", "action")])
     d = p._drawer.frame()
-    assert d.size.width == 300.0
-    assert d.origin.x == 100.0 + (360.0 - 300.0) / 2
+    assert d.size.width == 360.0 == p._panel.frame().size.width
+    assert d.origin.x == 100.0 == p._panel.frame().origin.x
     assert d.origin.y + d.size.height == 700.0 - 6.0
     p.hide()
 
@@ -201,7 +201,7 @@ def test_drag_moves_pill_and_drawer_but_a_wiggle_is_a_click(monkeypatch):
     assert moved == [[110.0, 692.0]]
     assert p.frame_origin() == (110.0, 692.0)
     d = p._drawer.frame()
-    assert d.origin.x == 110.0 + 30.0
+    assert d.origin.x == 110.0
     assert d.origin.y + d.size.height == 692.0 - 6.0
     p.hide()
 

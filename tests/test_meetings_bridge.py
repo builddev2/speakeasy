@@ -827,3 +827,10 @@ def test_retry_microphone_without_engine_is_unavailable(tmp_path):
 
     with pytest.raises(BridgeError, match="recording_unavailable"):
         make_bridge(tmp_path).retry_microphone_payload({})
+
+
+def test_draft_set_accepts_float_line_numbers_as_wkwebview_sends_them(tmp_path):
+    bridge = make_bridge(tmp_path)
+    bridge.draft_set_payload({"markdown": "a\nb", "stamps": [[0.0, 77.3], [1.0, 90]],
+                              "startedAt": "2026-10-03T09:00:00Z"})
+    assert bridge.draft_get_payload({})["stamps"] == [[0, 77.3], [1, 90.0]]

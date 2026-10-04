@@ -13,14 +13,12 @@ type Status = 'idle' | 'saving' | 'saved' | 'error' | 'tooLong';
 interface NotesEditorProps {
   initial: NotesValue;
   save: (value: NotesValue) => Promise<void>;
-  now?: () => number | null;
-  onStampClick?: (seconds: number) => void;
   notice?: ReactNode;
   /** Set to "take the final value": cancels pending/retry saves, blocks further saves, returns the text. */
   valueRef?: MutableRefObject<(() => NotesValue) | null>;
 }
 
-export function NotesEditor({ initial, save, now, onStampClick, notice, valueRef }: NotesEditorProps) {
+export function NotesEditor({ initial, save, notice, valueRef }: NotesEditorProps) {
   const [status, setStatus] = useState<Status>('idle');
   const timer = useRef<number | null>(null);
   const pending = useRef<NotesValue | null>(null);
@@ -37,7 +35,7 @@ export function NotesEditor({ initial, save, now, onStampClick, notice, valueRef
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Stamps.configure({ now: now ?? (() => null), onStampClick: onStampClick ?? null }),
+      Stamps,
     ],
     content: notesToDoc(initial),
     editorProps: { attributes: { class: styles.prose, 'aria-label': 'Notes' } },

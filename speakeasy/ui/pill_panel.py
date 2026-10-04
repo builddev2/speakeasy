@@ -42,7 +42,7 @@ from .glass import ClickyButton, make_label
 from .record_prompt_panel import ON_ACCENT, STOP_RED
 
 PILL_W, PILL_H, PILL_RADIUS = 360.0, 36.0, 18.0
-DRAWER_W, DRAWER_RADIUS, DRAWER_GAP = 300.0, 12.0, 6.0
+DRAWER_W, DRAWER_RADIUS, DRAWER_GAP = PILL_W, 12.0, 6.0  # as wide as the pill, aligned with it
 ROW_H, DRAWER_PAD, FOOTER_H = 24.0, 10.0, 30.0
 LABEL_W, DRAG_THRESHOLD = 96.0, 3.0
 TIMER_W = 52.0
@@ -331,7 +331,7 @@ class PillPanel(NSObject):
         f = self._panel.frame()
         h = self._drawer.frame().size.height
         self._drawer.setFrameOrigin_(NSMakePoint(
-            f.origin.x + (f.size.width - DRAWER_W) / 2.0, f.origin.y - DRAWER_GAP - h))
+            f.origin.x, f.origin.y - DRAWER_GAP - h))
 
     @objc.python_method
     def event_menu(self, items):

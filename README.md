@@ -325,9 +325,8 @@ library and are searched along with transcripts; search results are labelled
 Summary or Notes. Copy and Markdown export include a **My notes** section.
 
 While a meeting records, a **Recording now** row appears at the top of the
-sidebar. Open it to type notes before the meeting is saved. Each line gets a
-time stamp in the gutter; once the meeting is saved the stamps jump to that
-moment in the transcript. When the meeting is saved, the notes you typed join
+sidebar. Open it to type notes before the meeting is saved. Notes carry no
+time stamps. When the meeting is saved, the notes you typed join
 it. Notes typed during a recording always join that recording. If a
 recording isn't saved, its notes wait on the next Recording now page with a
 Discard button; they join the next meeting that is saved while you have them

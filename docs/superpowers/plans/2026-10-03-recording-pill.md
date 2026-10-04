@@ -50,7 +50,7 @@ When a usage-limit notice arrives or the session must stop before the plan is fi
 - Do not edit `speakeasy/engine.py`, `speakeasy/recorder.py`, `speakeasy/meeting_recorder.py` or any dictation/insertion code. The insertion and wake-recovery rules in `AGENTS.md` are untouched.
 - Capture health: read only the existing `MeetingHealth.to_dict()` keys and `system_audio_status`; never show or log app names, device names, PIDs, window titles or transcript text.
 - Pill panel: borderless, `NSWindowStyleMaskNonactivatingPanel`, `NSStatusWindowLevel`, collection behaviour `CanJoinAllSpaces | Stationary | FullScreenAuxiliary`, `setBecomesKeyOnlyIfNeeded_(True)`, `setHidesOnDeactivate_(False)`, buttons are `glass.ClickyButton`. Size **360 × 36 pt**, corner radius 18, material `NSVisualEffectMaterialHUDWindow`. Default origin: horizontally centred on the screen under the mouse, top edge 8 pt below that screen's `visibleFrame` top.
-- Drawer panel: same window flags, **300 pt** wide, 6 pt below the pill, centred under it, corner radius 12, material `NSVisualEffectMaterialPopover`.
+- Drawer panel: same window flags, **360 pt** wide (the pill's width), 6 pt below the pill, left-aligned with it (same x), corner radius 12, material `NSVisualEffectMaterialPopover`.
 - Colours (native): recording dot and Stop use the banner's `STOP_RED`; Record uses `CORAL`; warnings `NSColor.systemOrangeColor()`; OK indicator `NSColor.systemGreenColor()`; waiting indicator `NSColor.tertiaryLabelColor()`. Web CSS uses only `tokens.css` tokens (`tests/test_frontend_tokens.py` lints new modules); coral (`--accent`) only for Record actions.
 - Timers: `mm:ss` under an hour, `h:mm:ss` from one hour. Saved state lasts **6 s**. Audio indicator turns amber when there is still no signal **10 s** after the recording started.
 - Today: hero card + **3** next events; earlier events folded; "Show all N events" when more than 3 later events.
@@ -981,7 +981,7 @@ def test_drawer_rows_and_close():
   - Layout (points, origin bottom-left, pill 360 × 36): recording dot 8 × 8 at x 14, y 14 (layer background `STOP_RED`, corner radius 4; hidden outside recording); `_title` label 13 pt semibold, truncating tail, starts at x 28; `_detail` label 12.5 pt monospaced-digit (`NSFont.monospacedDigitSystemFontOfSize_weight_`), secondary colour; `_indicator` 8 × 8 dot; buttons right-aligned from x = 354 leftwards with 6 pt gaps, height 24, y 6: `stop` 26 × 26 circle (y 5, `STOP_RED` bezel, title "■" in `ON_ACCENT`, tooltip "End Meeting"), `notes` 60 "Notes", `cancel` 64 "Cancel", `discard` 70 "Discard" (`STOP_RED`), `keep` 56 "Keep", `open` 56 "Open", `open_meetings` 110 "Open Meetings", `close` 24 "×" borderless (tooltip "Close").
   - `render(view)`: hide all buttons, show `view.buttons` in that right-to-left order (last id is rightmost), then lay out text: in `recording` the detail (timer) is right-aligned 52 pt wide immediately left of the indicator (indicator 10 pt left of the leftmost button); title fills from x 28 to 6 pt left of the timer. In other phases the indicator and dot are hidden and title + detail share the space from x 16 to 8 pt left of the leftmost button (title sized to fit, detail takes the rest, both truncating). Indicator colours: ok → `systemGreenColor`, warning → `systemOrangeColor`, waiting → `tertiaryLabelColor`. Saved phase prefixes the title with "✓ ".
   - `show(origin)`: set frame origin, fade in like the banner's `_fade_in` when not visible, `orderFrontRegardless()`; never `makeKeyWindow`/`makeKeyAndOrderFront_`. `hide()` orders out pill and drawer.
-  - Drawer: 300 wide; rows 24 pt each from the top with 10 pt padding; label column 96 pt secondary 12 pt, value 12 pt (`warning` → orange, `ok` → labelColor, `muted` → secondary); the Event row's value is a borderless `ClickyButton` (`drawerEventClicked:`) left-aligned in the value column; ✕ close button (`self._drawer_close`, `drawerClose:`) top-right 18 × 18; footer label "Audio stays on this Mac and is deleted once the transcript is saved." 11 pt tertiary, wrapping to two lines (height 30). Height = 10 + 24 × len(rows) + 6 + 30 + 10. Position: centred under the pill, 6 pt gap; re-positioned whenever the pill moves or is shown.
+  - Drawer: 360 wide (= PILL_W); rows 24 pt each from the top with 10 pt padding; label column 96 pt secondary 12 pt, value 12 pt (`warning` → orange, `ok` → labelColor, `muted` → secondary); the Event row's value is a borderless `ClickyButton` (`drawerEventClicked:`) left-aligned in the value column; ✕ close button (`self._drawer_close`, `drawerClose:`) top-right 18 × 18; footer label "Audio stays on this Mac and is deleted once the transcript is saved." 11 pt tertiary, wrapping to two lines (height 30). Height = 10 + 24 × len(rows) + 6 + 30 + 10. Position: same x as the pill, 6 pt gap; re-positioned whenever the pill moves or is shown.
   - `event_menu(items)`: build an `NSMenu` (one item per `(title, key, checked)`; state on for checked; `representedObject` = key; action `drawerEventChosen:` target = target), then `popUpMenuPositioningItem_atLocation_inView_(None, (0, 0), event_button)`.
   - Keep the module free of engine imports.
 
@@ -1741,4 +1741,70 @@ def cancel_handler(engine):
 
 ## Execution notes
 
-(Empty. Record per-task model, commit range, review result and mutation counts; rulings with their cost if wrong; test counts; the user's on-screen check result or waiver.)
+Executed 3 Oct 2026, subagent-driven, in `.claude/worktrees/recording-pill` (branch `recording-pill`, base 23f142b). Every implementer was Sonnet 5.5; every reviewer, re-reviewer, the final reviewer and the Task 9 evaluator were Opus 5.5. Each task needed exactly one fix round. Fix-round findings were mostly test gaps that the mutation checks exposed.
+
+Baseline: build OK; pytest 1065 passed. Final: pytest **1182 passed**; node tests **31 passed**; build OK.
+
+| Task | Commits | Review (mutations caught / survived first pass) | Fix round 1 |
+|---|---|---|---|
+| 1 Default options + settings | 9154bc7..02954f9 | 3 / 1 (start paths not proven to use default_options) | 3 new tests; all caught |
+| 2 Navigation hand-off | 643111f..e3f9943 | 3 / 1 (takeNavigation registration) | dispatcher tests; caught |
+| 3 Pill model | 67631fb..00b9b6c | 3 / 2 (mid-meeting pause hid the pill; cancel+cleanup_failed) | pause guard + tests; 3 caught |
+| 4 Pill panels | dfc8da3..6821d9e | 3 / 7 (focus test vacuous; hide; drag) | tests + hitTest_ fix; 5 caught |
+| 5 Pill controller | 9edaf51..20668e3 | 5 / 5 (timers; re-show) | timer/re-show tests; 5 caught |
+| 6 Menu + Next-up | 3d7252b..e1578f5 | 4 / 3 (menu wiring) | menubar tests, midnight + 60-min fixes; 5 caught |
+| 7 Today | ed606e1..ca38219 | 6 / 2 (retryMicrophone registration) | test + Processing hero; 2 caught |
+| 8 Remove Dock window | 788ac43..402f696 | 1 / 2 (launch/reopen; spec hidden imports) | tests, README, tokens, comments; 3 caught |
+| Final review fixes | 13d3f75 | 0 Critical, 4 Important, 7 Minor | engine→pill fan-out test, start error in menu, hero Record, README/AGENTS; 4 caught |
+
+Task 7 visual check (controller, mock dev server in the browser pane): `today`, `today-recording` and `today-micfailed` in dark mode, and `today` in light mode with both folds open. The layout was as specified. The overflow check returned `[]` at 820 × 520 and 1440 × 900 for all three states. The processing hero and the hero Record button (both added later) were checked by reading the code only.
+
+Task 9 (Opus evaluator, temp HOME):
+- Build OK (no `--install`).
+- The app stayed up for 15 s and exited cleanly on SIGTERM; lsof showed nothing open under the real App Support.
+- No `pill_origin` (no settings.json was written).
+- `--mcp` listed 11 tools.
+- `check_quit_and_cancel.py` reported ALL PASS in 87.5 s: keep saved 1 meeting; the discard child was gone in 0.08 s and nothing was saved; quit took 0.005 s with exit code 0. It needs `HF_HOME=~/.cache/huggingface` under a temp HOME.
+- The pill, drawer, menu card and Today were **not seen on screen** by any agent.
+- Step 3 (the user's on-screen checks): run 1 on 3 Oct 2026 in Terminal.app with a temp HOME.
+  - Without Calendar, Meetings opens on All meetings. That is per the spec: it opens on Today only when Calendar is connected.
+  - The pill and drawer worked. The drawer opened by itself on the amber "no sound yet" warning, as designed.
+  - The user found three issues, fixed in 01dc494..41f87af:
+    1. **Bug, already on master:** the notepad never saved from the app ("Couldn't save — retrying"). WKWebView sends JS integers as floats, and `_check_stamps` rejected line `0.0`. Integral floats are now accepted.
+    2. **Change:** the drawer is now the pill's width (360 pt) and aligned with it.
+    3. **Change:** notes show and create no time stamps. Old stamp data is kept.
+  - Sonnet implemented; Opus reviewed with mutations. Suite: 1192 passed, node 33 passed. Rebuilt.
+  - Run 2 (the rebuilt app, user, 3 Oct 2026): **passed**.
+    - The pill returned to its saved spot, and the drawer matches the pill's width.
+    - Notes saved with formatting and without time stamps, and appeared on the saved meeting's Notes tab.
+    - Stop → Processing → Saved · Open worked; Settings and light/dark were checked.
+    - The user approved the merge.
+
+## Follow-ups (found during the on-screen checks; not part of this branch)
+
+- **Search ignores titles and dates.** Searching "meeting" or "Oct 3" finds nothing, even for "Test Meeting — Oct 3, 7:58 PM". `MeetingLibrary.search` queries only the transcript and notes FTS, never meeting titles or dates. This predates the branch. It needs a brainstorm: what should match, and how should results rank?
+- **The light-mode sidebar looks bad** ("gray side bar looks really bad", user, 3 Oct 2026). The sidebar is unchanged by this branch. It needs a design pass on the Quiet Library light sidebar.
+
+Rulings (decided by the controller; cost if wrong):
+1. Worktree made with EnterWorktree, the branch renamed, and `.venv`/`node_modules` symlinked instead of `npm ci`. Cost: a dependency mismatch would show up as a build failure.
+2. Comment-only edits allowed in engine.py (the Dock references at ~175, ~737, ~822, ~943) and in tests/test_engine_meeting.py. Cost: comment lines in engine.py.
+3. Fix rounds 4–5 would stay on Sonnet (never used). Cost: none.
+4. PillMachine ignores `paused` during a meeting phase, because `engine.pause()` (the training window) sets PAUSED mid-meeting. mic_failed/mic_recovering/loading still end a recording. Cost: if the engine ever ended a meeting on PAUSED, the pill would linger until the next state.
+5. Parked: the drawer says "All apps" even when `capture_scope == "selected"`, because no UI sets single-app capture any more. Cost: a wrong label if a future UI brings it back.
+6. next_up shows an in-progress event that started yesterday, and rounds minutes before the 60-minute cutoff, so it never says "Starts in 60 min". Cost: two lines differ from the plan's code.
+7. The duplicated microphoneFailureText resolved itself when the dock was deleted. Cost: none.
+8. "Earlier today · 1 meeting" uses the singular. Cost: a one-word copy difference from the plan.
+9. The final review ran before the Task 9 build. Cost: none.
+10. The Today hero shows Record for a later event (status 'none'), matching the menu's Next-up card. Cost: an early recording can be linked to a far-off event.
+11. A Dock click always opens Meetings, because the pill panel may count as a visible window. Cost: none beyond bringing Meetings forward.
+12. Parked: `meeting_start_error` persists until the next meeting start, and it outranks the "Text retained for 60 seconds" hint in the menu status line. This is the same precedence `meeting_processing_error` already had before this branch. Cost: after a failed meeting start, a later failed paste's recovery hint is hidden in the menu until the next meeting starts.
+
+Deferred minors, all triaged "fine to leave" by the final reviewer:
+- the Switch control has no disabled style;
+- App-level navigation edge cases (a failed recording.get loses the request; search text is not cleared; another sheet may already be open);
+- MeetingLibrary() is opened on each menu open;
+- the drawer is rebuilt every second while open;
+- pill_origin is stored in global coordinates, not screen-relative;
+- Today rows can be stale for up to 30 s around a recording's start or stop;
+- Start Meeting gives no feedback when the engine refuses it;
+- some checks are source-text tests only.

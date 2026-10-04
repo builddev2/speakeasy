@@ -18,6 +18,8 @@ import { SettingsSheet } from './SettingsSheet';
 import { RecordingNotes } from './RecordingNotes';
 import { draftApi } from './draftApi';
 import { trackRecording } from './recordingState';
+import { navigationAction } from './navigation';
+import type { Navigation } from './navigation';
 import { formatElapsed } from './transcriptTurns';
 import {
   MOCK_METAS,
@@ -26,6 +28,7 @@ import {
   MOCK_RESULTS,
   MOCK_STATUS,
   MOCK_AGENDA,
+  MOCK_NOW_MS,
   MOCK_UPCOMING,
   MOCK_CLAUDE_SETUP,
   MOCK_EVENTS_FOR_DAY,
@@ -65,6 +68,8 @@ type MockState =
   | 'today'
   | 'today-denied'
   | 'today-unconnected'
+  | 'today-recording'
+  | 'today-micfailed'
   | 'connect-claude'
   | 'settings'
   | 'notes'
@@ -84,6 +89,8 @@ const KNOWN_STATES: MockState[] = [
   'today',
   'today-denied',
   'today-unconnected',
+  'today-recording',
+  'today-micfailed',
   'connect-claude',
   'settings',
   'notes',
@@ -91,7 +98,7 @@ const KNOWN_STATES: MockState[] = [
   'recording-leftover',
 ];
 
-const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected'];
+const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected', 'today-recording', 'today-micfailed'];
 
 function readMockState(): MockState {
   const raw = new URLSearchParams(window.location.search).get('state');
@@ -107,15 +114,6 @@ interface MeetingsAppProps {
   colorCodeSpeakers?: boolean;
 }
 
-function minutesNow(): number {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
-}
-
-// A fixed mock "now" (4:29 PM) — it sits between the Design Sync row that's
-// still recording (started 3:30) and the 4:30 Roadmap Review Record row, so
-// both make sense next to the now-line.
-const MOCK_NOW_MINUTES = 16 * 60 + 29;
 
 const IDLE_RECORDING: RecordingInfo = { recording: false, processing: false, startedAt: null, title: null };
 const HANDOFF_GRACE_MS = 10_000;
@@ -151,18 +149,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
-  const mockRecording = isMock && (mockState === 'recording' || mockState === 'recording-leftover');
+  const mockRecording = isMock && (mockState === 'recording' || mockState === 'recording-leftover' || mockState === 'today-recording');
   const [today, setToday] = useState(TODAY_STATES.includes(mockState));
   const [recording, setRecording] = useState<RecordingInfo>(() =>
     mockRecording
-      ? { recording: true, processing: false, startedAt: new Date(Date.now() - 12 * 60_000).toISOString(), title: null }
-      : IDLE_RECORDING,
+      ? { recording: true, processing: false, startedAt: new Date(Date.now() - 12 * 60_000).toISOString(), title: mockState === 'today-recording' ? 'Design Sync' : null, mode: 'meeting_recording' }
+      : isMock && mockState === 'today-micfailed'
+        ? { ...IDLE_RECORDING, mode: 'mic_failed', micFailure: 'device_unavailable' }
+        : IDLE_RECORDING,
   );
   // The last known start time stays after the row goes, so the draft keeps its stamps' origin.
   const [recordingStartedAt, setRecordingStartedAt] = useState<string | null>(
     () => (mockRecording ? new Date(Date.now() - 12 * 60_000).toISOString() : null),
   );
-  const [recordingView, setRecordingView] = useState(mockRecording);
+  const [recordingView, setRecordingView] = useState(mockRecording && mockState !== 'today-recording');
   const [forcedNotesId, setForcedNotesId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
@@ -176,7 +176,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     agenda: [],
     upcoming: [],
   });
-  const [nowMinutes, setNowMinutes] = useState(() => minutesNow());
+  // While the mock records, the Design Sync row is the one being recorded.
+  const mockAgenda = useMemo(
+    () => (mockState === 'today-recording'
+      ? MOCK_AGENDA.map((e) => (e.key === 'a3' ? { ...e, status: 'recording' as const } : e))
+      : MOCK_AGENDA),
+    [mockState],
+  );
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [meetingSettings, setMeetingSettings] = useState<MeetingSettings | null>(
     isMock ? MOCK_MEETING_SETTINGS : null,
   );
@@ -290,6 +297,41 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     });
   }, [embedded]);
 
+  // Another surface (pill, menu, Settings...) opened this window on a page.
+  const applyNavigationRef = useRef<() => void>(() => {});
+  applyNavigationRef.current = () => {
+    Promise.all([
+      bridge.call<Navigation>('meetings.takeNavigation'),
+      bridge.call<RecordingInfo>('recording.get'),
+    ])
+      .then(([nav, rec]) => {
+        const action = navigationAction(nav, rec);
+        if (action.kind === 'recording') { setRecording(rec); onSelectRecording(); }
+        else if (action.kind === 'today') onSelectToday();
+        else if (action.kind === 'settings') setSettingsOpen(true);
+        else if (action.kind === 'meeting') {
+          userNavigatedRef.current = true;
+          setRecordingView(false);
+          setToday(false);
+          setSearching(false);
+          // Pin the selection first so a list load in flight keeps it, and
+          // list under "all" so the meeting is in the list being shown.
+          selectedIdRef.current = action.id;
+          filterRef.current = { type: 'all' };
+          setFilter({ type: 'all' });
+          select(action.id);
+          void refreshList({}, true);
+        }
+      })
+      .catch((err) => console.error('navigation failed', err));
+  };
+  useEffect(() => {
+    if (!embedded) return;
+    const apply = () => applyNavigationRef.current();
+    apply();
+    return bridge.on('meetings.navigate', apply);
+  }, [embedded]);
+
   useEffect(() => {
     if (!embedded || homeAppliedRef.current) return;
     if (!filters.features.calendar || calendar.access !== 'connected') return;
@@ -393,7 +435,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       .call<Filters>('meetings.filters')
       .then(setFilters)
       .catch((err) => console.error('meetings.filters failed', err));
-    void refreshList(filterParams(filterRef.current), false);
+    // keepSelection: a meeting chosen by navigation before this list lands stays selected.
+    void refreshList(filterParams(filterRef.current), true);
     void bridge
       .call<LibraryStatus>('library.status')
       .then(setEmbeddedStatus)
@@ -442,9 +485,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }, [refreshCalendar]);
 
   useEffect(() => {
-    // The now-line and Record buttons move with time.
+    // The Now/Up next hero and Record buttons move with time.
     const id = window.setInterval(() => {
-      setNowMinutes(minutesNow());
+      setNowMs(Date.now());
       refreshCalendar();
     }, 30_000);
     return () => window.clearInterval(id);
@@ -466,7 +509,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       });
   }, [embedded, settingsOpen]);
 
-  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; calendars?: Record<string, boolean> }) {
+  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean> }) {
     if (embedded) {
       bridge
         .call<MeetingSettings>('settings.meetings.set', patch)
@@ -480,6 +523,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             offerToRecord: patch.offerToRecord ?? prev.offerToRecord,
             detectCalls: patch.detectCalls ?? prev.detectCalls,
             appearance: patch.appearance ?? prev.appearance,
+            identifyVoices: patch.identifyVoices ?? prev.identifyVoices,
+            startAtLogin: prev.startAtLogin === null ? null : (patch.startAtLogin ?? prev.startAtLogin),
             accounts: prev.accounts.map((account) => ({
               ...account,
               calendars: account.calendars.map((cal) =>
@@ -846,7 +891,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           activeFilter={filter}
           activeToday={today}
           todayCount={
-            todayConnection === 'connected' ? (isMock ? MOCK_AGENDA : calendar.agenda).length : undefined
+            todayConnection === 'connected' ? (isMock ? mockAgenda : calendar.agenda).length : undefined
           }
           onSelectFilter={onSelectFilter}
           onSelectToday={onSelectToday}
@@ -870,7 +915,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             />
           ) : visibleMetas.length === 0 ? (
             libraryStatus.state !== 'upgrading' ? (
-              <EmptyState title="No meetings yet." body="Record a meeting from the dock to see it here." />
+              <EmptyState title="No meetings yet." body="Record a meeting from the menu bar to see it here." />
             ) : (
               <div />
             )
@@ -895,9 +940,24 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         ) : today ? (
           <TodayView
             connection={todayConnection}
-            agenda={isMock ? MOCK_AGENDA : calendar.agenda}
+            agenda={isMock ? mockAgenda : calendar.agenda}
             upcoming={isMock ? MOCK_UPCOMING : calendar.upcoming}
-            nowMinutes={isMock ? MOCK_NOW_MINUTES : nowMinutes}
+            recording={recording}
+            elapsedText={
+              recordingStartedAt ? formatElapsed((Date.now() - Date.parse(recordingStartedAt)) / 1000) : '0:00'
+            }
+            nowMs={isMock ? MOCK_NOW_MS : nowMs}
+            onStartMeeting={() => {
+              if (embedded) {
+                void bridge.call('meeting.start').catch((err) => console.error('meeting.start failed', err));
+              } else console.log('start-meeting');
+            }}
+            onOpenNotes={onSelectRecording}
+            onRetryMicrophone={() => {
+              if (embedded) {
+                void bridge.call('meeting.retryMicrophone').catch((err) => console.error('meeting.retryMicrophone failed', err));
+              } else console.log('retry-microphone');
+            }}
             onSelectMeeting={onSelectTodayMeeting}
             onRecord={(key) => {
               if (embedded) {

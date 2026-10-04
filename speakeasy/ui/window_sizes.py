@@ -13,7 +13,6 @@ class WindowSize(NamedTuple):
 
 
 SIZES = {
-    "dock": WindowSize((360, 430), (340, 400), "SpeakeasyDockFrame"),
     "training": WindowSize((640, 440), (560, 400), "SpeakeasyTrainingFrame"),
     "diagnostic": WindowSize((660, 600), (560, 520), "SpeakeasyDiagnosticFrame"),
 }

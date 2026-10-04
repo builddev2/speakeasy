@@ -8,10 +8,14 @@ MLX); nothing ever leaves your Mac.
 Speakeasy lives in the menu bar as a small skull icon — it turns into a mic
 while recording and a waveform while transcribing. Click its status item to
 see the current state, switch profiles, train, record a meeting, or quit.
-Speakeasy also has a normal Dock icon; clicking it opens a small window with
-the same core actions, as a fallback for when the status item is hidden by
-menu-bar overflow (common with many menu-bar apps installed) or just hard to
-spot — the status item stays the primary, full-featured interface.
+The menu shows a Next-up card for your next calendar meeting. While a meeting
+is recording, a small floating pill shows the elapsed time and offers Notes and
+Stop, plus a drawer with capture health. While a meeting is processing, the pill
+offers Cancel, with a Discard/Keep confirm.
+Speakeasy also has a normal Dock icon; launching it or clicking it opens the
+Meetings window, whose Today home shows what is on now and next. That is the
+way back in when the status item is hidden by menu-bar overflow (common with
+many menu-bar apps installed) or just hard to spot.
 
 It can also transcribe whole **meetings** (up to three hours): start a
 recording from the menu bar and, when you end it, Speakeasy produces a
@@ -122,14 +126,22 @@ cursor within about a second.
 
 Click the menu-bar item for:
 
+- **Next-up card** — when Calendar is connected and something is left today,
+  the next event with a Record button
+- **Start Meeting** / **End Meeting (mm:ss)** — record and transcribe a meeting
+  (see [Meeting transcription](#meeting-transcription)); **Cancel Processing**
+  appears while a meeting is being transcribed, and **Retry Microphone** when
+  the microphone failed
+- **Open Meetings** (⌘O) — browse, copy, export, rename, or delete saved
+  transcripts; **Meeting Notes** appears while a meeting records or processes
 - **Profile** — switch the active profile, pick **Guest (no corrections)**, or
   create a **New Profile…**
-- **Train Profile…** — open the training window (see below)
-- **Copy Last Dictation** / **Paste Last Dictation (may duplicate)** — recover
-  the latest final text for 60 seconds; it is cleared on profile change or quit
-- **Begin Meeting** / **End Meeting** — record and transcribe a meeting (see
-  [Meeting transcription](#meeting-transcription))
-- **Meetings…** — browse, copy, export, rename, or delete saved transcripts
+- **Train My Voice…** — open the training window (see below)
+- **Check Microphone…** — a short microphone diagnostic
+- **Correct Last Dictation…**, **Copy Last Dictation** and **Paste Last
+  Dictation (may duplicate)** — recover the latest final text for 60 seconds;
+  it is cleared on profile change or quit
+- **Settings…** (⌘,)
 - **Quit Speakeasy** (⌘Q)
 
 ## Profiles: teach it your words
@@ -150,7 +162,7 @@ dictates without corrections. The active profile is shown with a checkmark.
 
 ### Training
 
-Choose **Train Profile…** from the menu bar to open the training window.
+Choose **Train My Voice…** from the menu bar to open the training window.
 Instead of asking you to think up words, Speakeasy suggests short sessions to
 read aloud — everyday phrases first, then the words the model most often
 mishears (tech jargon, names, numbers, tricky words):
@@ -185,13 +197,12 @@ content ships offline; progress is saved as you go.
 
 ## Meeting transcription
 
-Click **Begin Meeting** in the menu bar to start recording. On macOS 14.2+,
+Click **Start Meeting** in the menu bar to start recording. On macOS 14.2+,
 Speakeasy records your microphone and outgoing system audio as separate
 temporary tracks, so remote participants are captured while you wear
-headphones. The Dock window defaults to **All system audio** and can instead
-target one currently eligible audio process. Application names and PIDs are
-used only in the live selector; they are never logged or saved. Browser choices
-capture the selected browser process, not an individual tab. The status
+headphones. Meetings capture **All system audio** by default. The engine can instead
+target one eligible audio process, but no screen currently offers that choice.
+Application names and PIDs are never logged or saved. The status
 explicitly says **microphone + system audio**, **microphone + selected
 application**, or **microphone only**. Meetings capture up to three hours;
 the menu shows the elapsed time. Click **End Meeting** when you're done,
@@ -208,7 +219,7 @@ and Speakeasy processes the recording entirely on-device:
 
 A 2-hour meeting takes several minutes to process; **Cancel Processing** in
 the menu discards it. When it finishes, the transcript is saved to the
-meeting library (below) and appears under **Meetings…**, where you can:
+meeting library (below) and appears under **Open Meetings**, where you can:
 
 - **Search** across every saved meeting — transcript text and speaker names,
   plus notes (summary and action items) — with ranked, highlighted results,
@@ -297,7 +308,7 @@ capture never silently widens to the global tap: if that process exits,
 restarts, or cannot be resolved, the meeting reports the selected application
 as unavailable and continues microphone-only until you reselect it next time.
 
-During recording, the Dock and menu expose privacy-safe capture health: whether
+During recording, the recording pill and menu expose privacy-safe capture health: whether
 each track has produced a first buffer, whether system audio has a nonzero
 signal, dropped-frame counts, writer lag/failure, helper exit, and the explicit
 fallback outcome. Saved meetings retain only that fixed metadata schema plus
@@ -314,9 +325,8 @@ library and are searched along with transcripts; search results are labelled
 Summary or Notes. Copy and Markdown export include a **My notes** section.
 
 While a meeting records, a **Recording now** row appears at the top of the
-sidebar. Open it to type notes before the meeting is saved. Each line gets a
-time stamp in the gutter; once the meeting is saved the stamps jump to that
-moment in the transcript. When the meeting is saved, the notes you typed join
+sidebar. Open it to type notes before the meeting is saved. Notes carry no
+time stamps. When the meeting is saved, the notes you typed join
 it. Notes typed during a recording always join that recording. If a
 recording isn't saved, its notes wait on the next Recording now page with a
 Discard button; they join the next meeting that is saved while you have them
@@ -341,20 +351,25 @@ have already added to it) to show your day and to name and label recordings.
   "access denied" card, the cached events are cleared, and Claude's
   `get_calendar` returns nothing. In Settings you can also untick individual
   calendars; Birthdays and Holidays start unticked.
-- **Today view:** today's events with a now-line, attendee counts and a
-  **Recorded ✓** mark once a meeting is linked. **Upcoming** shows the next
+- **Today view:** a hero card for the event that is on **Now** or **Up next**
+  (with a Record button), the next three events, **Show all N events** for the
+  rest, an **Earlier today** fold, attendee counts, a **Recorded ✓** mark once a
+  meeting is linked, and a banner when the microphone failed or a meeting could
+  not start. **Upcoming** shows the next
   seven days. Click Record on a row to start a meeting for that event.
 - **Recordings:** a meeting started during an event, or up to 10 minutes
   before it, is linked to it. It takes the event's title and its attendees
-  as people. The Dock shows "Recording · <title>" and lets you change or
-  unlink the event.
+  as people. The pill's capture drawer has an Event row: **Link to event…** opens a menu
+  of today's events, and **Unlink** appears when one is linked, so the event can
+  be linked, changed or unlinked while recording.
 - **Speaker count:** the number of attendees caps how many remote voices
   diarization may report (with dual-track capture the cap is the other
   attendees; in mic-only fallback it also counts you). Speakeasy folds the
   quietest and most similar voices together until the count fits. This is an
   upper bound only if everyone who speaks was invited: an uninvited guest can
-  be merged into another voice. Setting the remote-speaker count in the Dock
-  overrides the cap.
+  be merged into another voice. Every recording started from the UI uses
+  automatic speaker count; an explicit remote-speaker count exists only in the
+  engine and no screen sets it.
 
 ### Record prompts
 
@@ -374,7 +389,7 @@ stopped from a banner follows a click on that banner's button.
   ignored until they release it, as is an app whose call offer you dismissed
   (or that timed out). So a game launcher or voice app that keeps the
   microphone open only asks once. A call already running then, or when call offers
-  are switched on, isn't offered; Begin Meeting still works.
+  are switched on, isn't offered; Start Meeting still works.
 - **Call ended:** while you record a call, 60 seconds without that other
   app's microphone use shows "Call ended — Stop recording?". Stop ends the
   meeting; Keep Recording hides it, and it hides itself if the microphone use
@@ -490,7 +505,7 @@ tooling (pytest, pyinstaller) lives in `requirements-dev.txt`.
 
 ### 2. Run it
 
-The dock, meetings, and training windows are WKWebViews hosting a built
+The meetings, training, and microphone-check windows are WKWebViews hosting a built
 frontend — build it once (needs Node.js/npm; rebuild after editing anything
 under `frontend/`):
 
@@ -558,8 +573,8 @@ read but never copied. A 16 kHz mono WAV is required:
 .venv/bin/python -m speakeasy --import-vocabulary Jason terms.txt
 ```
 
-The dock meeting panel can optionally use the enrolled profiles and an expected
-speaker count. Speaker labels in saved meetings can be clicked and corrected;
+Meeting recording uses enrolled voices only when Settings › Identify enrolled
+voices is on; the speaker count is always automatic from the UI. Speaker labels in saved meetings can be clicked and corrected;
 the correction can apply to one segment or every matching segment. Identification
 is deliberately conservative: weak, ambiguous, or duplicate matches keep their
 anonymous `Speaker N` label.
@@ -613,7 +628,7 @@ in the take. Secure or indeterminate AX security metadata also blocks insertion.
 
 ### Consented microphone correctness checks
 
-Open Speakeasy from the Dock and click **Check Microphone**, then **Begin
+Open **Check Microphone…** from the menu-bar menu, then **Begin
 30-prompt check**. The app displays each reference with **Start recording** and
 **Stop & compare** buttons. No Terminal, reading-sheet switching, or separate
 model process is needed. Allow approximately 12–18 minutes. Cancel or close the
@@ -754,7 +769,7 @@ release            ─► transcribe locally (Parakeet on Apple MLX / Metal)
 ```
 
 ```
-Begin Meeting ─► mic + system audio spool separately (dictation disabled)
+Start Meeting ─► mic + system audio spool separately (dictation disabled)
 End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system track
                   ─► apply first-buffer offsets ─► chronological merge
                   ─► save transcript ─► delete both temporary WAVs
@@ -816,10 +831,10 @@ End Meeting   ─► finish mic tail + system ASR; mic = You; diarize system tra
   (custom template image; macOS has no `skull` SF Symbol) that swaps to
   `mic.fill`/`waveform` while active
 - **`ui/webwindow.py` + `ui/webbridge.py`** — the common transparent WKWebView
-  host and pure-Python bridge for the Dock, meetings, and training pages. Pages
+  host and pure-Python bridge for the meetings, training, and microphone-check pages. Pages
   load only built local assets; WebKit calls remain main-thread-only, and the
   bridge queues early state pushes until navigation completes
-- **`ui/main_window.py`, `ui/meetings_window.py`, `ui/training_window.py`** —
+- **`ui/meetings_window.py`, `ui/training_window.py`** —
   thin native controllers around those web-rendered pages. They expose live
   engine/capture state, meeting actions and speaker relabeling, and the guided
   training lifecycle while preserving the existing executor boundaries

@@ -141,3 +141,23 @@ def test_blanked_notes_leave_no_stale_index_entries(library_path):
     lib.set_user_notes(b, "hiring plan", [])
     assert lib.search("vendor") == []
     assert [(h.meeting_id, h.kind) for h in lib.search("hiring")] == [(b, "user_notes")]
+
+
+@pytest.mark.parametrize("raw, want", [
+    ([[0.0, 77.3]], [(0, 77.3)]),
+    ([[2.0, 5]], [(2, 5.0)]),
+    ([(3, 1.0)], [(3, 1.0)]),
+])
+def test_check_stamps_accepts_whole_float_lines_as_wkwebview_sends_them(raw, want):
+    from speakeasy.meeting_library import _check_stamps
+    out = _check_stamps(raw)
+    assert out == want
+    assert all(type(line) is int for line, _ in out)
+
+
+@pytest.mark.parametrize("raw", [[[1.5, 3]], [[True, 3]], [[-1.0, 3]], [[float("nan"), 3]],
+                                 [[float("inf"), 3]], [["1", 3]]])
+def test_check_stamps_refuses_non_integral_lines(raw):
+    from speakeasy.meeting_library import _check_stamps
+    with pytest.raises(ValueError, match="Invalid note stamps"):
+        _check_stamps(raw)

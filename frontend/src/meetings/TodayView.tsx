@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgendaEvent, CalendarAccess, UpcomingDay } from '../mock/meetings';
+import type { AgendaEvent, CalendarAccess, RecordingInfo, UpcomingDay } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
+import { engineBanner, heroWhen, splitAgenda } from './agendaSplit';
 import { EmptyState } from './EmptyState';
 import { formatTimeRange } from './timeRange';
 import styles from './TodayView.module.css';
@@ -12,8 +13,13 @@ interface TodayViewProps {
   connection: TodayConnection;
   agenda: AgendaEvent[];
   upcoming: UpcomingDay[];
-  /** Minutes since local midnight; positions the now-line. */
-  nowMinutes: number;
+  recording: RecordingInfo;
+  elapsedText: string;
+  /** Wall-clock now in ms; decides which events are earlier, current or next. */
+  nowMs: number;
+  onStartMeeting: () => void;
+  onOpenNotes: () => void;
+  onRetryMicrophone: () => void;
   onSelectMeeting: (meetingId: string) => void;
   onRecord: (key: string) => void;
   onConnectCalendar: () => void;
@@ -26,24 +32,6 @@ function peopleLabel(count: number): string {
 
 function eventsLabel(count: number): string {
   return count === 1 ? '1 event' : `${count} events`;
-}
-
-function parseTimeToMinutes(time: string): number {
-  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(time.trim());
-  if (!match) return 0;
-  let hours = Number(match[1]) % 12;
-  if (/pm/i.test(match[3])) hours += 12;
-  return hours * 60 + Number(match[2]);
-}
-
-/**
- * The "now" line's position, derived by comparing each event's start time
- * against "now" — not a status heuristic — so it lands wherever the
- * agenda's own times say it should.
- */
-function nowLineIndex(agenda: AgendaEvent[], nowMinutes: number): number {
-  const index = agenda.findIndex((event) => parseTimeToMinutes(event.time) > nowMinutes);
-  return index === -1 ? agenda.length : index;
 }
 
 function timeRange(event: AgendaEvent): string {
@@ -82,14 +70,62 @@ export function TodayView({
   connection,
   agenda,
   upcoming,
-  nowMinutes,
+  recording,
+  elapsedText,
+  nowMs,
+  onStartMeeting,
+  onOpenNotes,
+  onRetryMicrophone,
   onSelectMeeting,
   onRecord,
   onConnectCalendar,
   onOpenPrivacySettings,
 }: TodayViewProps) {
-  const nowIndex = useMemo(() => nowLineIndex(agenda, nowMinutes), [agenda, nowMinutes]);
+  const recordingActive = recording.recording || recording.processing;
+  const split = useMemo(() => splitAgenda(agenda, nowMs, recordingActive), [agenda, nowMs, recordingActive]);
+  const banner = engineBanner(recording);
+  const bannerNode = banner && (
+    <div className={styles.banner} role="status">
+      <span className={styles.bannerText}>{banner.text}</span>
+      {banner.action === 'retry' && <ActionButton onClick={onRetryMicrophone}>Retry Microphone</ActionButton>}
+    </div>
+  );
   const [openDays, setOpenDays] = useState<Set<number>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  const [showEarlier, setShowEarlier] = useState(false);
+
+  const header = (
+    <div className={styles.header}>
+      <h1 className={styles.title}>Today</h1>
+      {!recordingActive && (
+        <ActionButton variant="strong" onClick={onStartMeeting}>
+          Start Meeting
+        </ActionButton>
+      )}
+    </div>
+  );
+
+  function renderRow(event: AgendaEvent) {
+    const body = (
+      <>
+        <span className={styles.time}>{timeRange(event)}</span>
+        <span className={styles.eventTitle}>{event.title}</span>
+        {event.attendeeCount > 0 && <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>}
+        <span className={styles.statusCell}>{statusCell(event, onRecord)}</span>
+      </>
+    );
+    return (
+      <div key={event.key} className={styles.rowWrap} role="listitem">
+        {event.status === 'recorded' ? (
+          <button className={styles.row} onClick={() => event.meetingId && onSelectMeeting(event.meetingId)}>
+            {body}
+          </button>
+        ) : (
+          <div className={styles.row}>{body}</div>
+        )}
+      </div>
+    );
+  }
 
   function toggleDay(index: number) {
     setOpenDays((prev) => {
@@ -103,9 +139,8 @@ export function TodayView({
   if (connection === 'unconnected') {
     return (
       <div className={styles.view}>
-        <div className={styles.header}>
-          <h1 className={styles.title}>Today</h1>
-        </div>
+        {header}
+        {bannerNode}
         <EmptyState
           title="See your meetings here."
           body="Speakeasy reads Calendar on this Mac to title recordings and offer to record. Nothing leaves your Mac."
@@ -122,9 +157,8 @@ export function TodayView({
   if (connection === 'denied') {
     return (
       <div className={styles.view}>
-        <div className={styles.header}>
-          <h1 className={styles.title}>Today</h1>
-        </div>
+        {header}
+        {bannerNode}
         <EmptyState
           title="Calendar access is off."
           action={
@@ -137,40 +171,82 @@ export function TodayView({
     );
   }
 
+  const moreCount = split.next.length + split.more.length;
+  const nothingToday = agenda.length === 0;
+
   return (
     <div className={styles.view}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Today</h1>
-      </div>
+      {header}
 
-      {agenda.length === 0 ? (
-        <EmptyState title="Nothing on your calendar today." />
-      ) : (
-        <div className={styles.agenda} role="list" aria-label="Today's agenda">
-          {agenda.map((event, index) => (
-            <div key={event.key} className={styles.rowWrap} role="listitem">
-              {index === nowIndex && <div className={styles.nowLine} aria-hidden="true" />}
-              {event.status === 'recorded' ? (
-                <button
-                  className={styles.row}
-                  onClick={() => event.meetingId && onSelectMeeting(event.meetingId)}
-                >
-                  <span className={styles.time}>{timeRange(event)}</span>
-                  <span className={styles.eventTitle}>{event.title}</span>
-                  {event.attendeeCount > 0 && <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>}
-                  <span className={styles.statusCell}>{statusCell(event, onRecord)}</span>
-                </button>
+      {bannerNode}
+
+      {recordingActive && (
+        <div className={styles.hero}>
+          <div className={styles.heroBody}>
+            <div className={styles.heroTitle}>
+              {recording.recording ? (
+                <>
+                  <span className={styles.recordingDot} aria-hidden="true" /> Recording · {recording.title ?? 'Untitled meeting'} · {elapsedText}
+                </>
               ) : (
-                <div className={styles.row}>
-                  <span className={styles.time}>{timeRange(event)}</span>
-                  <span className={styles.eventTitle}>{event.title}</span>
-                  {event.attendeeCount > 0 && <span className={styles.attendees}>{peopleLabel(event.attendeeCount)}</span>}
-                  <span className={styles.statusCell}>{statusCell(event, onRecord)}</span>
-                </div>
+                <>Processing · {recording.title ?? 'Untitled meeting'}</>
               )}
             </div>
-          ))}
-          {nowIndex === agenda.length && <div className={styles.nowLine} aria-hidden="true" />}
+          </div>
+          <ActionButton onClick={onOpenNotes}>Open notes</ActionButton>
+        </div>
+      )}
+      {!recordingActive && split.hero && (
+        <div className={styles.hero}>
+          <div className={styles.heroBody}>
+            <div className={styles.heroTitle}>{split.hero.title}</div>
+            <div className={styles.heroMeta}>
+              {heroWhen(split.hero, nowMs)}
+              {split.hero.attendeeCount > 0 && ` · ${peopleLabel(split.hero.attendeeCount)}`}
+            </div>
+          </div>
+          <span className={styles.statusCell}>
+            {split.heroKind === 'next' && split.hero.status === 'none'
+              ? statusCell({ ...split.hero, status: 'record' }, onRecord)
+              : statusCell(split.hero, onRecord)}
+          </span>
+        </div>
+      )}
+      {!recordingActive && !split.hero && nothingToday && <EmptyState title="Nothing on your calendar today." />}
+      {!recordingActive && !split.hero && !nothingToday && <div className={styles.quiet}>Nothing else today</div>}
+
+      {(split.next.length > 0 || (showAll && split.more.length > 0)) && (
+        <div className={styles.agenda} role="list" aria-label="Today's agenda">
+          {split.next.map(renderRow)}
+          {showAll && split.more.map(renderRow)}
+        </div>
+      )}
+      {split.more.length > 0 && (
+        <div className={styles.foldRow}>
+          <button className={styles.textButton} aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
+            {showAll ? 'Show fewer' : `Show all ${moreCount} events`}
+          </button>
+        </div>
+      )}
+
+      {split.earlier.length > 0 && (
+        <div className={styles.earlier}>
+          <button
+            className={styles.disclosureRow}
+            aria-expanded={showEarlier}
+            aria-controls="today-earlier-panel"
+            onClick={() => setShowEarlier((v) => !v)}
+          >
+            <span className={showEarlier ? `${styles.chevron} ${styles.chevronOpen}` : styles.chevron} aria-hidden="true">
+              ›
+            </span>
+            Earlier today · {split.earlier.length} {split.earlier.length === 1 ? 'meeting' : 'meetings'}, {split.earlierRecorded} recorded
+          </button>
+          {showEarlier && (
+            <div id="today-earlier-panel" className={styles.agenda} role="list" aria-label="Earlier today">
+              {split.earlier.map(renderRow)}
+            </div>
+          )}
         </div>
       )}
 

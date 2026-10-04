@@ -206,6 +206,9 @@ def _check_stamps(stamps) -> list[tuple[int, float]]:
             line, seconds = item
         except (TypeError, ValueError):
             raise ValueError("Invalid note stamps") from None
+        # WKWebView hands every JS number over as a float (line 0 arrives as 0.0).
+        if isinstance(line, float) and math.isfinite(line) and line.is_integer():
+            line = int(line)
         if (isinstance(line, bool) or not isinstance(line, int) or line < 0
                 or isinstance(seconds, bool) or not isinstance(seconds, (int, float))
                 or not math.isfinite(seconds) or seconds < 0):

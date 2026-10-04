@@ -369,3 +369,15 @@ def test_new_banner_during_notice_clears_the_pending_undo(monkeypatch):
     c.bannerSecondary_(None)
     assert panel.calls[-1] == ("hide",)
     c.shutdown()
+
+
+def test_banner_record_builds_options_through_default_options(monkeypatch):
+    import speakeasy.voice_profiles as vp
+    settings.set_identify_voices(True)
+    monkeypatch.setattr(vp.VoiceProfileStore, "names", lambda self: ["Ana"])
+    engine = FakeEngine(events=[ev("k1")])
+    c, panel, probe, _ = make(monkeypatch, engine)
+    c.tick_(None)
+    c.bannerPrimary_(None)
+    assert engine.begun == [MeetingOptions(expected_voice_profile_names=("Ana",),
+                                           calendar_event_key="k1")]

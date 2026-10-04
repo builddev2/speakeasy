@@ -195,18 +195,6 @@ export function MeetingDetail({
     return () => window.cancelAnimationFrame(raf);
   }
 
-  // A notes stamp → the transcript line at or just before that time.
-  function jumpToSeconds(seconds: number) {
-    if (!detail) return;
-    setTab('transcript');
-    let best: TranscriptLine | null = null;
-    for (const line of detail.lines) {
-      if (line.start <= seconds && (best === null || line.start > best.start)) best = line;
-    }
-    const target = best ?? detail.lines[0] ?? null;
-    if (target) flashSegment(target.segmentIndex);
-  }
-
   // Search → Transcript jump: switch tab (Summary for notes hits), scroll the
   // matching line into view (or the nearest by `start` when there's no exact
   // segment). The 1.2s flash highlight is skipped entirely under Reduce Motion
@@ -683,7 +671,6 @@ export function MeetingDetail({
                 key={detail.id}
                 initial={detail.userNotes}
                 save={(v) => onSaveNotes(detail.id, v)}
-                onStampClick={(s) => jumpToSeconds(s)}
               />
             ) : (
               <div ref={transcriptRef} className={styles.transcriptPane} tabIndex={0}>

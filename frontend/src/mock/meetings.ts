@@ -33,7 +33,7 @@ export interface UpcomingDay { dayLabel: string; events: AgendaEvent[] }
 export interface CalendarToggle { id: string; name: string; enabled: boolean }
 export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
 export type Appearance = 'system' | 'light' | 'dark';
-export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; accounts: CalendarAccountSettings[] }
+export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; identifyVoices: boolean; startAtLogin: boolean | null; accounts: CalendarAccountSettings[] }
 
 export type SummaryBlock =
   | { kind: 'tldr'; text: string }
@@ -44,7 +44,10 @@ export type SummaryBlock =
 /** Same shape as notesMarkdown.ts (which must stay import-free). */
 export interface NotesValue { markdown: string; stamps: [number, number][] }
 
-export interface RecordingInfo { recording: boolean; processing: boolean; startedAt: string | null; title: string | null }
+export interface RecordingInfo {
+  recording: boolean; processing: boolean; startedAt: string | null; title: string | null;
+  mode?: string; micFailure?: string | null; startError?: string | null; processingError?: string | null;
+}
 export interface NotesDraft extends NotesValue { startedAt: string }
 
 export interface MeetingDetail extends MeetingMeta {
@@ -96,6 +99,9 @@ export interface AgendaEvent {
   attendeeCount: number;
   status: 'recorded' | 'recording' | 'record' | 'none';
   meetingId: string | null;
+  /** ISO instants; the page compares these with the clock, not the display strings. */
+  start: string;
+  end: string | null;
 }
 
 export const SPEAKER_PALETTE = [
@@ -584,22 +590,42 @@ export const MOCK_STATUS: Record<'idle' | 'upgrading' | 'done' | 'doneWithSkips'
 // Today agenda (phase 3; 9b consumes this).
 // ---------------------------------------------------------------------------
 
-export const MOCK_AGENDA: AgendaEvent[] = [
+/** Fixed mock day and clock (4:29 PM), so the mock Today reads the same whenever it is opened. */
+export const MOCK_DAY = new Date(2026, 8, 29);
+export const MOCK_NOW_MS = new Date(2026, 8, 29, 16, 29).getTime();
+
+function mockIso(day: Date, time: string): string {
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(time)!;
+  const hours = (Number(m[1]) % 12) + (/pm/i.test(m[3]) ? 12 : 0);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, Number(m[2])).toISOString();
+}
+
+type RawEvent = Omit<AgendaEvent, 'start' | 'end'>;
+
+function mockAgendaEvent(raw: RawEvent): AgendaEvent {
+  return { ...raw, start: mockIso(MOCK_DAY, raw.time), end: raw.endTime ? mockIso(MOCK_DAY, raw.endTime) : null };
+}
+
+export const MOCK_AGENDA: AgendaEvent[] = ([
   // End times for the two recorded rows match their meeting's own duration
   // (standupMeta/oneOnOneMeta above), so they're checkable against it.
   { key: 'a1', time: '9:00 AM', endTime: '9:12 AM', title: 'Stand-up', attendeeCount: 3, status: 'recorded', meetingId: standupDetail.id },
   { key: 'a2', time: '1:00 PM', endTime: '1:23 PM', title: 'Weekly 1:1 — Alex', attendeeCount: 2, status: 'recorded', meetingId: oneOnOneDetail.id },
-  { key: 'a3', time: '3:30 PM', endTime: '4:30 PM', title: 'Design Sync', attendeeCount: 4, status: 'recording', meetingId: null },
-  { key: 'a4', time: '4:30 PM', endTime: '5:00 PM', title: 'Roadmap Review', attendeeCount: 5, status: 'record', meetingId: null },
+  { key: 'a3', time: '3:30 PM', endTime: '4:30 PM', title: 'Design Sync', attendeeCount: 4, status: 'record', meetingId: null },
+  { key: 'a4', time: '4:30 PM', endTime: '5:00 PM', title: 'Roadmap Review', attendeeCount: 5, status: 'none', meetingId: null },
   { key: 'a5', time: '5:00 PM', endTime: '5:30 PM', title: 'Backlog Grooming', attendeeCount: 3, status: 'none', meetingId: null },
-];
+  { key: 'a6', time: '5:30 PM', endTime: '6:00 PM', title: 'Hiring Sync', attendeeCount: 3, status: 'none', meetingId: null },
+  { key: 'a7', time: '6:00 PM', endTime: '6:30 PM', title: 'Launch Checklist', attendeeCount: 4, status: 'none', meetingId: null },
+  { key: 'a8', time: '6:30 PM', endTime: '7:00 PM', title: 'Metrics Review', attendeeCount: 2, status: 'none', meetingId: null },
+  { key: 'a9', time: '7:00 PM', endTime: '7:30 PM', title: 'Team Retro', attendeeCount: 6, status: 'none', meetingId: null },
+] as RawEvent[]).map(mockAgendaEvent);
 
 // ---------------------------------------------------------------------------
 // Upcoming agenda (phase 3; next 7 days, collapsed by day). Days without
 // events are omitted, as the spec asks.
 // ---------------------------------------------------------------------------
 
-export const MOCK_UPCOMING: UpcomingDay[] = [
+const MOCK_UPCOMING_RAW: { dayLabel: string; events: RawEvent[] }[] = [
   {
     dayLabel: 'Mon 28 Sep',
     events: [
@@ -622,6 +648,14 @@ export const MOCK_UPCOMING: UpcomingDay[] = [
     ],
   },
 ];
+
+const MONTHS: Record<string, number> = { Sep: 8, Oct: 9 };
+
+export const MOCK_UPCOMING: UpcomingDay[] = MOCK_UPCOMING_RAW.map((day) => {
+  const m = /(\d+) (\w+)$/.exec(day.dayLabel)!;
+  const date = new Date(2026, MONTHS[m[2]], Number(m[1]));
+  return { ...day, events: day.events.map((e) => ({ ...e, start: mockIso(date, e.time), end: null })) };
+});
 
 export interface ClaudeSetupInfo {
   command: string;
@@ -660,6 +694,8 @@ export const MOCK_MEETING_SETTINGS: MeetingSettings = {
   offerToRecord: true,
   detectCalls: true,
   appearance: 'system',
+  identifyVoices: false,
+  startAtLogin: false,
   accounts: [
     {
       name: 'iCloud',

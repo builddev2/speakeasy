@@ -11,6 +11,7 @@ demand — no caching layer to invalidate.
 """
 
 import json
+import math
 import re
 import shutil
 import sys
@@ -178,6 +179,42 @@ def set_appearance(choice) -> str:
     data["appearance"] = choice
     _write(data)
     return choice
+
+
+# -- recording ------------------------------------------------------------------
+
+
+def get_identify_voices() -> bool:
+    value = _read().get("identify_voices")
+    return value if isinstance(value, bool) else False
+
+
+def set_identify_voices(value) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("Identify voices must be on or off.")
+    data = _read()
+    data["identify_voices"] = value
+    _write(data)
+    return value
+
+
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def get_pill_origin() -> tuple[float, float] | None:
+    raw = _read().get("pill_origin")
+    if isinstance(raw, list) and len(raw) == 2 and all(_is_number(v) for v in raw):
+        return (float(raw[0]), float(raw[1]))
+    return None
+
+
+def set_pill_origin(x, y) -> None:
+    if not (_is_number(x) and _is_number(y)):
+        raise ValueError("Pill position must be two numbers.")
+    data = _read()
+    data["pill_origin"] = [float(x), float(y)]
+    _write(data)
 
 
 # Event keys end in "@<UTC start>", so sorting on that suffix keeps the latest.

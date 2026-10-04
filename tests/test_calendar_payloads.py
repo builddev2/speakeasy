@@ -63,3 +63,10 @@ def test_calendars_payload_groups_accounts_and_applies_defaults():
         {"name": "Exchange", "calendars": [{"id": "w", "name": "Calendar", "enabled": True}]},
         {"name": "Other", "calendars": [{"id": "b", "name": "Birthdays", "enabled": False},
                                         {"id": "h", "name": "US Holidays", "enabled": True}]}]
+
+
+def test_agenda_row_carries_local_iso_times():
+    event = e("live", 15, 30, 60)
+    row = cp.agenda_row(event, NOW, None)
+    assert row["start"] == cp.event_start(event).astimezone(NOW.tzinfo).isoformat()
+    assert row["end"] == cp.event_end(event).astimezone(NOW.tzinfo).isoformat()

@@ -18,7 +18,7 @@ interface Loaded { initial: NotesValue; leftover: boolean }
 export function RecordingNotes({ info, startedAt, editorRef }: RecordingNotesProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [draftKey, setDraftKey] = useState(0);
-  // NotesEditor captures `now` once, so it reads the start time through a ref.
+  // The save callback is captured once, so it reads the start time through a ref.
   const startedAtRef = useRef(startedAt);
   startedAtRef.current = startedAt;
   const startedAtLoad = useRef(startedAt);
@@ -53,11 +53,6 @@ export function RecordingNotes({ info, startedAt, editorRef }: RecordingNotesPro
       });
   }
 
-  const now = () => {
-    const seconds = (Date.now() - Date.parse(startedAtRef.current)) / 1000;
-    return Number.isFinite(seconds) ? seconds : null;
-  };
-
   return (
     <div className={styles.pane}>
       <div className={styles.body}>
@@ -67,7 +62,6 @@ export function RecordingNotes({ info, startedAt, editorRef }: RecordingNotesPro
             <NotesEditor
               key={draftKey}
               initial={loaded.initial}
-              now={now}
               save={(v) => draftApi.set({ ...v, startedAt: startedAtRef.current })}
               valueRef={editorRef}
               notice={loaded.leftover ? (

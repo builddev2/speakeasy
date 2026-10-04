@@ -10,7 +10,6 @@ export default defineConfig({
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
         diagnostic: fileURLToPath(new URL('./diagnostic.html', import.meta.url)),
-        dock: fileURLToPath(new URL('./dock.html', import.meta.url)),
         meetings: fileURLToPath(new URL('./meetings.html', import.meta.url)),
         training: fileURLToPath(new URL('./training.html', import.meta.url)),
       },

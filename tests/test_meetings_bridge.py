@@ -11,12 +11,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from speakeasy.meeting_library import MeetingLibrary, MeetingNotFound, NewMeeting
+from speakeasy.meeting_options import MeetingOptions
 from speakeasy.meetings import MeetingSegment
 from speakeasy.ui.meetings_bridge import MeetingsBridge
 from speakeasy.ui.webbridge import BridgeDispatcher
 
 TZ = timezone(timedelta(hours=-4))
 NOW = lambda: datetime(2026, 9, 24, 15, 0, tzinfo=TZ)  # noqa: E731 — Today
+
+
+def make_bridge(tmp_path, **kw):
+    return MeetingsBridge(library=MeetingLibrary(tmp_path / "l.sqlite"), **kw)
 
 
 def _call(dispatcher, method, params=None):
@@ -674,9 +679,11 @@ def test_draft_calls(library_path):
 
 def test_recording_get_defaults_and_uses_the_injected_reader(library_path):
     assert _bcall(MeetingsBridge(), "recording.get")["r"] == {
-        "recording": False, "processing": False, "startedAt": None, "title": None}
+        "recording": False, "processing": False, "startedAt": None, "title": None,
+        "mode": "", "micFailure": None, "startError": None, "processingError": None}
     info = {"recording": True, "processing": False, "startedAt": "2026-09-24T17:17:00Z", "title": "1:1"}
-    assert _bcall(MeetingsBridge(recording_info=lambda: info), "recording.get")["r"] == info
+    got = _bcall(MeetingsBridge(recording_info=lambda: info), "recording.get")["r"]
+    assert {k: got[k] for k in info} == info and got["mode"] == ""
 
 
 def test_search_reports_user_notes_kind(library_path):
@@ -696,3 +703,134 @@ def test_null_markdown_is_empty_not_the_word_none(library_path):
     _bcall(bridge, "notes.draft.finish", {"id": mid, "markdown": None, "stamps": [],
                                          "startedAt": "2026-09-24T17:17:00Z"})
     assert lib.get_user_notes(mid) is None or lib.get_user_notes(mid).markdown == ""
+
+
+def test_meeting_start_uses_default_options(tmp_path):
+    started = []
+    bridge = make_bridge(tmp_path, begin_meeting=started.append)
+    assert bridge.start_meeting_payload({}) is True
+    assert started == [MeetingOptions()]
+
+
+def _enrol_ana(monkeypatch):
+    import speakeasy.voice_profiles as vp
+    from speakeasy import settings
+    settings.set_identify_voices(True)
+    monkeypatch.setattr(vp.VoiceProfileStore, "names", lambda self: ["Ana"])
+
+
+def test_meeting_start_applies_identify_voices(tmp_path, monkeypatch):
+    _enrol_ana(monkeypatch)
+    started = []
+    make_bridge(tmp_path, begin_meeting=started.append).start_meeting_payload({})
+    assert started[0].expected_voice_profile_names == ("Ana",)
+
+
+def test_calendar_record_applies_identify_voices(tmp_path, monkeypatch):
+    _enrol_ana(monkeypatch)
+    started = []
+    make_bridge(tmp_path, begin_meeting=started.append).calendar_record_payload({"key": "ev-9"})
+    assert started[0].expected_voice_profile_names == ("Ana",)
+    assert started[0].calendar_event_key == "ev-9"
+
+
+def test_calendar_record_uses_default_options(tmp_path):
+    started = []
+    bridge = make_bridge(tmp_path, begin_meeting=started.append)
+    bridge.calendar_record_payload({"key": "ev-9"})
+    assert started == [MeetingOptions(calendar_event_key="ev-9")]
+
+
+def test_settings_include_identify_voices_and_login(tmp_path):
+    state = {"login": False}
+    bridge = make_bridge(tmp_path, login_status=lambda: state["login"],
+                         set_login=lambda on: state.update(login=on))
+    got = bridge.settings_get_payload({})
+    assert got["identifyVoices"] is False and got["startAtLogin"] is False
+    got = bridge.settings_set_payload({"identifyVoices": True, "startAtLogin": True})
+    assert got["identifyVoices"] is True and got["startAtLogin"] is True
+
+
+def test_login_unavailable_reads_null_and_refuses_set(tmp_path):
+    bridge = make_bridge(tmp_path)
+    assert bridge.settings_get_payload({})["startAtLogin"] is None
+    with pytest.raises(ValueError, match="Start at login is available in the installed app."):
+        bridge.settings_set_payload({"startAtLogin": True})
+
+
+def test_take_navigation_returns_once(tmp_path):
+    bridge = make_bridge(tmp_path)
+    assert bridge.take_navigation_payload({}) is None
+    bridge.set_navigation("recording")
+    assert bridge.take_navigation_payload({}) == "recording"
+    assert bridge.take_navigation_payload({}) is None
+
+
+def test_latest_navigation_wins(tmp_path):
+    bridge = make_bridge(tmp_path)
+    bridge.set_navigation("settings")
+    bridge.set_navigation({"meeting": "m-1"})
+    assert bridge.take_navigation_payload({}) == {"meeting": "m-1"}
+
+
+@pytest.mark.parametrize("bad", ["today", {"meeting": ""}, {"meeting": "x" * 201}, {"other": "m"}, 3])
+def test_unknown_navigation_is_refused(tmp_path, bad):
+    with pytest.raises(ValueError, match="Unknown page."):
+        make_bridge(tmp_path).set_navigation(bad)
+
+
+def test_take_navigation_is_registered_on_the_dispatcher(tmp_path):
+    bridge = make_bridge(tmp_path)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    bridge.set_navigation("settings")
+    first = _call(d, "meetings.takeNavigation")
+    assert "_resolve" in first and "settings" in first
+    second = _call(d, "meetings.takeNavigation")
+    assert "_resolve" in second and "null" in second
+
+
+def test_meeting_start_is_registered_on_the_dispatcher(tmp_path):
+    started = []
+    bridge = make_bridge(tmp_path, begin_meeting=started.append)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    js = _call(d, "meeting.start")
+    assert "_resolve" in js and "true" in js
+    assert len(started) == 1
+
+
+def test_retry_microphone_calls_engine(tmp_path):
+    calls = []
+    bridge = make_bridge(tmp_path, retry_microphone=lambda: calls.append(1) or True)
+    assert bridge.retry_microphone_payload({}) is True and calls == [1]
+
+
+def test_recording_get_defaults_include_engine_fields(tmp_path):
+    got = make_bridge(tmp_path).recording_payload({})
+    assert got["mode"] == "" and got["micFailure"] is None
+    assert got["startError"] is None and got["processingError"] is None
+
+
+def test_meeting_retry_microphone_is_registered_on_the_dispatcher(tmp_path):
+    calls = []
+    bridge = make_bridge(tmp_path, retry_microphone=lambda: calls.append(1) or True)
+    d = BridgeDispatcher()
+    bridge.register(d)
+    js = _call(d, "meeting.retryMicrophone")
+    assert "_resolve" in js and "true" in js
+    assert calls == [1]
+
+
+def test_retry_microphone_without_engine_is_unavailable(tmp_path):
+    from speakeasy.ui.meetings_bridge import BridgeError
+
+    with pytest.raises(BridgeError, match="recording_unavailable"):
+        make_bridge(tmp_path).retry_microphone_payload({})
+
+
+def test_draft_set_accepts_float_line_numbers_as_wkwebview_sends_them(tmp_path):
+    bridge = make_bridge(tmp_path)
+    bridge.draft_set_payload({"markdown": "a\nb", "stamps": [[0.0, 77.3], [1.0, 90]],
+                              "startedAt": "2026-10-03T09:00:00Z"})
+    assert bridge.draft_get_payload({})["stamps"] == [[0, 77.3], [1, 90.0]]

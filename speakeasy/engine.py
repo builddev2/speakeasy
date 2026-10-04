@@ -172,7 +172,7 @@ class DictationEngine:
     def can_train(self) -> bool:
         """Training needs a loaded model, a named (non-Guest) profile, and no
         meeting in flight — training and meetings both want the hotkey and
-        the mic. Single source of truth for the menu item and dock button."""
+        the mic. Single source of truth for the menu item."""
         return (
             self.transcriber is not None
             and self._diagnostic_cancel is None
@@ -734,7 +734,7 @@ class DictationEngine:
         #
         # This runs on the main thread, inside applicationDidFinishLaunching_
         # (ui/menubar.py) — the app's very first DB touch at launch, well
-        # before engineStateChanged_, main_window.show(), the permissions
+        # before engineStateChanged_, the Meetings window, the permissions
         # guidance, or the hotkey are wired up. A DB error here (corrupt,
         # locked past the busy timeout, permissions, schema) must not abort
         # the rest of launch, so it's swallowed: skip the placeholder and
@@ -819,7 +819,7 @@ class DictationEngine:
         self.control.submit(self._end_meeting)
 
     def link_meeting_event(self, event_key: str | None) -> None:
-        """Change or clear the current recording's event (Dock menu)."""
+        """Change or clear the current recording's event (pill drawer menu)."""
         self.control.submit(self._link_meeting_event, event_key)
 
     def _link_meeting_event(self, event_key: str | None) -> None:
@@ -940,7 +940,7 @@ class DictationEngine:
             options.calendar_event_key if options is not None else None,
             self._meeting_started_at)
         if self.meeting_event is not None:
-            self.on_state_changed(self.state)   # the Dock shows the title
+            self.on_state_changed(self.state)   # the pill shows the title
 
     def _end_meeting(self) -> None:
         if not self._meeting_active or self.state is not State.MEETING_RECORDING:

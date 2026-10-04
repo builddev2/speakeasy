@@ -13,7 +13,7 @@ from Foundation import NSObject, NSTimer
 
 from .. import settings
 from ..call_detect import CallProbe
-from ..meeting_options import MeetingOptions
+from ..meeting_options import default_options
 from ..record_prompt import CallEnded, Offer, RecordPromptCoordinator, banner_text
 
 TICK_SECONDS = 30.0
@@ -168,7 +168,7 @@ class RecordPromptController(NSObject):
     @objc.python_method
     def _record(self, index):
         key = self.coordinator.record(index)
-        self.engine.begin_meeting(MeetingOptions(calendar_event_key=key))
+        self.engine.begin_meeting(default_options(calendar_event_key=key))
         self._persist()
         # The panel hides itself after the confirmation; nothing to re-draw.
         self._shown = None

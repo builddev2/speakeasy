@@ -1416,3 +1416,6 @@ target.
 - Speaker separation produced 144 speakers in one meeting. Investigate over-splitting
   (`diarization`).
 - Meaning-based search, if keyword search plus the described strategy proves insufficient.
+- Test gaps found in the final re-review (the code is correct by reading): the `truncated` flag is tested only for
+  transcript hits. Mutations to the title, date-only and summary/user-notes saturation checks in
+  `_ranked_hits`/`_search` survive. There is also no frontend test for the `selectedPath` dependency in `MeetingList`.

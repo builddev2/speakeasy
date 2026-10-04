@@ -8,6 +8,18 @@ interface SearchResultsProps {
   onSelect: (result: SearchResult) => void;
 }
 
+function renderParts(parts: SearchResult['parts']) {
+  return parts.map((part, j) =>
+    part.hit ? (
+      <mark key={j} className={styles.mark}>
+        {part.text}
+      </mark>
+    ) : (
+      <span key={j}>{part.text}</span>
+    ),
+  );
+}
+
 export function SearchResults({ results, pending = false, onSelect }: SearchResultsProps) {
   if (results.length === 0) {
     if (pending) return <div className={styles.empty} aria-busy="true" />;
@@ -29,15 +41,7 @@ export function SearchResults({ results, pending = false, onSelect }: SearchResu
           <div className={styles.rowTop}>
             <span className={styles.title}>
               {result.kind === 'meeting'
-                ? result.parts.map((part, j) =>
-                    part.hit ? (
-                      <mark key={j} className={styles.mark}>
-                        {part.text}
-                      </mark>
-                    ) : (
-                      <span key={j}>{part.text}</span>
-                    ),
-                  )
+                ? renderParts(result.parts)
                 : result.title}
             </span>
             <span className={styles.dayLabel}>
@@ -61,15 +65,7 @@ export function SearchResults({ results, pending = false, onSelect }: SearchResu
                 )
               )}
               <div className={styles.snippet}>
-                {result.parts.map((part, j) =>
-                  part.hit ? (
-                    <mark key={j} className={styles.mark}>
-                      {part.text}
-                    </mark>
-                  ) : (
-                    <span key={j}>{part.text}</span>
-                  ),
-                )}
+                {renderParts(result.parts)}
               </div>
             </>
           )}

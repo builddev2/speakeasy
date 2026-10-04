@@ -212,6 +212,8 @@ export function MeetingDetail({
     if (detail.id !== jumpTarget.meetingId) return;
     if (consumedJumpNonceRef.current === jumpTarget.nonce) return;
     consumedJumpNonceRef.current = jumpTarget.nonce;
+    // A title hit opens the meeting on its default tab, with no jump.
+    if (jumpTarget.kind === 'meeting') return;
     if (jumpTarget.kind === 'user_notes') {
       setTab('notes');
       return;

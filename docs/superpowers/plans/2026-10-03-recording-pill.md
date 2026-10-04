@@ -1766,7 +1766,15 @@ Task 9 (Opus evaluator, temp HOME):
 - `--mcp` listed 11 tools.
 - `check_quit_and_cancel.py` reported ALL PASS in 87.5 s: keep saved 1 meeting; the discard child was gone in 0.08 s and nothing was saved; quit took 0.005 s with exit code 0. It needs `HF_HOME=~/.cache/huggingface` under a temp HOME.
 - The pill, drawer, menu card and Today were **not seen on screen** by any agent.
-- Step 3 (the user's on-screen checks): **pending**.
+- Step 3 (the user's on-screen checks): run 1 on 3 Oct 2026 in Terminal.app with a temp HOME.
+  - Without Calendar, Meetings opens on All meetings. That is per the spec: it opens on Today only when Calendar is connected.
+  - The pill and drawer worked. The drawer opened by itself on the amber "no sound yet" warning, as designed.
+  - The user found three issues, fixed in 01dc494..41f87af:
+    1. **Bug, already on master:** the notepad never saved from the app ("Couldn't save — retrying"). WKWebView sends JS integers as floats, and `_check_stamps` rejected line `0.0`. Integral floats are now accepted.
+    2. **Change:** the drawer is now the pill's width (360 pt) and aligned with it.
+    3. **Change:** notes show and create no time stamps. Old stamp data is kept.
+  - Sonnet implemented; Opus reviewed with mutations. Suite: 1192 passed, node 33 passed. Rebuilt.
+  - Run 2 (the rebuilt app, user): **pending**.
 
 Rulings (decided by the controller; cost if wrong):
 1. Worktree made with EnterWorktree, the branch renamed, and `.venv`/`node_modules` symlinked instead of `npm ci`. Cost: a dependency mismatch would show up as a build failure.

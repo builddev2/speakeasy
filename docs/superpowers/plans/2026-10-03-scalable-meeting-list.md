@@ -24,6 +24,24 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-03-scalable-meeting-list-design.md`
 
+## Model Assignment
+
+- **Coding: Sonnet 5.5.** Every implementer subagent (Tasks 1–9: writing tests, code,
+  CSS, manifest regeneration, seeding scripts) is dispatched with `model: "sonnet"`, and its
+  brief includes the task text verbatim with the exact values.
+- **Opus: evals and hard problems.**
+  - **Per-task reviewers:** Opus checks spec compliance, code quality and mutation. The
+    reviewer must break the code and confirm the suite notices.
+  - **Whole-branch review:** Opus does the final review before merge.
+  - **Escalation:** any problem an implementer reports as BLOCKED, or fails to fix after two
+    attempts, goes to Opus. That covers a failing test it can't explain, an
+    ordering/ranking question in `_ranked_hits`, sticky-header layering in WKWebView, or a
+    spec ambiguity.
+  - **Real-app and real-MCP acceptance:** Opus judges the screenshots and probe numbers in
+    Task 9.
+- The controller session (Opus) never implements tasks itself; it dispatches, reviews
+  results and decides.
+
 ## Global Constraints
 
 - Fully offline: no new dependencies, no network calls.

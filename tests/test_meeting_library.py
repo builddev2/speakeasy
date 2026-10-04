@@ -556,3 +556,23 @@ def test_list_meetings_none_limit_is_uncapped(library_path):
     assert len(lib.list_meetings(limit=None)) == 502
     assert len(lib.list_meetings(limit=10_000)) == 500   # integers still clamp
     assert len(lib.list_meetings()) == 100               # default unchanged
+
+
+def test_pending_summaries_range_bounds(lib):
+    # local_day_bounds uses the system-local zone, so build starts the same way.
+    def at(day, hour=10, minute=0):
+        return datetime(2026, 8, day, hour, minute).astimezone()
+
+    def save(started):
+        return lib.save_meeting(_new(started=started, duration_seconds=300.0))
+
+    before = save(at(9, 23, 59))        # day before `from`
+    on_from = save(at(10, 0, 0))        # first minute of `from`
+    late_to = save(at(12, 23, 59))      # late on `to`
+    midnight = save(at(13, 0, 0))       # exactly local midnight after `to` (excluded)
+    after = save(at(14))
+    ids = lambda **kw: [m for m, _ in lib.pending_summaries(
+        limit=10, now=NOW, **kw)]
+    assert ids(from_date="2026-08-10", to_date="2026-08-12") == [on_from, late_to]
+    assert ids(from_date="2026-08-10") == [on_from, late_to, midnight, after]
+    assert ids(to_date="2026-08-12") == [before, on_from, late_to]

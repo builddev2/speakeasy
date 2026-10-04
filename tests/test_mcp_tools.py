@@ -467,7 +467,7 @@ def test_search_meetings_rejects_non_boolean_by_meeting(tools):
 
 
 def test_pending_summaries_catches_up_a_past_range(lib, tools):
-    aug = [_seed(lib, day=d, title=f"A{d}") for d in (2, 3)]   # 2026-09-02/03, outside 7 days
+    early_sep = [_seed(lib, day=d, title=f"A{d}") for d in (2, 3)]   # 2026-09-02/03, outside 7 days
     done = _seed(lib, day=4, title="Done")
     tools["save_notes"].run({"id": done, "summary": "TL;DR: x"})
     short = lib.save_meeting(NewMeeting(
@@ -476,7 +476,7 @@ def test_pending_summaries_catches_up_a_past_range(lib, tools):
     requested = _seed(lib, day=10, title="Asked")
     lib.request_summary(requested)
     out = tools["pending_summaries"].run({"from": "2026-09-01", "to": "2026-09-05"})
-    assert [m["id"] for m in out["meetings"]] == [requested, *aug]
+    assert [m["id"] for m in out["meetings"]] == [requested, *early_sep]
     assert short not in [m["id"] for m in out["meetings"]] and done not in [m["id"] for m in out["meetings"]]
     # Without a range: unchanged (only the explicit request; September is outside 7 days).
     assert [m["id"] for m in tools["pending_summaries"].run({})["meetings"]] == [requested]

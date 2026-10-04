@@ -10,6 +10,12 @@
 
 **Spec:** [docs/superpowers/specs/2026-10-03-search-and-light-sidebar-design.md](../specs/2026-10-03-search-and-light-sidebar-design.md)
 
+## Models
+
+- **Coding:** every implementer subagent runs on **Sonnet 5.5** (`model: "sonnet"`, `claude-sonnet-5-5`). Give it the task text with the exact values from this plan.
+- **Evals and review:** every reviewer subagent runs on **Opus 5.5** (`model: "opus"`, `claude-opus-5-5`). That covers per-task spec and quality reviews, mutation checks and the final whole-branch review. Reviewers verify by **mutation**: break the code, confirm the suite notices, revert.
+- The controller (the session running the plan) does the Task 6 on-screen check itself.
+
 ## Global Constraints
 
 - Fully offline: no new dependencies (Python or npm).

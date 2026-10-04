@@ -156,6 +156,7 @@ ranked by its best passage (each source's rank, interleaved the same way as now)
 ```
 
 - Hit counts consider up to 2,000 passages per source (titles, transcripts, summaries, user notes), so they stay cheap.
+- by_meeting responses carry `truncated` when a source hit the 2,000 cap.
 - `limit` keeps its 1–50 range and counts meetings in this mode.
 
 New argument `offset` (0–1000, default 0), available in both modes. The response gains

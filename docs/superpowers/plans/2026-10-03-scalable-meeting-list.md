@@ -1366,6 +1366,12 @@ target.
   when present)".
 - Result: 23,056 characters for 100 rows.
 
+### Final-review fixes
+
+- by_meeting responses carry `truncated` (`_ranked_hits` returns `(hits, saturated)`; `search_grouped` returns `(groups, truncated)`), with a description sentence and manifest update; tests added, including by_meeting paging.
+- `MeetingList` selection effect also depends on the selected row's section path, so a row that first appears later (or moves at midnight) is opened and scrolled to.
+- FTS source queries order by `score, <row id>` so paging is deterministic with tied bm25 scores.
+
 ## Results (2026-10-03)
 
 - Tests: Python full suite 1272 passed; frontend `npm test` 44 passed; `npm run build` clean
@@ -1405,6 +1411,8 @@ target.
 
 ## TODO (outside this plan)
 
+- Sections are built in row order (UTC), but `startDate` is each meeting's own local day, so a meeting recorded
+  in another time zone can put Today below Yesterday or repeat a day subheading. Sort sections by date if travel makes this real.
 - Speaker separation produced 144 speakers in one meeting. Investigate over-splitting
   (`diarization`).
 - Meaning-based search, if keyword search plus the described strategy proves insufficient.

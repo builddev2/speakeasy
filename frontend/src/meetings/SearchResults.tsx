@@ -27,36 +27,52 @@ export function SearchResults({ results, pending = false, onSelect }: SearchResu
           onClick={() => onSelect(result)}
         >
           <div className={styles.rowTop}>
-            <span className={styles.title}>{result.title}</span>
+            <span className={styles.title}>
+              {result.kind === 'meeting'
+                ? result.parts.map((part, j) =>
+                    part.hit ? (
+                      <mark key={j} className={styles.mark}>
+                        {part.text}
+                      </mark>
+                    ) : (
+                      <span key={j}>{part.text}</span>
+                    ),
+                  )
+                : result.title}
+            </span>
             <span className={styles.dayLabel}>
               {result.dayLabel} · {result.time}
             </span>
           </div>
-          {result.kind === 'notes' ? (
-            <div className={styles.speakerLine}>Summary</div>
-          ) : result.kind === 'user_notes' ? (
-            <div className={styles.speakerLine}>Notes</div>
-          ) : (
-            result.speaker && (
-              <div className={styles.speakerLine}>
-                {result.speaker}
-                {result.alsoSpeakers.length > 0 && (
-                  <span className={styles.also}> · also: {result.alsoSpeakers.join(', ')}</span>
+          {result.kind !== 'meeting' && (
+            <>
+              {result.kind === 'notes' ? (
+                <div className={styles.speakerLine}>Summary</div>
+              ) : result.kind === 'user_notes' ? (
+                <div className={styles.speakerLine}>Notes</div>
+              ) : (
+                result.speaker && (
+                  <div className={styles.speakerLine}>
+                    {result.speaker}
+                    {result.alsoSpeakers.length > 0 && (
+                      <span className={styles.also}> · also: {result.alsoSpeakers.join(', ')}</span>
+                    )}
+                  </div>
+                )
+              )}
+              <div className={styles.snippet}>
+                {result.parts.map((part, j) =>
+                  part.hit ? (
+                    <mark key={j} className={styles.mark}>
+                      {part.text}
+                    </mark>
+                  ) : (
+                    <span key={j}>{part.text}</span>
+                  ),
                 )}
               </div>
-            )
+            </>
           )}
-          <div className={styles.snippet}>
-            {result.parts.map((part, j) =>
-              part.hit ? (
-                <mark key={j} className={styles.mark}>
-                  {part.text}
-                </mark>
-              ) : (
-                <span key={j}>{part.text}</span>
-              ),
-            )}
-          </div>
         </button>
       ))}
     </div>

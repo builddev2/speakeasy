@@ -19,7 +19,7 @@ export interface JumpTarget {
   meetingId: string;
   segmentIndex: number | null;
   seconds: number | null;
-  kind: 'transcript' | 'notes' | 'user_notes';
+  kind: 'meeting' | 'transcript' | 'notes' | 'user_notes';
   /** Bumped on every selection so re-jumping to the same line still fires. */
   nonce: number;
 }

@@ -106,7 +106,7 @@ class Server:
                 pass  # "last used" is cosmetic; never fail the call over it
         tool = self.tools[params["name"]]
         try:
-            text, is_error = json.dumps(tool.run(args), ensure_ascii=False), False
+            text, is_error = json.dumps(tool.run(args), ensure_ascii=False, separators=(",", ":")), False
         except ToolError as err:
             text, is_error = str(err), True
         except MeetingNotFound as err:

@@ -18,7 +18,7 @@
   "tools": [
     {
       "name": "list_meetings",
-      "description": "List saved meetings, newest first, with date, duration, named speakers (unnamed 'Speaker N' labels are only counted in speaker_count), people, tags and whether a summary exists. No transcript text. Filter by title words to find a meeting by name; use get_meeting for full detail."
+      "description": "List saved meetings, newest first, with date, duration, named speakers (unnamed 'Speaker N' labels are only counted in speaker_count), people, tags and whether a summary exists (timestamps_approximate appears only when true). No transcript text. Filter by title words to find a meeting by name; use get_meeting for full detail."
     },
     {
       "name": "get_meeting",

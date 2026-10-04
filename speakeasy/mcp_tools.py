@@ -220,7 +220,7 @@ def build_tools(library) -> dict[str, Tool]:
                 "speaker_count": m.speaker_count,
                 "people": m.people, "tags": m.tags,
                 "has_summary": m.has_summary,
-                "timestamps_approximate": m.timestamps_approximate,
+                **({"timestamps_approximate": True} if m.timestamps_approximate else {}),
             } for m in rows[:limit]],
             "offset": offset,
             "next_offset": offset + limit if len(rows) > limit else None,
@@ -381,7 +381,8 @@ def build_tools(library) -> dict[str, Tool]:
         ("list_meetings",
          "List saved meetings, newest first, with date, duration, named speakers "
          "(unnamed 'Speaker N' labels are only counted in speaker_count), people, "
-         "tags and whether a summary exists. No transcript text. Filter by title "
+         "tags and whether a summary exists (timestamps_approximate appears only when "
+         "true). No transcript text. Filter by title "
          "words to find a meeting by name; use get_meeting for full detail.",
          {**_FILTERS,
           "title": {"type": "string", "description": "Words that must all appear in "

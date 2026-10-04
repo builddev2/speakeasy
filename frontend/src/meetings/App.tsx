@@ -884,192 +884,194 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
   return (
     <GlassPanel width={1040} height={660}>
-      <TitleBar title="Meetings" />
-      <div className={styles.split} ref={containerRef}>
-        <Sidebar
-          filters={filters}
-          activeFilter={filter}
-          activeToday={today}
-          todayCount={
-            todayConnection === 'connected' ? (isMock ? mockAgenda : calendar.agenda).length : undefined
-          }
-          onSelectFilter={onSelectFilter}
-          onSelectToday={onSelectToday}
-          recordingRow={recordingRow}
-          activeRecording={recordingView}
-          onSelectRecording={onSelectRecording}
-          searchValue={searchQuery}
-          onSearchChange={onSearchChange}
-          searchFocusToken={searchFocusToken}
-          onConnectClaude={() => setConnectClaudeOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          connectClaudeRef={connectClaudeButtonRef}
-          settingsRef={settingsButtonRef}
-        >
-          <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
-          {searching ? (
-            <SearchResults
-              results={embedded ? searchResults : mockState === 'search' ? MOCK_RESULTS : []}
-              pending={embedded && settledQuery !== searchQuery}
-              onSelect={onSelectResult}
-            />
-          ) : visibleMetas.length === 0 ? (
-            libraryStatus.state !== 'upgrading' ? (
-              <EmptyState title="No meetings yet." body="Record a meeting from the menu bar to see it here." />
+      <div className={styles.window}>
+        <TitleBar title="Meetings" />
+        <div className={styles.split} ref={containerRef}>
+          <Sidebar
+            filters={filters}
+            activeFilter={filter}
+            activeToday={today}
+            todayCount={
+              todayConnection === 'connected' ? (isMock ? mockAgenda : calendar.agenda).length : undefined
+            }
+            onSelectFilter={onSelectFilter}
+            onSelectToday={onSelectToday}
+            recordingRow={recordingRow}
+            activeRecording={recordingView}
+            onSelectRecording={onSelectRecording}
+            searchValue={searchQuery}
+            onSearchChange={onSearchChange}
+            searchFocusToken={searchFocusToken}
+            onConnectClaude={() => setConnectClaudeOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            connectClaudeRef={connectClaudeButtonRef}
+            settingsRef={settingsButtonRef}
+          >
+            <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
+            {searching ? (
+              <SearchResults
+                results={embedded ? searchResults : mockState === 'search' ? MOCK_RESULTS : []}
+                pending={embedded && settledQuery !== searchQuery}
+                onSelect={onSelectResult}
+              />
+            ) : visibleMetas.length === 0 ? (
+              libraryStatus.state !== 'upgrading' ? (
+                <EmptyState title="No meetings yet." body="Record a meeting from the menu bar to see it here." />
+              ) : (
+                <div />
+              )
             ) : (
-              <div />
-            )
-          ) : (
-            <MeetingList
-              metas={visibleMetas}
-              selectedId={today || recordingView ? null : selectedId}
-              onSelect={(id) => {
-                userNavigatedRef.current = true;
-                setRecordingView(false);
-                setToday(false);
-                select(id);
+              <MeetingList
+                metas={visibleMetas}
+                selectedId={today || recordingView ? null : selectedId}
+                onSelect={(id) => {
+                  userNavigatedRef.current = true;
+                  setRecordingView(false);
+                  setToday(false);
+                  select(id);
+                }}
+                onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+                onRequestDelete={() => setConfirmOpen(true)}
+              />
+            )}
+          </Sidebar>
+
+          {recordingView && recordingStartedAt ? (
+            <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} />
+          ) : today ? (
+            <TodayView
+              connection={todayConnection}
+              agenda={isMock ? mockAgenda : calendar.agenda}
+              upcoming={isMock ? MOCK_UPCOMING : calendar.upcoming}
+              recording={recording}
+              elapsedText={
+                recordingStartedAt ? formatElapsed((Date.now() - Date.parse(recordingStartedAt)) / 1000) : '0:00'
+              }
+              nowMs={isMock ? MOCK_NOW_MS : nowMs}
+              onStartMeeting={() => {
+                if (embedded) {
+                  void bridge.call('meeting.start').catch((err) => console.error('meeting.start failed', err));
+                } else console.log('start-meeting');
               }}
-              onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
+              onOpenNotes={onSelectRecording}
+              onRetryMicrophone={() => {
+                if (embedded) {
+                  void bridge.call('meeting.retryMicrophone').catch((err) => console.error('meeting.retryMicrophone failed', err));
+                } else console.log('retry-microphone');
+              }}
+              onSelectMeeting={onSelectTodayMeeting}
+              onRecord={(key) => {
+                if (embedded) {
+                  void bridge.call('calendar.record', { key }).catch((err) => console.error('calendar.record failed', err));
+                } else console.log('record', key);
+              }}
+              onConnectCalendar={() => {
+                if (embedded) {
+                  void bridge
+                    .call('calendar.requestAccess')
+                    .then(refreshCalendar)
+                    .catch((err) => console.error('calendar.requestAccess failed', err));
+                } else console.log('connect-calendar');
+              }}
+              onOpenPrivacySettings={() => {
+                if (embedded) {
+                  void bridge
+                    .call('calendar.openPrivacySettings')
+                    .catch((err) => console.error('calendar.openPrivacySettings failed', err));
+                } else console.log('open-privacy-settings');
+              }}
+            />
+          ) : (
+            <MeetingDetail
+              detail={selectedDetail}
+              colorCodeSpeakers={colorCodeSpeakers}
+              forcedTab={forcedTab}
+              autoOpenPopover={mockState === 'popover'}
+              onRenameTitle={onRenameTitle}
+              onSpeakerClick={onSpeakerClick}
               onRequestDelete={() => setConfirmOpen(true)}
+              onCopy={() => {
+                if (embedded && selectedId) {
+                  const id = selectedId;
+                  void bridge.call('meetings.copy', { id }).catch((err) => {
+                    if (isNotFoundError(err)) recoverFromNotFound(id);
+                    else console.error('meetings.copy failed', err);
+                  });
+                } else {
+                  console.log('copy', selectedId);
+                }
+              }}
+              onExport={() => {
+                if (embedded && selectedId) {
+                  const id = selectedId;
+                  void bridge.call('meetings.export', { id }).catch((err) => {
+                    if (isNotFoundError(err)) recoverFromNotFound(id);
+                    else console.error('meetings.export failed', err);
+                  });
+                } else {
+                  console.log('export', selectedId);
+                }
+              }}
+              onRequestSummary={() => {
+                if (embedded && selectedId) {
+                  const id = selectedId;
+                  void bridge
+                    .call<MeetingDetailType>('meetings.requestSummary', { id })
+                    .then((d) => setDetails((prev) => ({ ...prev, [id]: d })))
+                    .catch((err) => {
+                      if (isNotFoundError(err)) recoverFromNotFound(id);
+                      else console.error('meetings.requestSummary failed', err);
+                    });
+                } else {
+                  console.log('request-summary', selectedId);
+                }
+              }}
+              onSaveNotes={onSaveNotes}
+              jumpTarget={jumpTarget}
+              onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
+              onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
             />
           )}
-        </Sidebar>
 
-        {recordingView && recordingStartedAt ? (
-          <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} />
-        ) : today ? (
-          <TodayView
-            connection={todayConnection}
-            agenda={isMock ? mockAgenda : calendar.agenda}
-            upcoming={isMock ? MOCK_UPCOMING : calendar.upcoming}
-            recording={recording}
-            elapsedText={
-              recordingStartedAt ? formatElapsed((Date.now() - Date.parse(recordingStartedAt)) / 1000) : '0:00'
-            }
-            nowMs={isMock ? MOCK_NOW_MS : nowMs}
-            onStartMeeting={() => {
-              if (embedded) {
-                void bridge.call('meeting.start').catch((err) => console.error('meeting.start failed', err));
-              } else console.log('start-meeting');
-            }}
-            onOpenNotes={onSelectRecording}
-            onRetryMicrophone={() => {
-              if (embedded) {
-                void bridge.call('meeting.retryMicrophone').catch((err) => console.error('meeting.retryMicrophone failed', err));
-              } else console.log('retry-microphone');
-            }}
-            onSelectMeeting={onSelectTodayMeeting}
-            onRecord={(key) => {
-              if (embedded) {
-                void bridge.call('calendar.record', { key }).catch((err) => console.error('calendar.record failed', err));
-              } else console.log('record', key);
-            }}
-            onConnectCalendar={() => {
-              if (embedded) {
-                void bridge
-                  .call('calendar.requestAccess')
-                  .then(refreshCalendar)
-                  .catch((err) => console.error('calendar.requestAccess failed', err));
-              } else console.log('connect-calendar');
-            }}
-            onOpenPrivacySettings={() => {
-              if (embedded) {
-                void bridge
-                  .call('calendar.openPrivacySettings')
-                  .catch((err) => console.error('calendar.openPrivacySettings failed', err));
-              } else console.log('open-privacy-settings');
-            }}
-          />
-        ) : (
-          <MeetingDetail
-            detail={selectedDetail}
-            colorCodeSpeakers={colorCodeSpeakers}
-            forcedTab={forcedTab}
-            autoOpenPopover={mockState === 'popover'}
-            onRenameTitle={onRenameTitle}
-            onSpeakerClick={onSpeakerClick}
-            onRequestDelete={() => setConfirmOpen(true)}
-            onCopy={() => {
-              if (embedded && selectedId) {
-                const id = selectedId;
-                void bridge.call('meetings.copy', { id }).catch((err) => {
-                  if (isNotFoundError(err)) recoverFromNotFound(id);
-                  else console.error('meetings.copy failed', err);
-                });
-              } else {
-                console.log('copy', selectedId);
-              }
-            }}
-            onExport={() => {
-              if (embedded && selectedId) {
-                const id = selectedId;
-                void bridge.call('meetings.export', { id }).catch((err) => {
-                  if (isNotFoundError(err)) recoverFromNotFound(id);
-                  else console.error('meetings.export failed', err);
-                });
-              } else {
-                console.log('export', selectedId);
-              }
-            }}
-            onRequestSummary={() => {
-              if (embedded && selectedId) {
-                const id = selectedId;
-                void bridge
-                  .call<MeetingDetailType>('meetings.requestSummary', { id })
-                  .then((d) => setDetails((prev) => ({ ...prev, [id]: d })))
-                  .catch((err) => {
-                    if (isNotFoundError(err)) recoverFromNotFound(id);
-                    else console.error('meetings.requestSummary failed', err);
-                  });
-              } else {
-                console.log('request-summary', selectedId);
-              }
-            }}
-            onSaveNotes={onSaveNotes}
-            jumpTarget={jumpTarget}
-            onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
-            onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
-          />
-        )}
+          {connectClaudeOpen && (
+            <ConnectClaudeSheet
+              onClose={closeConnectClaude}
+              info={claudeInfo}
+              onCopy={copyForClaude}
+              onInstall={installClaudeExtension}
+              onRevealConfig={revealClaudeConfig}
+            />
+          )}
 
-        {connectClaudeOpen && (
-          <ConnectClaudeSheet
-            onClose={closeConnectClaude}
-            info={claudeInfo}
-            onCopy={copyForClaude}
-            onInstall={installClaudeExtension}
-            onRevealConfig={revealClaudeConfig}
-          />
-        )}
+          {settingsOpen && meetingSettings && (
+            <SettingsSheet
+              settings={meetingSettings}
+              calendarConnected={todayConnection === 'connected'}
+              onChange={onChangeSettings}
+              onClose={closeSettings}
+              onExportAll={() => console.log('export-all-meetings')}
+            />
+          )}
 
-        {settingsOpen && meetingSettings && (
-          <SettingsSheet
-            settings={meetingSettings}
-            calendarConnected={todayConnection === 'connected'}
-            onChange={onChangeSettings}
-            onClose={closeSettings}
-            onExportAll={() => console.log('export-all-meetings')}
-          />
-        )}
+          {popover && (
+            <SpeakerPopover
+              label={popover.line.speakerLabel}
+              anchor={popover.anchor}
+              onCancel={() => setPopover(null)}
+              onRename={onRenameSpeaker}
+            />
+          )}
 
-        {popover && (
-          <SpeakerPopover
-            label={popover.line.speakerLabel}
-            anchor={popover.anchor}
-            onCancel={() => setPopover(null)}
-            onRename={onRenameSpeaker}
-          />
-        )}
-
-        {confirmOpen && selectedDetail && (
-          <ConfirmSheet
-            title={`Delete ‘${selectedDetail.title}’?`}
-            body="The transcript and notes will be removed. This can't be undone."
-            confirmLabel="Delete"
-            onCancel={() => setConfirmOpen(false)}
-            onConfirm={onConfirmDelete}
-          />
-        )}
+          {confirmOpen && selectedDetail && (
+            <ConfirmSheet
+              title={`Delete ‘${selectedDetail.title}’?`}
+              body="The transcript and notes will be removed. This can't be undone."
+              confirmLabel="Delete"
+              onCancel={() => setConfirmOpen(false)}
+              onConfirm={onConfirmDelete}
+            />
+          )}
+        </div>
       </div>
     </GlassPanel>
   );

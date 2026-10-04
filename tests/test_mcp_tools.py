@@ -419,11 +419,15 @@ def test_list_meetings_drops_anonymous_speaker_labels(lib, tools):
     lib.save_meeting(NewMeeting(
         segments=[MeetingSegment("Speaker 12", 0, 2, "a"), MeetingSegment("Priya", 2, 4, "b"),
                   MeetingSegment("speaker 3", 4, 6, "c"), MeetingSegment("Speaker Phone", 6, 8, "d"),
-                  MeetingSegment("You", 8, 9, "e")],
+                  MeetingSegment("Speaker 2b", 8, 9, "f"),
+                  MeetingSegment("Guest Speaker 2", 9, 10, "g"),
+                  MeetingSegment("Speaker 01", 10, 11, "h"),
+                  MeetingSegment("You", 11, 12, "e")],
         duration_seconds=600, title="Big", started_at=datetime(2026, 9, 20, 9, tzinfo=PDT)))
     [m] = tools["list_meetings"].run({})["meetings"]
-    assert m["named_speakers"] == ["Priya", "Speaker Phone", "You"]
-    assert m["speaker_count"] == 5
+    assert m["named_speakers"] == ["Priya", "Speaker Phone", "Speaker 2b",
+                                  "Guest Speaker 2", "Speaker 01", "You"]
+    assert m["speaker_count"] == 8
 
 
 def test_list_meetings_description_mentions_named_speakers(tools):

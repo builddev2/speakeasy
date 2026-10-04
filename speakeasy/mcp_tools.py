@@ -218,7 +218,8 @@ def build_tools(library) -> dict[str, Tool]:
                 "named_speakers": [x for x in m.speakers
                                    if not _ANONYMOUS_SPEAKER_RE.fullmatch(x)],
                 "speaker_count": m.speaker_count,
-                "people": m.people, "tags": m.tags,
+                **({"people": m.people} if m.people else {}),
+                **({"tags": m.tags} if m.tags else {}),
                 "has_summary": m.has_summary,
                 **({"timestamps_approximate": True} if m.timestamps_approximate else {}),
             } for m in rows[:limit]],
@@ -381,8 +382,8 @@ def build_tools(library) -> dict[str, Tool]:
         ("list_meetings",
          "List saved meetings, newest first, with date, duration, named speakers "
          "(unnamed 'Speaker N' labels are only counted in speaker_count), people, "
-         "tags and whether a summary exists (timestamps_approximate appears only when "
-         "true). No transcript text. Filter by title "
+         "tags and whether a summary exists (people, tags and timestamps_approximate "
+         "appear only when present). No transcript text. Filter by title "
          "words to find a meeting by name; use get_meeting for full detail.",
          {**_FILTERS,
           "title": {"type": "string", "description": "Words that must all appear in "

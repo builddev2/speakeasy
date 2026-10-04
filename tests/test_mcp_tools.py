@@ -55,7 +55,8 @@ def test_list_meetings_shape_and_paging(lib, tools):
     assert m["duration_minutes"] == 62.2
     assert "speakers" not in m
     assert m["named_speakers"] == ["You"] and m["speaker_count"] == 2
-    assert m["has_summary"] is False and m["tags"] == [] and m["people"] == []
+    assert m["has_summary"] is False
+    assert "tags" not in m and "people" not in m
     assert "timestamps_approximate" not in m
     last = tools["list_meetings"].run({"limit": 2, "offset": 2})
     assert [m["title"] for m in last["meetings"]] == ["M20"]
@@ -71,6 +72,19 @@ def test_list_meetings_timestamps_approximate_only_when_true(lib, tools):
     rows = {m["id"]: m for m in tools["list_meetings"].run({})["meetings"]}
     assert "timestamps_approximate" not in rows[normal]
     assert rows[approx]["timestamps_approximate"] is True
+
+
+def test_list_meetings_people_and_tags_only_when_present(lib, tools):
+    from speakeasy.meeting_library import EventPerson
+    bare = _seed(lib, day=20, title="Bare")
+    rich = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 4.0, "hi")], duration_seconds=4.0,
+        title="Rich", started_at=datetime(2026, 9, 21, 10, 0, tzinfo=PDT),
+        people=[EventPerson("Refayet K", None, "organizer")]))
+    tools["tag_meetings"].run({"ids": [rich], "add": ["Ops"]})
+    rows = {m["id"]: m for m in tools["list_meetings"].run({})["meetings"]}
+    assert "people" not in rows[bare] and "tags" not in rows[bare]
+    assert rows[rich]["people"] == ["Refayet K"] and rows[rich]["tags"] == ["Ops"]
 
 
 def test_list_meetings_title_filter_and_paging(lib, tools):

@@ -29,6 +29,7 @@ TODAY = date(2026, 10, 3)
     ("standup Oct 3", date(2026, 10, 3), "standup"),
     ("Oct 3 standup review", date(2026, 10, 3), "standup review"),
     ("budget  today  please", date(2026, 10, 3), "budget please"),
+    ("Oct 3 20261", date(2026, 10, 3), "20261"),
 ])
 def test_recognised_phrases(text, day, rest):
     assert parse_date_phrase(text, TODAY) == (day, rest)
@@ -48,7 +49,7 @@ def test_first_phrase_wins_and_later_one_stays_as_words():
 @pytest.mark.parametrize("text", [
     "May", "march madness", "Monday standup", "10/3", "3.10", "3", "2026",
     "Feb 30", "31 Sept", "2026-13-01", "2026-02-30", "octopus 3", "todays plan",
-    "", "   ", "Oct", "Oct 32",
+    "", "   ", "Oct", "Oct 32", "Oct 2024 review", "Oct 3pm",
 ])
 def test_not_dates(text):
     assert parse_date_phrase(text, TODAY) == (None, text)

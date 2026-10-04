@@ -29,7 +29,6 @@
 
 .agenda {
   width: 100%;
-  max-width: 760px;
   margin: 0;
   padding: 6px 24px 8px;
 }
@@ -152,7 +151,6 @@ button.row:hover {
 .upcoming {
   flex-shrink: 0;
   width: 100%;
-  max-width: 760px;
   padding: 6px 24px 24px;
 }
 
@@ -247,7 +245,6 @@ button.row:hover {
   align-items: center;
   gap: 12px;
   width: calc(100% - 48px);
-  max-width: 712px;
   margin: 6px 24px;
   padding: 10px 14px;
   border-radius: 9px;
@@ -267,7 +264,6 @@ button.row:hover {
   align-items: center;
   gap: 16px;
   width: calc(100% - 48px);
-  max-width: 712px;
   margin: 8px 24px;
   padding: 16px 18px;
   border-radius: 12px;
@@ -299,7 +295,6 @@ button.row:hover {
 
 .quiet {
   width: calc(100% - 48px);
-  max-width: 712px;
   margin: 8px 24px;
   padding: 12px 18px;
   font: 400 13px/1.4 var(--sans);
@@ -309,7 +304,6 @@ button.row:hover {
 .foldRow,
 .earlier {
   width: 100%;
-  max-width: 760px;
   margin: 0;
   padding: 0 24px;
 }

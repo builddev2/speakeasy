@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode, RefObject } from 'react';
+import type { KeyboardEvent, PointerEvent, ReactNode, RefObject } from 'react';
 import type { Filters } from '../mock/meetings';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import styles from './Sidebar.module.css';
+import { SIDEBAR_KEY_STEP, clampSidebarWidth, parseSidebarWidth } from './sidebarWidth';
+
+const WIDTH_KEY = 'sidebar.width';
 
 export type SidebarFilter = { type: 'all' } | { type: 'tag'; value: string } | { type: 'person'; value: string };
 
@@ -43,6 +46,23 @@ function readOpen(key: string): boolean {
   }
 }
 
+function readWidth(): number | null {
+  try {
+    return parseSidebarWidth(window.localStorage.getItem(WIDTH_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writeWidth(width: number | null) {
+  try {
+    if (width === null) window.localStorage.removeItem(WIDTH_KEY);
+    else window.localStorage.setItem(WIDTH_KEY, String(width));
+  } catch {
+    /* storage unavailable: the width just isn't remembered */
+  }
+}
+
 function writeOpen(key: string, open: boolean) {
   try {
     window.localStorage.setItem(key, open ? '1' : '0');
@@ -73,6 +93,66 @@ export function Sidebar({
   const [tagsOpen, setTagsOpen] = useState(() => readOpen('sidebar.tags.open'));
   const [peopleOpen, setPeopleOpen] = useState(() => readOpen('sidebar.people.open'));
   const searchRef = useRef<HTMLInputElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  // null means the CSS default; only a drag or arrow key pins a width.
+  const [width, setWidth] = useState<number | null>(readWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  function containerWidth(): number {
+    return navRef.current?.parentElement?.clientWidth ?? window.innerWidth;
+  }
+
+  function currentWidth(): number {
+    return navRef.current?.getBoundingClientRect().width ?? width ?? 0;
+  }
+
+  // Re-clamp when the window shrinks so the detail pane is never squeezed out.
+  useEffect(() => {
+    if (width === null) return;
+    function onResize() {
+      setWidth((w) => (w === null ? w : clampSidebarWidth(w, containerWidth())));
+    }
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [width === null]);
+
+  function onHandlePointerDown(e: PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startWidth: currentWidth() };
+  }
+
+  function onHandlePointerMove(e: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setWidth(clampSidebarWidth(drag.startWidth + e.clientX - drag.startX, containerWidth()));
+  }
+
+  function onHandlePointerUp(e: PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setWidth((w) => {
+      writeWidth(w);
+      return w;
+    });
+  }
+
+  function onHandleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const delta = e.key === 'ArrowLeft' ? -SIDEBAR_KEY_STEP : e.key === 'ArrowRight' ? SIDEBAR_KEY_STEP : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = clampSidebarWidth(currentWidth() + delta, containerWidth());
+    setWidth(next);
+    writeWidth(next);
+  }
+
+  function resetWidth() {
+    setWidth(null);
+    writeWidth(null);
+  }
 
   useEffect(() => {
     if (searchFocusToken === undefined) return;
@@ -95,7 +175,27 @@ export function Sidebar({
   }
 
   return (
-    <nav className={styles.sidebar} aria-label="Meetings sidebar">
+    <nav
+      ref={navRef}
+      className={styles.sidebar}
+      aria-label="Meetings sidebar"
+      style={width === null ? undefined : { width }}
+    >
+      <div
+        className={styles.resizeHandle}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuenow={width ?? undefined}
+        tabIndex={0}
+        title="Drag to resize · double-click to reset"
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
+        onPointerCancel={onHandlePointerUp}
+        onDoubleClick={resetWidth}
+        onKeyDown={onHandleKeyDown}
+      />
       <div className={styles.searchWrap}>
         <input
           ref={searchRef}

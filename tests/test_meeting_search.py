@@ -328,6 +328,10 @@ def test_title_special_characters_match_literally(library_path):
     b = _titled(lib, 23, "100% done")
     c = _titled(lib, 22, "a_b sync")
     _titled(lib, 21, "axb sync")
+    d = _titled(lib, 20, "a.b review")
+    _titled(lib, 19, "axb review")
+    assert [h.meeting_id for h in lib.search("a.b") if h.kind == "meeting"] == [d]
+    assert mark_title("axb review", ["a.b"]) == "axb review"
     assert [h.meeting_id for h in lib.search("c++") if h.kind == "meeting"] == [a]
     assert [h.meeting_id for h in lib.search("100%") if h.kind == "meeting"] == [b]
     assert [h.meeting_id for h in lib.search("a_b") if h.kind == "meeting"] == [c]
@@ -339,3 +343,10 @@ def test_title_hits_respect_filters_and_limit(library_path):
     lib.save_notes(ids[0], tags=["DMT"])
     assert [h.meeting_id for h in lib.search("weekly", tag="dmt")] == [ids[0]]
     assert len(lib.search("weekly", limit=2)) == 2
+
+
+def test_punctuation_only_query_matches_nothing(library_path):
+    lib = MeetingLibrary()
+    _titled(lib, 24, "Standup")
+    for query in ("?!", ", ", "-"):
+        assert lib.search(query) == []

@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
+from speakeasy import meeting_library
 from speakeasy.meeting_library import (
     HIT_CLOSE, HIT_OPEN, MeetingLibrary, NewMeeting, SearchHit,
-    collapse_echoes, fts_query,
+    collapse_echoes, fts_query, mark_title,
 )
 from speakeasy.meetings import MeetingSegment
 
@@ -213,3 +214,139 @@ def test_notes_and_transcript_hits_interleave_by_rank(library_path):
         lib.save_notes(mid, summary="Agreed the budget")
     kinds = [h.kind for h in lib.search("budget", limit=10)]
     assert kinds == ["transcript", "notes", "transcript", "notes", "transcript"]
+
+
+def _titled(lib, day, title, text="nothing relevant", hour=13):
+    return lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 5, text)], duration_seconds=600, title=title,
+        started_at=datetime(2026, 9, day, hour, 0, tzinfo=EDT)))
+
+
+@pytest.fixture
+def sept_25(monkeypatch):
+    monkeypatch.setattr(meeting_library, "_today", lambda: date(2026, 9, 25))
+
+
+def test_mark_title_highlights_case_insensitively_and_merges_overlaps():
+    o, c = HIT_OPEN, HIT_CLOSE
+    assert mark_title("Test Meeting", ["meet"]) == f"Test {o}Meet{c}ing"
+    assert mark_title("Stand-up", ["stand", "and-up"]) == f"{o}Stand-up{c}"
+    assert mark_title("C++ review", ["c++"]) == f"{o}C++{c} review"
+    assert mark_title("Plain", []) == "Plain"
+
+
+def test_title_hits_come_first_newest_first(library_path):
+    lib = MeetingLibrary()
+    old = _titled(lib, 20, "Test Meeting")
+    new = _titled(lib, 24, "Another test meeting")
+    body = _titled(lib, 22, "Unrelated", text="this meeting ran long")
+    hits = lib.search("meeting")
+    assert [(h.meeting_id, h.kind) for h in hits[:2]] == [(new, "meeting"), (old, "meeting")]
+    assert (body, "transcript") in [(h.meeting_id, h.kind) for h in hits[2:]]
+    t = hits[0]
+    assert t.speaker is None and t.start_seconds is None and t.segment_index is None
+    assert t.also_speakers == [] and t.score == 0.0
+    assert t.snippet == f"Another test {HIT_OPEN}meeting{HIT_CLOSE}"
+
+
+def test_every_title_word_must_appear(library_path):
+    lib = MeetingLibrary()
+    both = _titled(lib, 24, "Budget review Q4")
+    _titled(lib, 23, "Budget sync")
+    assert [h.meeting_id for h in lib.search("review budget") if h.kind == "meeting"] == [both]
+
+
+def test_meeting_can_be_title_and_content_hit(library_path):
+    lib = MeetingLibrary()
+    mid = _titled(lib, 24, "Cognos review", text="cognos reporting is massive")
+    assert [(h.meeting_id, h.kind) for h in lib.search("cognos")] == [
+        (mid, "meeting"), (mid, "transcript")]
+
+
+def test_date_only_lists_day_earliest_first(library_path, sept_25):
+    lib = MeetingLibrary()
+    late = _titled(lib, 24, "Retro", hour=16)
+    early = _titled(lib, 24, "Stand-up", hour=9)
+    _titled(lib, 23, "Other day")
+    hits = lib.search("Sep 24")
+    assert [(h.meeting_id, h.kind) for h in hits] == [(early, "meeting"), (late, "meeting")]
+    assert hits[0].snippet == "Stand-up"
+
+
+def test_date_only_with_no_meeting_that_day_is_empty(library_path, sept_25):
+    lib = MeetingLibrary()
+    _titled(lib, 24, "Retro")
+    assert lib.search("Sep 21") == []
+
+
+def test_default_title_found_by_word_and_by_date(library_path, sept_25):
+    lib = MeetingLibrary()
+    mid = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 5, "hello")], duration_seconds=600,
+        started_at=datetime(2026, 9, 24, 13, 58, tzinfo=EDT)))
+    assert lib.search("meeting")[0].meeting_id == mid
+    by_date = lib.search("Sep 24")
+    assert [(h.meeting_id, h.kind) for h in by_date] == [(mid, "meeting")]
+
+
+def test_date_narrows_words(library_path, sept_25):
+    lib = MeetingLibrary()
+    on_day = _titled(lib, 24, "Standup", text="cognos")
+    _titled(lib, 23, "Standup", text="cognos")
+    assert {h.meeting_id for h in lib.search("standup Sep 24")} == {on_day}
+    assert {h.meeting_id for h in lib.search("cognos 24 September")} == {on_day}
+    assert lib.search("standup Sep 22") == []
+
+
+def test_punctuation_left_by_date_is_ignored(library_path, sept_25):
+    lib = MeetingLibrary()
+    mid = _titled(lib, 24, "Standup")
+    assert [h.meeting_id for h in lib.search("Sep 24, standup")] == [mid]
+
+
+def test_date_and_explicit_range_intersect(library_path, sept_25):
+    lib = MeetingLibrary()
+    mid = _titled(lib, 24, "Standup")
+    assert [h.meeting_id for h in lib.search("Sep 24", from_date="2026-09-20")] == [mid]
+    assert lib.search("Sep 24", from_date="2026-09-25") == []
+    assert lib.search("Sep 24", to_date="2026-09-23") == []
+
+
+def test_today_uses_the_local_clock(library_path, monkeypatch):
+    lib = MeetingLibrary()
+    mid = _titled(lib, 24, "Standup")
+    monkeypatch.setattr(meeting_library, "_today", lambda: date(2026, 9, 24))
+    assert [h.meeting_id for h in lib.search("today")] == [mid]
+    monkeypatch.setattr(meeting_library, "_today", lambda: date(2026, 9, 25))
+    assert [h.meeting_id for h in lib.search("yesterday")] == [mid]
+    assert lib.search("today") == []
+
+
+def test_title_special_characters_match_literally(library_path):
+    lib = MeetingLibrary()
+    a = _titled(lib, 24, "C++ review")
+    b = _titled(lib, 23, "100% done")
+    c = _titled(lib, 22, "a_b sync")
+    _titled(lib, 21, "axb sync")
+    d = _titled(lib, 20, "a.b review")
+    _titled(lib, 19, "axb review")
+    assert [h.meeting_id for h in lib.search("a.b") if h.kind == "meeting"] == [d]
+    assert mark_title("axb review", ["a.b"]) == "axb review"
+    assert [h.meeting_id for h in lib.search("c++") if h.kind == "meeting"] == [a]
+    assert [h.meeting_id for h in lib.search("100%") if h.kind == "meeting"] == [b]
+    assert [h.meeting_id for h in lib.search("a_b") if h.kind == "meeting"] == [c]
+
+
+def test_title_hits_respect_filters_and_limit(library_path):
+    lib = MeetingLibrary()
+    ids = [_titled(lib, d, "Weekly sync") for d in (20, 21, 22, 23)]
+    lib.save_notes(ids[0], tags=["DMT"])
+    assert [h.meeting_id for h in lib.search("weekly", tag="dmt")] == [ids[0]]
+    assert len(lib.search("weekly", limit=2)) == 2
+
+
+def test_punctuation_only_query_matches_nothing(library_path):
+    lib = MeetingLibrary()
+    _titled(lib, 24, "Standup")
+    for query in ("?!", ", ", "-"):
+        assert lib.search(query) == []

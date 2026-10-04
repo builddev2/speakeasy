@@ -3,3 +3,8 @@
   display: flex;
   height: calc(100% - 34px);
 }
+
+.window {
+  height: 100%;
+  background: var(--window-canvas);
+}

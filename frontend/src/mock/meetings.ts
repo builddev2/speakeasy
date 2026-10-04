@@ -74,7 +74,7 @@ export interface SearchResult {
   title: string;
   dayLabel: string;
   time: string;
-  kind: 'transcript' | 'notes' | 'user_notes';
+  kind: 'meeting' | 'transcript' | 'notes' | 'user_notes';
   speaker: string | null;
   alsoSpeakers: string[];
   seconds: number | null;
@@ -494,6 +494,18 @@ export const MOCK_FILTERS: Filters = {
 // ---------------------------------------------------------------------------
 
 export const MOCK_RESULTS: SearchResult[] = [
+  {
+    meetingId: standupDetail.id,
+    title: standupDetail.title,
+    dayLabel: standupDetail.dayLabel,
+    time: standupDetail.time,
+    kind: 'meeting',
+    speaker: null,
+    alsoSpeakers: [],
+    seconds: null,
+    segmentIndex: null,
+    parts: [{ text: standupDetail.title, hit: false }],
+  },
   {
     meetingId: standupDetail.id,
     title: standupDetail.title,

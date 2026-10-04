@@ -34,7 +34,8 @@
 }
 
 .rowActive {
-  background: var(--selection);
+  background: var(--row-active-bg);
+  box-shadow: var(--row-active-shadow);
 }
 
 .rowActive .title {

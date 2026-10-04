@@ -19,7 +19,7 @@ export interface JumpTarget {
   meetingId: string;
   segmentIndex: number | null;
   seconds: number | null;
-  kind: 'transcript' | 'notes' | 'user_notes';
+  kind: 'meeting' | 'transcript' | 'notes' | 'user_notes';
   /** Bumped on every selection so re-jumping to the same line still fires. */
   nonce: number;
 }
@@ -212,6 +212,8 @@ export function MeetingDetail({
     if (detail.id !== jumpTarget.meetingId) return;
     if (consumedJumpNonceRef.current === jumpTarget.nonce) return;
     consumedJumpNonceRef.current = jumpTarget.nonce;
+    // A title hit opens the meeting on its default tab, with no jump.
+    if (jumpTarget.kind === 'meeting') return;
     if (jumpTarget.kind === 'user_notes') {
       setTab('notes');
       return;

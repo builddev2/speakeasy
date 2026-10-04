@@ -1782,8 +1782,8 @@ Task 9 (Opus evaluator, temp HOME):
 
 ## Follow-ups (found during the on-screen checks; not part of this branch)
 
-- **Search ignores titles and dates.** Searching "meeting" or "Oct 3" finds nothing, even for "Test Meeting — Oct 3, 7:58 PM". `MeetingLibrary.search` queries only the transcript and notes FTS, never meeting titles or dates. This predates the branch. It needs a brainstorm: what should match, and how should results rank?
-- **The light-mode sidebar looks bad** ("gray side bar looks really bad", user, 3 Oct 2026). The sidebar is unchanged by this branch. It needs a design pass on the Quiet Library light sidebar.
+- **Done** ([search and light sidebar plan](2026-10-03-search-and-light-sidebar.md)): **Search ignores titles and dates.** Searching "meeting" or "Oct 3" finds nothing, even for "Test Meeting — Oct 3, 7:58 PM". `MeetingLibrary.search` queries only the transcript and notes FTS, never meeting titles or dates. This predates the branch. It needs a brainstorm: what should match, and how should results rank?
+- **Done** ([search and light sidebar plan](2026-10-03-search-and-light-sidebar.md)): **The light-mode sidebar looks bad** ("gray side bar looks really bad", user, 3 Oct 2026). The sidebar is unchanged by this branch. It needs a design pass on the Quiet Library light sidebar.
 
 Rulings (decided by the controller; cost if wrong):
 1. Worktree made with EnterWorktree, the branch renamed, and `.venv`/`node_modules` symlinked instead of `npm ci`. Cost: a dependency mismatch would show up as a build failure.

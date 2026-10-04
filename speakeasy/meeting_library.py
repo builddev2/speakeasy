@@ -13,12 +13,13 @@ import re
 import secrets
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 
 from . import meeting_store
 from .meetings import MeetingSegment, _ID_RE, filter_capture_health
+from .search_dates import parse_date_phrase
 from .tag_names import (MAX_DESCRIPTION_CHARS, MAX_NEW_TAGS_PER_SAVE,
                         MAX_TAGS_PER_MEETING, clean_tag_name, clean_tag_names, tag_slug)
 
@@ -44,6 +45,30 @@ def fts_query(text: str, *, any_term: bool = False) -> str | None:
     if not terms:
         return None
     return (" OR " if any_term else " ").join(f'"{t}"' for t in terms)
+
+
+def _today() -> date:
+    """The local calendar day a date phrase like "Oct 3" is resolved against
+    (a function so tests can pin it)."""
+    return date.today()
+
+
+def mark_title(title: str, words: list[str]) -> str:
+    """Wrap every case-insensitive occurrence of each word in HIT_OPEN/
+    HIT_CLOSE, merging overlaps, for a title hit's snippet."""
+    spans = sorted(m.span() for w in words if w
+                   for m in re.finditer(re.escape(w), title, re.I))
+    merged: list[list[int]] = []
+    for start, end in spans:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    out, pos = [], 0
+    for start, end in merged:
+        out += [title[pos:start], HIT_OPEN, title[start:end], HIT_CLOSE]
+        pos = end
+    return "".join(out) + title[pos:]
 
 
 class MeetingNotFound(KeyError):
@@ -288,7 +313,7 @@ class SearchHit:
     title: str
     started_at: str
     tz_offset_minutes: int
-    kind: str  # "transcript", "notes" or "user_notes"
+    kind: str  # "meeting", "transcript", "notes" or "user_notes"
     speaker: str | None
     start_seconds: float | None
     end_seconds: float | None
@@ -1192,12 +1217,29 @@ class MeetingLibrary:
         # word.
         if not query:
             return []
+        # One date phrase narrows to that local day, ANDed with any explicit
+        # range; the words left over search titles and contents within it.
+        # Leftover punctuation (", " from "Oct 3, standup") is not a word.
+        day, rest = parse_date_phrase(str(query), _today())
+        words = [w for w in rest.split() if re.search(r"\w", w)]
+        if day is not None:
+            iso = day.isoformat()
+            from_date = max(from_date, iso) if from_date else iso
+            to_date = min(to_date, iso) if to_date else iso
         where, params = meeting_filters(from_date, to_date, tag, person)
         with self._transaction() as conn:
-            for any_term in (False, True):
-                match = fts_query(query, any_term=any_term)
-                if match is None:
+            if not words:
+                if day is None:
                     return []
+                return self._meeting_hits(conn, where, params, [], "ASC", limit)
+            title_where, title_params = meeting_filters(
+                from_date, to_date, tag, person, title=" ".join(words))
+            titled = self._meeting_hits(conn, title_where, title_params, words, "DESC", limit)
+            hits = []
+            for any_term in (False, True):
+                match = fts_query(" ".join(words), any_term=any_term)
+                if match is None:
+                    break
                 hits = self._search(conn, match, where, params, limit * 4)
                 if hits:
                     break
@@ -1209,7 +1251,20 @@ class MeetingLibrary:
             of_kind = sorted((h for h in hits if h.kind == kind), key=lambda h: h.score)
             rank.update((id(h), i) for i, h in enumerate(of_kind))
         hits.sort(key=lambda h: (rank[id(h)], {"transcript": 0, "notes": 1, "user_notes": 2}[h.kind]))
-        return collapse_echoes(hits)[:limit]
+        return (titled + collapse_echoes(hits))[:limit]
+
+    def _meeting_hits(self, conn, where, params, words, order, limit) -> list[SearchHit]:
+        # Meeting-level hits: a title match (words highlighted) or, for a
+        # date-only query, every meeting that day (earliest first).
+        return [
+            SearchHit(r["id"], r["title"], r["started_at"], r["tz_offset_minutes"],
+                      "meeting", None, None, None, None, mark_title(r["title"], words),
+                      [], 0.0)
+            for r in conn.execute(
+                "SELECT m.id, m.title, m.started_at, m.tz_offset_minutes FROM meetings m"
+                f" WHERE {where} ORDER BY m.started_at {order}, m.id LIMIT ?",
+                (*params, limit))
+        ]
 
     def _search(self, conn, match, where, params, fetch) -> list[SearchHit]:
         # Controller ruling: the spec's ~30-word snippet wins over the

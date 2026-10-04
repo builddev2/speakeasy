@@ -834,3 +834,11 @@ def test_draft_set_accepts_float_line_numbers_as_wkwebview_sends_them(tmp_path):
     bridge.draft_set_payload({"markdown": "a\nb", "stamps": [[0.0, 77.3], [1.0, 90]],
                               "startedAt": "2026-10-03T09:00:00Z"})
     assert bridge.draft_get_payload({})["stamps"] == [[0, 77.3], [1, 90.0]]
+
+
+def test_search_reports_title_hits(library_path):
+    lib, mid, bridge, d = _setup(library_path)
+    res = bridge.search_payload({"query": "alex"})
+    assert res[0]["meetingId"] == mid and res[0]["kind"] == "meeting"
+    assert res[0]["seconds"] is None and res[0]["segmentIndex"] is None
+    assert res[0]["parts"] == [{"text": "1:1 ", "hit": False}, {"text": "Alex", "hit": True}]

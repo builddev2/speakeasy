@@ -115,3 +115,40 @@ def test_no_removed_tokens_and_no_js_theme_detection():
         text = path.read_text()
         assert "--text-on-accent" not in text, path
         assert "prefers-color-scheme" not in text, path   # CSS-only theming lives in tokens.css
+
+
+SIDEBAR_DARK = {
+    "--window-canvas": "transparent",
+    "--sidebar-bg": "var(--glass-sidebar)",
+    "--sidebar-inset": "0px",
+    "--sidebar-radius": "0px",
+    "--sidebar-shadow": "none",
+    "--sidebar-divider": "var(--hairline-lo)",
+    "--sidebar-opaque": "var(--surface-opaque)",
+    "--row-active-bg": "var(--selection)",
+    "--row-active-shadow": "none",
+    "--search-fill": "var(--glass-fill-2)",
+    "--search-border": "var(--hairline)",
+    "--sidebar-divider-contrast": "var(--hairline)",
+    "--sidebar-shadow-contrast": "none",
+}
+
+
+def test_sidebar_tokens_keep_dark_mode_unchanged():
+    dark, _ = parse_tokens()
+    assert {k: dark.get(k) for k in SIDEBAR_DARK} == SIDEBAR_DARK
+
+
+def test_light_sidebar_panel_values_and_contrast():
+    _, light = parse_tokens()
+    assert light["--window-canvas"].upper() == "#ECEEED"
+    assert light["--sidebar-bg"] == "rgba(255,255,255,0.62)"
+    assert (light["--sidebar-inset"], light["--sidebar-radius"]) == ("6px", "11px")
+    assert light["--row-active-bg"].upper() == "#FFFFFF"
+    panel = "#%02X%02X%02X" % tuple(round(c) for c in _over(
+        _rgba(light["--sidebar-bg"]), _rgba(light["--window-canvas"])[:3]))
+    for bg in (panel, light["--row-active-bg"], light["--window-canvas"]):
+        for tok, floor in (("--text-hi", 4.5), ("--text", 4.5), ("--text-mid", 4.5), ("--text-lo", 3.0)):
+            ratio = contrast(light[tok], bg)
+            assert ratio >= floor, f"light {tok} on {bg}: {ratio:.2f}"
+    assert contrast(light["--titlebar-text"], light["--window-canvas"]) >= 4.5

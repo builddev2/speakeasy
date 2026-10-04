@@ -360,8 +360,10 @@ def build_tools(library) -> dict[str, Tool]:
 
     def pending_summaries(args):
         limit = _int(args, "limit", 5, 1, 10)
+        start, end = _range(args)
         meetings = []
-        for meeting_id, requested in library.pending_summaries(limit=limit):
+        for meeting_id, requested in library.pending_summaries(
+                limit=limit, from_date=start, to_date=end):
             try:
                 m = library.get_meeting(meeting_id, with_segments=False)
             except MeetingNotFound:
@@ -464,9 +466,13 @@ def build_tools(library) -> dict[str, Tool]:
         ("pending_summaries",
          "Meetings waiting for a summary (new ones from the last 7 days, plus any "
          "the user asked to summarise or redo), with the summary format to use. "
-         "For each: read the whole transcript with get_transcript, then save the "
-         "summary, action items and tags with save_notes.",
-         {"limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}},
+         "To catch up older meetings when the user asks (e.g. 'summarise everything "
+         "from August'), pass from/to: unsummarised meetings in that range come back "
+         "oldest first; call again until none are left. For each: read the whole "
+         "transcript with get_transcript, then save the summary, action items and "
+         "tags with save_notes.",
+         {"limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+          "from": _FILTERS["from"], "to": _FILTERS["to"]},
          [], pending_summaries, True),
     ]
     return {

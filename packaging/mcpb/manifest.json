@@ -58,7 +58,7 @@
     },
     {
       "name": "pending_summaries",
-      "description": "Meetings waiting for a summary (new ones from the last 7 days, plus any the user asked to summarise or redo), with the summary format to use. For each: read the whole transcript with get_transcript, then save the summary, action items and tags with save_notes."
+      "description": "Meetings waiting for a summary (new ones from the last 7 days, plus any the user asked to summarise or redo), with the summary format to use. To catch up older meetings when the user asks (e.g. 'summarise everything from August'), pass from/to: unsummarised meetings in that range come back oldest first; call again until none are left. For each: read the whole transcript with get_transcript, then save the summary, action items and tags with save_notes."
     }
   ],
   "compatibility": {

@@ -371,7 +371,7 @@ def test_pending_summaries_skips_meeting_deleted_mid_run(lib, tools, monkeypatch
     gone = _seed(lib, day=2)
     lib.delete(gone)
     monkeypatch.setattr(lib, "pending_summaries",
-                        lambda limit: [(gone, True), (real, True)])
+                        lambda limit, **kw: [(gone, True), (real, True)])
     out = tools["pending_summaries"].run({})
     assert [m["id"] for m in out["meetings"]] == [real]
 
@@ -464,3 +464,29 @@ def test_search_meetings_by_meeting(lib, tools):
 def test_search_meetings_rejects_non_boolean_by_meeting(tools):
     with pytest.raises(ToolError):
         tools["search_meetings"].run({"query": "x", "by_meeting": "yes"})
+
+
+def test_pending_summaries_catches_up_a_past_range(lib, tools):
+    aug = [_seed(lib, day=d, title=f"A{d}") for d in (2, 3)]   # 2026-09-02/03, outside 7 days
+    done = _seed(lib, day=4, title="Done")
+    tools["save_notes"].run({"id": done, "summary": "TL;DR: x"})
+    short = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 4, "hi")], duration_seconds=60, title="Short",
+        started_at=datetime(2026, 9, 3, 12, 0, tzinfo=PDT)))
+    requested = _seed(lib, day=10, title="Asked")
+    lib.request_summary(requested)
+    out = tools["pending_summaries"].run({"from": "2026-09-01", "to": "2026-09-05"})
+    assert [m["id"] for m in out["meetings"]] == [requested, *aug]
+    assert short not in [m["id"] for m in out["meetings"]] and done not in [m["id"] for m in out["meetings"]]
+    # Without a range: unchanged (only the explicit request; September is outside 7 days).
+    assert [m["id"] for m in tools["pending_summaries"].run({})["meetings"]] == [requested]
+
+
+def test_pending_summaries_range_validation_and_description(tools):
+    with pytest.raises(ToolError):
+        tools["pending_summaries"].run({"from": "2026-09-05", "to": "2026-09-01"})
+    with pytest.raises(ToolError):
+        tools["pending_summaries"].run({"from": "Sept"})
+    d = tools["pending_summaries"].definition()
+    assert {"from", "to"} <= set(d["inputSchema"]["properties"])
+    assert "catch up" in d["description"]

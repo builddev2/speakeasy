@@ -100,6 +100,13 @@ _PENDING_SQL = (
     "(r.meeting_id IS NOT NULL OR (m.started_at >= ? AND m.duration_seconds >= ?"
     " AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.meeting_id = m.id"
     " AND n.summary <> '')))")
+# pending_summaries(from_date/to_date): the same rule over a chosen range of
+# local days instead of the last PENDING_WINDOW_DAYS (catching up older meetings).
+_PENDING_RANGE_SQL = (
+    "(r.meeting_id IS NOT NULL OR (m.started_at >= ? AND m.started_at < ?"
+    " AND m.duration_seconds >= ?"
+    " AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.meeting_id = m.id"
+    " AND n.summary <> '')))")
 
 
 def local_start(started_at: str, tz_offset_minutes: int) -> datetime:
@@ -918,17 +925,24 @@ class MeetingLibrary:
                 " ON CONFLICT(meeting_id) DO NOTHING",
                 (meeting_id, datetime.now(timezone.utc).isoformat(timespec="microseconds")))
 
-    def pending_summaries(self, limit=5, now=None) -> list[tuple[str, bool]]:
+    def pending_summaries(self, limit=5, now=None, from_date=None,
+                          to_date=None) -> list[tuple[str, bool]]:
         """[(meeting_id, requested)], explicit requests first (oldest request
-        first), then recent unsummarised meetings oldest first."""
+        first), then unsummarised meetings oldest first: recent ones, or those
+        in [from_date, to_date] (local days) when either is given."""
         limit = max(1, min(int(limit), 10))
+        if from_date or to_date:
+            lower, upper = local_day_bounds(from_date, to_date)
+            sql, params = _PENDING_RANGE_SQL, [lower or "", upper or "9999", PENDING_MIN_SECONDS]
+        else:
+            sql, params = _PENDING_SQL, self._pending_params(now)
         with self._transaction() as conn:
             rows = conn.execute(
                 "SELECT m.id, r.meeting_id IS NOT NULL AS requested FROM meetings m"
                 " LEFT JOIN summary_requests r ON r.meeting_id = m.id"
-                f" WHERE {_PENDING_SQL}"
+                f" WHERE {sql}"
                 " ORDER BY requested DESC, r.requested_at, r.rowid, m.started_at, m.id"
-                " LIMIT ?", (*self._pending_params(now), limit)).fetchall()
+                " LIMIT ?", (*params, limit)).fetchall()
         return [(r["id"], bool(r["requested"])) for r in rows]
 
     def summary_pending(self, meeting_id: str, now=None) -> bool:

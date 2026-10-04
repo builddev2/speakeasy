@@ -1,6 +1,6 @@
 # Scalable meeting list, anchored Today header, MCP recall review — design
 
-Date: 2026-10-03. Status: approved in chat, awaiting written-spec review.
+Date: 2026-10-03. Status: implemented 2026-10-03 on branch scalable-meeting-list.
 
 ## Intent
 
@@ -78,7 +78,8 @@ Rules:
 - `Week of <Monday>`: the Monday may fall in the previous month. The label shows that real
   Monday, but the meeting stays in the month of its own day.
 
-`visibleRows(sections, openKeys: Set<string>) -> MeetingMeta[]`
+`visibleRows(sections, state: OpenState, expandAll) -> MeetingMeta[]`
+(as built; the first draft took `openKeys: Set<string>`)
 : rows in display order, excluding rows inside collapsed sections or collapsed year-months.
 
 `sectionPathFor(sections, id) -> string[]`
@@ -88,8 +89,8 @@ Rules:
 
 - Section headers:
   - a disclosure button (`aria-expanded`) with chevron, label and count;
-  - pinned to the top while scrolling (`position: sticky; top: 0`, with the sidebar background
-    so rows don't show through);
+  - pinned to the top while scrolling (`position: sticky; top: 0`, with the opaque `--sidebar-opaque`
+    background; the translucent sidebar background let rows show through);
   - inner group headers (day/week) are plain text and not pinned.
 - Collapsed sections render no rows.
 - Open state:
@@ -130,6 +131,8 @@ Change (`speakeasy/mcp_tools.py`, `list_meetings`):
   - `speaker_count`: the number of distinct speakers.
 - `get_meeting` keeps the full `speakers` list.
 - The description says so.
+- As built: list rows also omit empty `people`/`tags` and a false `timestamps_approximate`, and
+  the server writes compact JSON (measured 23,056 characters for 100 rows).
 - Target: a 100-row page of the real library under 25,000 characters, measured as part of
   acceptance.
 
@@ -152,7 +155,7 @@ ranked by its best passage (each source's rank, interleaved the same way as now)
 }
 ```
 
-- Hit counts consider up to 2,000 passages per query, so they stay cheap.
+- Hit counts consider up to 2,000 passages per source (titles, transcripts, summaries, user notes), so they stay cheap.
 - `limit` keeps its 1–50 range and counts meetings in this mode.
 
 New argument `offset` (0–1000, default 0), available in both modes. The response gains

@@ -88,7 +88,7 @@
 
 **Interfaces:** none (CSS only).
 
-- [ ] **Step 1: Header spans the pane.** In `.header`, delete `max-width: 760px;` and
+- [x] **Step 1: Header spans the pane.** In `.header`, delete `max-width: 760px;` and
   `margin: 0 auto;`. Keep `width: 100%`, `justify-content: space-between` and the padding
   `18px 24px 6px`. Add right after the `.title` rule:
 
@@ -98,7 +98,7 @@
 }
 ```
 
-- [ ] **Step 2: Left-align content on the title's 24 px edge.** Make these exact edits:
+- [x] **Step 2: Left-align content on the title's 24 px edge.** Make these exact edits:
   - `.agenda`: `margin: 0 auto;` → `margin: 0;`
   - `.banner`: `margin: 6px auto;` → `margin: 6px 24px;`
   - `.hero`: `margin: 8px auto;` → `margin: 8px 24px;`
@@ -106,10 +106,10 @@
   - `.foldRow, .earlier`: `margin: 0 auto;` → `margin: 0;`
   - `.upcoming`: add `width: 100%; max-width: 760px;`
 
-- [ ] **Step 3: Build.** Run `cd frontend && npm run build`. Expected: no errors, and
+- [x] **Step 3: Build.** Run `cd frontend && npm run build`. Expected: no errors, and
   `check-offline` passes.
 
-- [ ] **Step 4: Look at it.** Start the mock dev server via `preview_start` (Vite;
+- [x] **Step 4: Look at it.** Start the mock dev server via `preview_start` (Vite;
   `frontend/meetings.html`). Check at widths 900 and 2000:
   - "Today" sits 24 px from the pane's left edge;
   - Start Meeting's right edge is 24 px from the pane's right edge;
@@ -117,7 +117,7 @@
 
   Take a screenshot at each width.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add frontend/src/meetings/TodayView.module.css
@@ -141,7 +141,7 @@ git commit -m "Today: anchor header to pane edges, left-align content"
   - Every bridge meta (list and detail) gains `"startDate": "YYYY-MM-DD"`, the local day.
   - TS: `MeetingMeta.startDate: string`.
 
-- [ ] **Step 1: Failing tests.** Append to `tests/test_meetings_bridge.py`:
+- [x] **Step 1: Failing tests.** Append to `tests/test_meetings_bridge.py`:
 
 ```python
 def test_list_returns_every_meeting_past_500(library_path):
@@ -188,11 +188,11 @@ def test_list_meetings_none_limit_is_uncapped(library_path):
   Add any missing imports at the top of the file (`timedelta`, `timezone`, `NewMeeting`,
   `MeetingSegment`).
 
-- [ ] **Step 2: Run them; they fail.**
+- [x] **Step 2: Run them; they fail.**
   Run `.venv/bin/python -B -m pytest tests/test_meetings_bridge.py tests/test_meeting_library.py -q -k "past_500 or start_date or none_limit"`.
   Expected: 3 failures (500 rows; KeyError `startDate`; `int(None)` TypeError).
 
-- [ ] **Step 3: Implement.** In `MeetingLibrary.list_meetings`, replace
+- [x] **Step 3: Implement.** In `MeetingLibrary.list_meetings`, replace
   `limit = max(1, min(int(limit), 500))` with:
 
 ```python
@@ -209,7 +209,7 @@ def test_list_meetings_none_limit_is_uncapped(library_path):
 
   In `list_payload`, change `limit=500` to `limit=None`.
 
-- [ ] **Step 4: TS type and mock data.** In `frontend/src/mock/meetings.ts`:
+- [x] **Step 4: TS type and mock data.** In `frontend/src/mock/meetings.ts`:
   - add `startDate: string;` after `dayLabel: string;` in `MeetingMeta`;
   - give each mock meta a `startDate` consistent with `MOCK_NOW_MS` (Tue 29 Sep 2026), so
     the mock shows every section kind:
@@ -228,11 +228,11 @@ def test_list_meetings_none_limit_is_uncapped(library_path):
   Fix any other object literals typed `MeetingMeta` that `tsc` flags (search results build
   their own shape, so check `npm run build`).
 
-- [ ] **Step 5: Run the tests and build.**
+- [x] **Step 5: Run the tests and build.**
   Run `.venv/bin/python -B -m pytest tests/test_meetings_bridge.py tests/test_meeting_library.py -q`,
   then `cd frontend && npm run build`. Expected: all pass.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add speakeasy/meeting_library.py speakeasy/ui/meetings_bridge.py frontend/src/mock/meetings.ts tests/test_meetings_bridge.py tests/test_meeting_library.py
@@ -262,7 +262,7 @@ git commit -m "Meetings window: list every meeting (no 500 cap), add local start
   - `sectionPathFor(sections: Section[], id: string): string[]`
   - `parseOpenState(raw: string | null): OpenState`
 
-- [ ] **Step 1: Write the failing tests** in `frontend/tests/listSections.test.ts`:
+- [x] **Step 1: Write the failing tests** in `frontend/tests/listSections.test.ts`:
 
 ```ts
 import { test } from 'node:test';
@@ -388,10 +388,10 @@ test('localIsoDate uses local calendar fields', () => {
 });
 ```
 
-- [ ] **Step 2: Run; it fails.** Run `cd frontend && npm test`. Expected: the import of
+- [x] **Step 2: Run; it fails.** Run `cd frontend && npm test`. Expected: the import of
   `listSections.ts` fails (module not found).
 
-- [ ] **Step 3: Implement** `frontend/src/meetings/listSections.ts`:
+- [x] **Step 3: Implement** `frontend/src/meetings/listSections.ts`:
 
 ```ts
 import type { MeetingMeta } from '../mock/meetings';
@@ -536,10 +536,10 @@ export function parseOpenState(raw: string | null): OpenState {
 }
 ```
 
-- [ ] **Step 4: Run; it passes.** Run `cd frontend && npm test`. Expected: all tests pass,
+- [x] **Step 4: Run; it passes.** Run `cd frontend && npm test`. Expected: all tests pass,
   including the 11 new ones.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add frontend/src/meetings/listSections.ts frontend/tests/listSections.test.ts
@@ -560,7 +560,7 @@ git commit -m "Meeting list: pure time-section model (Monday weeks, months, year
 - Produces: `MeetingList` takes two new required props, `today: string` and
   `expandAll: boolean`.
 
-- [ ] **Step 1: Rewrite `MeetingList.tsx`.** Keep `rowId`, `isEditableTarget`, the ⌘F and ⌘⌫
+- [x] **Step 1: Rewrite `MeetingList.tsx`.** Keep `rowId`, `isEditableTarget`, the ⌘F and ⌘⌫
   handling, the listbox ARIA and the row markup exactly as they are today. Replace
   `groupByDay` and the rendering with:
 
@@ -707,7 +707,7 @@ function findSection(sections: Section[], key: string): Section | null {
   `aria-activedescendant` is only set when the selected row is visible:
   `rows.some((r) => r.id === selectedId)`.
 
-- [ ] **Step 2: CSS.** Append to `MeetingList.module.css`. `.dayHeader` stays as the inner
+- [x] **Step 2: CSS.** Append to `MeetingList.module.css`. `.dayHeader` stays as the inner
   subheading; change its padding to `6px 18px 2px`.
 
 ```css
@@ -797,7 +797,7 @@ function findSection(sections: Section[], key: string): Section | null {
   85bd647); if the variable is translucent, use the same backdrop-filter the sidebar uses.
   Verify by looking at it in Task 9.
 
-- [ ] **Step 3: Wire App.** At the `<MeetingList` call in `App.tsx`, add:
+- [x] **Step 3: Wire App.** At the `<MeetingList` call in `App.tsx`, add:
 
 ```tsx
                 today={localIsoDate(isMock ? MOCK_NOW_MS : nowMs)}
@@ -807,10 +807,10 @@ function findSection(sections: Section[], key: string): Section | null {
   and add `import { localIsoDate } from './listSections';`. `MOCK_NOW_MS` and `nowMs` are
   already in scope (used near line 950); confirm before adding imports.
 
-- [ ] **Step 4: Build and test.** Run `cd frontend && npm run build && npm test`. Expected:
+- [x] **Step 4: Build and test.** Run `cd frontend && npm run build && npm test`. Expected:
   no type errors; all tests pass.
 
-- [ ] **Step 5: Look at it in mock mode** (`preview_start`, `meetings.html`). Expected:
+- [x] **Step 5: Look at it in mock mode** (`preview_start`, `meetings.html`). Expected:
   - Today (2), Yesterday (2), Last week (2) open (Thu 24 and Tue 22 Sep fall in last week,
     since mock today is Tue 29 Sep);
   - `August` (1) collapsed;
@@ -823,7 +823,7 @@ function findSection(sections: Section[], key: string): Section | null {
 
   Take a screenshot.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add frontend/src/meetings/MeetingList.tsx frontend/src/meetings/MeetingList.module.css frontend/src/meetings/App.tsx
@@ -843,7 +843,7 @@ git commit -m "Meeting list: collapsible time sections with pinned headers and r
 - Produces: each `list_meetings` row has `named_speakers: list[str]` and
   `speaker_count: int` instead of `speakers`. `get_meeting` is unchanged.
 
-- [ ] **Step 1: Failing test.** In `test_list_meetings_shape_and_paging`, replace
+- [x] **Step 1: Failing test.** In `test_list_meetings_shape_and_paging`, replace
   `assert m["speakers"] == ["You", "Speaker 1"]` with:
 
 ```python
@@ -870,9 +870,9 @@ def test_list_meetings_description_mentions_named_speakers(tools):
     assert "named speakers" in d and "get_meeting" in d
 ```
 
-- [ ] **Step 2: Run; it fails.** Run `.venv/bin/python -B -m pytest tests/test_mcp_tools.py -q -k list_meetings`.
+- [x] **Step 2: Run; it fails.** Run `.venv/bin/python -B -m pytest tests/test_mcp_tools.py -q -k list_meetings`.
 
-- [ ] **Step 3: Implement.** In `mcp_tools.py`, add near `_DATE_RE`:
+- [x] **Step 3: Implement.** In `mcp_tools.py`, add near `_DATE_RE`:
 
 ```python
 # Diarization's placeholder labels ("Speaker 12"); same pattern as
@@ -897,12 +897,12 @@ _ANONYMOUS_SPEAKER_RE = re.compile(r"Speaker [1-9][0-9]*", re.IGNORECASE)
 
   > "List saved meetings, newest first, with date, duration, named speakers (unnamed 'Speaker N' labels are only counted in speaker_count), people, tags and whether a summary exists. No transcript text. Filter by title words to find a meeting by name; use get_meeting for full detail."
 
-- [ ] **Step 4: Regenerate the manifest** (command in Global Constraints). Then run
+- [x] **Step 4: Regenerate the manifest** (command in Global Constraints). Then run
   `.venv/bin/python -B -m pytest tests/test_mcp_tools.py tests/test_mcpb.py tests/test_mcp_server.py -q`.
   Expected: all pass. If `test_mcp_server.py` asserts on `speakers` in a list result,
   update it the same way.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add speakeasy/mcp_tools.py packaging/mcpb/manifest.json tests/test_mcp_tools.py tests/test_mcp_server.py
@@ -929,7 +929,7 @@ git commit -m "MCP list_meetings: named speakers + count instead of every Speake
   - MCP `search_meetings` accepts `by_meeting: bool` and `offset: int`, and returns
     `{"results": [...], "offset": int, "next_offset": int | None}`.
 
-- [ ] **Step 1: Failing library tests.** Append to `tests/test_meeting_search.py`, reusing
+- [x] **Step 1: Failing library tests.** Append to `tests/test_meeting_search.py`, reusing
   its `_save(lib, day, *segments)` helper (check its signature at the top of the file and
   match it):
 
@@ -972,10 +972,10 @@ def test_search_grouped_counts_title_hits_as_kind_meeting(library_path):
 
 `_save(lib, day, *segments, **kw)` forwards keywords to `NewMeeting`, so `title=` works.
 
-- [ ] **Step 2: Run; they fail** (`offset` is an unexpected keyword; `search_grouped` is
+- [x] **Step 2: Run; they fail** (`offset` is an unexpected keyword; `search_grouped` is
   missing). Run `.venv/bin/python -B -m pytest tests/test_meeting_search.py -q`.
 
-- [ ] **Step 3: Implement in `meeting_library.py`.** Add after the `SearchHit` dataclass:
+- [x] **Step 3: Implement in `meeting_library.py`.** Add after the `SearchHit` dataclass:
 
 ```python
 @dataclass
@@ -1047,11 +1047,11 @@ GROUPED_FETCH = 2000   # passages per source considered by search_grouped
   The comment block above is an instruction: move the existing code there with exactly
   those four substitutions. Keep every existing comment in that code.
 
-- [ ] **Step 4: Run the library tests.** Run
+- [x] **Step 4: Run the library tests.** Run
   `.venv/bin/python -B -m pytest tests/test_meeting_search.py tests/test_meeting_library.py -q`.
   Expected: all pass, including the existing `test_limit_is_clamped` (28 < 100).
 
-- [ ] **Step 5: Failing MCP tests.** Append to `tests/test_mcp_tools.py`:
+- [x] **Step 5: Failing MCP tests.** Append to `tests/test_mcp_tools.py`:
 
 ```python
 def test_search_meetings_offset_and_next_offset(lib, tools):
@@ -1089,7 +1089,7 @@ def test_search_meetings_rejects_non_boolean_by_meeting(tools):
   echo collapsing merges them, check the segment texts ("Let's review the budget" and "The
   cafe budget is fine" differ enough that they won't merge).
 
-- [ ] **Step 6: Implement in `mcp_tools.py`.** Add a coercion helper next to `_str_list`:
+- [x] **Step 6: Implement in `mcp_tools.py`.** Add a coercion helper next to `_str_list`:
 
 ```python
 def _bool(args, key, default=False):
@@ -1149,11 +1149,11 @@ def _bool(args, key, default=False):
 
   Leave the description text for Task 8; only the schema changes here.
 
-- [ ] **Step 7: Run.** Run `.venv/bin/python -B -m pytest tests/test_mcp_tools.py tests/test_mcp_server.py tests/test_mcpb.py tests/test_meeting_search.py tests/test_meetings_bridge.py -q`.
+- [x] **Step 7: Run.** Run `.venv/bin/python -B -m pytest tests/test_mcp_tools.py tests/test_mcp_server.py tests/test_mcpb.py tests/test_meeting_search.py tests/test_meetings_bridge.py -q`.
   Expected: all pass. The manifest only mirrors name and description, which are unchanged,
   so `test_mcpb` passes without regeneration.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add speakeasy/meeting_library.py speakeasy/mcp_tools.py tests/test_meeting_search.py tests/test_mcp_tools.py
@@ -1177,7 +1177,7 @@ git commit -m "MCP search_meetings: by_meeting grouping and offset paging"
     still come first.
   - MCP `pending_summaries` accepts `from`/`to`.
 
-- [ ] **Step 1: Failing tests.** Append to `tests/test_mcp_tools.py`:
+- [x] **Step 1: Failing tests.** Append to `tests/test_mcp_tools.py`:
 
 ```python
 def test_pending_summaries_catches_up_a_past_range(lib, tools):
@@ -1210,9 +1210,9 @@ def test_pending_summaries_range_validation_and_description(tools):
   7-day window; `_seed`'s September dates already rely on this in existing tests. If the
   existing tests pin `now` differently, follow their pattern.
 
-- [ ] **Step 2: Run; they fail.** Run `.venv/bin/python -B -m pytest tests/test_mcp_tools.py -q -k pending_summaries`.
+- [x] **Step 2: Run; they fail.** Run `.venv/bin/python -B -m pytest tests/test_mcp_tools.py -q -k pending_summaries`.
 
-- [ ] **Step 3: Implement in the library.** Below `_PENDING_SQL`, add:
+- [x] **Step 3: Implement in the library.** Below `_PENDING_SQL`, add:
 
 ```python
 # pending_summaries(from_date/to_date): the same rule over a chosen range of
@@ -1248,7 +1248,7 @@ _PENDING_RANGE_SQL = (
         return [(r["id"], bool(r["requested"])) for r in rows]
 ```
 
-- [ ] **Step 4: Implement in MCP.** In the `pending_summaries` handler, change the first
+- [x] **Step 4: Implement in MCP.** In the `pending_summaries` handler, change the first
   lines to:
 
 ```python
@@ -1264,11 +1264,11 @@ _PENDING_RANGE_SQL = (
 
   > "Meetings waiting for a summary (new ones from the last 7 days, plus any the user asked to summarise or redo), with the summary format to use. To catch up older meetings when the user asks (e.g. 'summarise everything from August'), pass from/to: unsummarised meetings in that range come back oldest first; call again until none are left. For each: read the whole transcript with get_transcript, then save the summary, action items and tags with save_notes."
 
-- [ ] **Step 5: Regenerate the manifest; run the tests.** Run
+- [x] **Step 5: Regenerate the manifest; run the tests.** Run
   `.venv/bin/python -B -m pytest tests/test_mcp_tools.py tests/test_mcpb.py tests/test_meeting_library.py -q`.
   Expected: all pass, including the existing `test_meeting_library.py:546` (limit 50 → 10).
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add speakeasy/meeting_library.py speakeasy/mcp_tools.py packaging/mcpb/manifest.json tests/test_mcp_tools.py
@@ -1284,7 +1284,7 @@ git commit -m "MCP pending_summaries: optional from/to to catch up older meeting
 - Modify: `packaging/mcpb/manifest.json` (regenerate)
 - Test: `tests/test_mcp_tools.py`
 
-- [ ] **Step 1: Failing test.**
+- [x] **Step 1: Failing test.**
 
 ```python
 def test_search_description_teaches_recall_strategy(tools):
@@ -1294,16 +1294,16 @@ def test_search_description_teaches_recall_strategy(tools):
         assert phrase in d, phrase
 ```
 
-- [ ] **Step 2: Run; it fails.**
+- [x] **Step 2: Run; it fails.**
 
-- [ ] **Step 3: Replace the `search_meetings` description** with:
+- [x] **Step 3: Replace the `search_meetings` description** with:
 
   > "Search meetings by title, date and content: transcripts, summaries and the user's own notes (kind user_notes). A date in the query (e.g. 'Oct 3', '3 October 2026', '2026-10-03', 'today', 'yesterday') limits results to that day; a date alone lists that day's meetings. Title matches come first as kind meeting; content matches return ranked snippets (matches in **bold**) with the meeting id and time offset. Every word must appear in the same passage, so search one or two distinctive terms at a time and try synonyms (e.g. API, endpoint, REST, GraphQL) as separate searches. To answer 'when and why did we decide X': search with by_meeting=true to see which meetings discussed it and when, narrow with from/to, then read get_meeting (summary Decisions, the user's notes) and get_transcript around start_seconds. Pass next_offset as offset for more."
 
-- [ ] **Step 4: Regenerate the manifest; run** `.venv/bin/python -B -m pytest tests/test_mcp_tools.py tests/test_mcpb.py -q`.
+- [x] **Step 4: Regenerate the manifest; run** `.venv/bin/python -B -m pytest tests/test_mcp_tools.py tests/test_mcpb.py -q`.
   Expected: all pass.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add speakeasy/mcp_tools.py packaging/mcpb/manifest.json tests/test_mcp_tools.py
@@ -1320,10 +1320,11 @@ git commit -m "MCP search_meetings: describe the recall strategy (terms, synonym
   signature change: `visibleRows(sections, state, expandAll)` replaced `openKeys`. Also note
   that grouped search fetches 2,000 passages per source.
 
-- [ ] **Step 1: Full suites.** Run `.venv/bin/python -B -m pytest -q` (timeout 600000 ms),
+- [x] **Step 1: Full suites.** Run `.venv/bin/python -B -m pytest -q` (timeout 600000 ms),
   then `cd frontend && npm run build && npm test`. Expected: all pass. Record the counts.
 
 - [ ] **Step 2: Real app with seeded data.**
+  - Not done by the agent: handed to the user after merge (Speakeasy screen access has been declined before, and installing stops Claude Desktop's connector). Mock-mode checks were done instead (see Results).
   - Build and launch the installed app with a temporary HOME, following the memory notes
     "Installed-app UI checks" and "Worktree session guards". Seed more than 600 meetings
     spanning 2025–2026 into that temp library with a short script in the scratchpad (never
@@ -1339,7 +1340,7 @@ git commit -m "MCP search_meetings: describe the recall strategy (terms, synonym
     - the open state survives a relaunch.
   - Take screenshots.
 
-- [ ] **Step 3: Real MCP probe (read-only).** After installing, with the connector re-enabled,
+- [x] **Step 3: Real MCP probe (read-only).** After installing, with the connector re-enabled,
   run through Claude Code's `speakeasy` MCP tools:
   - `list_meetings` with limit 100 → record the character count (target < 25,000);
   - `search_meetings` with `{"query": "API", "by_meeting": true, "limit": 20}` → record the
@@ -1347,13 +1348,60 @@ git commit -m "MCP search_meetings: describe the recall strategy (terms, synonym
   - `pending_summaries` with `{"from": "2026-08-01", "to": "2026-08-31"}` → only check that
     it lists meetings. Don't save notes.
 
-- [ ] **Step 4: Results and TODO.** Add a `## Results` section to this plan with the test
+- [x] **Step 4: Results and TODO.** Add a `## Results` section to this plan with the test
   counts, sizes and screenshot notes. Make sure the TODO below is still accurate. Commit:
 
 ```bash
 git add docs/
 git commit -m "Docs: scalable meeting list results"
 ```
+
+### Task 9a: Trim list rows further, compact JSON
+
+Added after the Task 9 probe: the 100-row page measured 27,470 characters, over the 25,000
+target.
+- `list_meetings` rows omit empty `people` and `tags`, and a false `timestamps_approximate`.
+- `mcp_server` writes compact JSON (no extra spaces).
+- The `list_meetings` description gains "(people, tags and timestamps_approximate appear only
+  when present)".
+- Result: 23,056 characters for 100 rows.
+
+## Results (2026-10-03)
+
+- Tests: Python full suite 1272 passed; frontend `npm test` 44 passed; `npm run build` clean
+  (tsc, vite, check-offline).
+- Mock-mode checks (dev server, mock today Tue 29 Sep):
+  - Today 2, Yesterday 2, Last week 2 open; August 1 and 2025 1 collapsed.
+  - Opening 2025 > November 2025 shows the row; the open state survives a reload; ArrowDown
+    stops at the last visible row.
+  - Today view: the title and content sit 24 px from the pane's left edge, and Start Meeting
+    24 px from the right edge.
+- Pinned section headers: the first version used the translucent sidebar background plus blur,
+  and rows showed through in dark mode. They now use the opaque `--sidebar-opaque` (#1B1F1D
+  dark, #F7F7F6 light), checked in both themes. Also added: `scroll-padding-top: 30px` so a row
+  scrolled into view isn't hidden under its header, and re-opening a selected meeting's section
+  when a Tag/Person filter is cleared.
+- MCP probe (branch code, in-process, on a SQLite backup copy of the real library in a temp
+  HOME; sizes are compact-JSON characters):
+  - `list_meetings` limit 100 = 23,056 chars (was 74,301 before this work; 27,470 after
+    `named_speakers` alone). To meet the 25,000 target, list rows now omit empty people/tags and
+    a false `timestamps_approximate`, and the MCP server writes compact JSON (Task 9a).
+  - `search_meetings` "API" by_meeting limit 20 = 12,743 chars, 20 meetings, next_offset 20.
+  - `search_meetings` "API" limit 50 = 17,788 chars; offset 50 = 19,689 chars, next_offset 100.
+  - `pending_summaries` 2026-08-01..31 = 5 meetings, 5,029 chars.
+- Still open: the real-app look (Task 9 Step 2) is the user's check after merge; see the list
+  below.
+
+### Real-app check for the user (after merge and install)
+
+- Today header anchored at a narrow and a wide window.
+- Sections and counts in the list.
+- Pinned headers in light and dark (rows must not show through; does the opaque band look right
+  against the vibrancy sidebar?).
+- A 2025 search hit opens 2025 > its month and scrolls to it.
+- A Tag filter shows everything open.
+- The open state survives a relaunch.
+- Afterwards, toggle Claude Desktop's Speakeasy connector off and on (installing stops it).
 
 ## TODO (outside this plan)
 

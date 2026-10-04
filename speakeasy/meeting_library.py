@@ -1246,17 +1246,19 @@ class MeetingLibrary:
         limit = max(1, min(int(limit), 100))
         offset = max(0, min(int(offset), 1000))
         need = offset + limit
-        ranked = self._ranked_hits(query, from_date, to_date, tag, person,
-                                   title_limit=need, fetch=need * 4)
+        ranked, _ = self._ranked_hits(query, from_date, to_date, tag, person,
+                                      title_limit=need, fetch=need * 4)
         return ranked[offset:need]
 
     def search_grouped(self, query: str, *, from_date=None, to_date=None, tag=None,
-                       person=None, limit=10, offset=0) -> list[MeetingHits]:
+                       person=None, limit=10, offset=0) -> tuple[list[MeetingHits], bool]:
         limit = max(1, min(int(limit), 100))
         offset = max(0, min(int(offset), 1000))
         groups: dict[str, MeetingHits] = {}
-        for h in self._ranked_hits(query, from_date, to_date, tag, person,
-                                   title_limit=GROUPED_FETCH, fetch=GROUPED_FETCH):
+        ranked, saturated = self._ranked_hits(
+            query, from_date, to_date, tag, person,
+            title_limit=GROUPED_FETCH, fetch=GROUPED_FETCH)
+        for h in ranked:
             g = groups.get(h.meeting_id)
             if g is None:
                 g = groups[h.meeting_id] = MeetingHits(
@@ -1270,16 +1272,17 @@ class MeetingLibrary:
             if h.start_seconds is not None:
                 g.first_seconds = h.start_seconds if g.first_seconds is None else min(g.first_seconds, h.start_seconds)
                 g.last_seconds = h.start_seconds if g.last_seconds is None else max(g.last_seconds, h.start_seconds)
-        return list(groups.values())[offset:offset + limit]
+        # truncated: a source hit its cap, so some meetings may be missing.
+        return list(groups.values())[offset:offset + limit], saturated
 
     def _ranked_hits(self, query, from_date, to_date, tag, person, *,
-                     title_limit, fetch) -> list[SearchHit]:
+                     title_limit, fetch) -> tuple[list[SearchHit], bool]:
         # A falsy query (None, "") must short-circuit before fts_query ever
         # sees it: str(None) is the literal text "None", which would
         # otherwise become a real FTS match for any segment containing that
         # word.
         if not query:
-            return []
+            return [], False
         # One date phrase narrows to that local day, ANDed with any explicit
         # range; the words left over search titles and contents within it.
         # Leftover punctuation (", " from "Oct 3, standup") is not a word.
@@ -1293,17 +1296,18 @@ class MeetingLibrary:
         with self._transaction() as conn:
             if not words:
                 if day is None:
-                    return []
-                return self._meeting_hits(conn, where, params, [], "ASC", title_limit)
+                    return [], False
+                only = self._meeting_hits(conn, where, params, [], "ASC", title_limit)
+                return only, len(only) >= title_limit
             title_where, title_params = meeting_filters(
                 from_date, to_date, tag, person, title=" ".join(words))
             titled = self._meeting_hits(conn, title_where, title_params, words, "DESC", title_limit)
-            hits = []
+            hits, fts_saturated = [], False
             for any_term in (False, True):
                 match = fts_query(" ".join(words), any_term=any_term)
                 if match is None:
                     break
-                hits = self._search(conn, match, where, params, fetch)
+                hits, fts_saturated = self._search(conn, match, where, params, fetch)
                 if hits:
                     break
         # bm25 scores from the transcript and notes FTS tables are not comparable
@@ -1314,7 +1318,8 @@ class MeetingLibrary:
             of_kind = sorted((h for h in hits if h.kind == kind), key=lambda h: h.score)
             rank.update((id(h), i) for i, h in enumerate(of_kind))
         hits.sort(key=lambda h: (rank[id(h)], {"transcript": 0, "notes": 1, "user_notes": 2}[h.kind]))
-        return titled + collapse_echoes(hits)
+        saturated = len(titled) >= title_limit or fts_saturated
+        return titled + collapse_echoes(hits), saturated
 
     def _meeting_hits(self, conn, where, params, words, order, limit) -> list[SearchHit]:
         # Meeting-level hits: a title match (words highlighted) or, for a
@@ -1329,7 +1334,7 @@ class MeetingLibrary:
                 (*params, limit))
         ]
 
-    def _search(self, conn, match, where, params, fetch) -> list[SearchHit]:
+    def _search(self, conn, match, where, params, fetch) -> tuple[list[SearchHit], bool]:
         # Controller ruling: the spec's ~30-word snippet wins over the
         # plan's 24 (snippet() token count is the 6th argument).
         snippet = "snippet({t}, -1, char(2), char(3), '…', 30)"
@@ -1344,9 +1349,10 @@ class MeetingLibrary:
                 " bm25(segments_fts) AS score FROM segments_fts"
                 " JOIN segments s ON s.id = segments_fts.rowid"
                 " JOIN meetings m ON m.id = s.meeting_id"
-                f" WHERE segments_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
+                f" WHERE segments_fts MATCH ? AND {where} ORDER BY score, s.id LIMIT ?",
                 (match, *params, fetch))
         ]
+        counts = [len(hits)]
         hits += [
             SearchHit(r["id"], r["title"], r["started_at"], r["tz_offset_minutes"],
                       "notes", None, None, None, None, r["snip"], [], r["score"])
@@ -1356,9 +1362,10 @@ class MeetingLibrary:
                 " bm25(notes_fts) AS score FROM notes_fts"
                 " JOIN notes n ON n.id = notes_fts.rowid"
                 " JOIN meetings m ON m.id = n.meeting_id"
-                f" WHERE notes_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
+                f" WHERE notes_fts MATCH ? AND {where} ORDER BY score, n.id LIMIT ?",
                 (match, *params, fetch))
         ]
+        counts.append(len(hits) - counts[0])
         hits += [
             SearchHit(r["id"], r["title"], r["started_at"], r["tz_offset_minutes"],
                       "user_notes", None, None, None, None, r["snip"], [], r["score"])
@@ -1368,10 +1375,11 @@ class MeetingLibrary:
                 " bm25(user_notes_fts) AS score FROM user_notes_fts"
                 " JOIN user_notes u ON u.id = user_notes_fts.rowid"
                 " JOIN meetings m ON m.id = u.meeting_id"
-                f" WHERE user_notes_fts MATCH ? AND {where} ORDER BY score LIMIT ?",
+                f" WHERE user_notes_fts MATCH ? AND {where} ORDER BY score, u.id LIMIT ?",
                 (match, *params, fetch))
         ]
-        return hits
+        counts.append(len(hits) - counts[0] - counts[1])
+        return hits, any(c >= fetch for c in counts)
 
     def list_people(self, query=None) -> list[tuple[str, int]]:
         where, params = "1", []

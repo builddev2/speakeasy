@@ -369,20 +369,34 @@ def test_search_grouped_one_row_per_meeting(library_path):
     busy = _save(lib, 3, ("You", 10, 15, "the API design"), ("Speaker 1", 600, 605, "API versioning"),
                  ("You", 1200, 1205, "API again"))
     quiet = _save(lib, 4, ("You", 30, 35, "one API mention"))
-    groups = lib.search_grouped("API", limit=10)
+    groups, truncated = lib.search_grouped("API", limit=10)
+    assert truncated is False
     assert [g.meeting_id for g in groups][:2] in ([busy, quiet], [quiet, busy])
     g = next(g for g in groups if g.meeting_id == busy)
     assert g.hit_count == 3
     assert g.first_seconds == 10 and g.last_seconds == 1200
     assert g.kinds == ["transcript"]
     assert len(g.best) == 2 and all(h.meeting_id == busy for h in g.best)
-    assert lib.search_grouped("API", limit=1, offset=1)[0].meeting_id == groups[1].meeting_id
-    assert lib.search_grouped("API", offset=50) == []
+    assert lib.search_grouped("API", limit=1, offset=1)[0][0].meeting_id == groups[1].meeting_id
+    assert lib.search_grouped("API", offset=50)[0] == []
 
 
 def test_search_grouped_counts_title_hits_as_kind_meeting(library_path):
     lib = MeetingLibrary()
     mid = _save(lib, 5, ("You", 0, 5, "nothing relevant"), title="API roadmap")
-    [g] = lib.search_grouped("roadmap")
+    [g], _ = lib.search_grouped("roadmap")
     assert g.meeting_id == mid and g.kinds == ["meeting"]
     assert g.hit_count == 1 and g.first_seconds is None and g.last_seconds is None
+
+
+def test_search_grouped_truncated_when_source_hits_fetch_cap(library_path, monkeypatch):
+    import speakeasy.meeting_library as ml
+    lib = MeetingLibrary()
+    for day in range(1, 6):
+        _save(lib, day, ("You", 0, 5, "standup notes"))
+    monkeypatch.setattr(ml, "GROUPED_FETCH", 3)
+    _, truncated = lib.search_grouped("standup", limit=10)
+    assert truncated is True
+    monkeypatch.setattr(ml, "GROUPED_FETCH", 2000)
+    _, truncated = lib.search_grouped("standup", limit=10)
+    assert truncated is False

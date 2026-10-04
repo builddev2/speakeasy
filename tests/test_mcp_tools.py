@@ -485,6 +485,18 @@ def test_search_meetings_by_meeting(lib, tools):
     assert [set(s) for s in row["snippets"]] == [{"kind", "speaker", "at", "start_seconds", "snippet"}] * 2
     assert "**budget**" in row["snippets"][0]["snippet"].lower()
     assert out["next_offset"] is None
+    assert out["truncated"] is False
+    assert "truncated" not in tools["search_meetings"].run({"query": "budget"})
+
+
+def test_search_meetings_by_meeting_pages(lib, tools):
+    for day in (20, 21, 22):
+        _seed(lib, day=day, title=f"M{day}")
+    first = tools["search_meetings"].run({"query": "budget", "by_meeting": True, "limit": 2})
+    assert len(first["results"]) == 2 and first["next_offset"] == 2
+    rest = tools["search_meetings"].run(
+        {"query": "budget", "by_meeting": True, "limit": 2, "offset": 2})
+    assert len(rest["results"]) == 1 and rest["next_offset"] is None
 
 
 def test_search_meetings_rejects_non_boolean_by_meeting(tools):

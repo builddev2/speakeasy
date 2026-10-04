@@ -263,8 +263,9 @@ def build_tools(library) -> dict[str, Tool]:
         offset = _int(args, "offset", 0, 0, 1000)
         filters = dict(from_date=start, to_date=end, tag=_text(args, "tag"),
                        person=_text(args, "person"), limit=limit + 1, offset=offset)
-        if _bool(args, "by_meeting"):
-            rows = library.search_grouped(query, **filters)
+        by_meeting = _bool(args, "by_meeting")
+        if by_meeting:
+            rows, truncated = library.search_grouped(query, **filters)
             results = [{
                 "meeting_id": g.meeting_id, "title": g.title,
                 "meeting_start": _start(g.started_at, g.tz_offset_minutes),
@@ -281,8 +282,11 @@ def build_tools(library) -> dict[str, Tool]:
                 "at": _hms(h.start_seconds), "start_seconds": h.start_seconds,
                 "snippet": _markdown(h.snippet),
             } for h in rows[:limit]]
-        return {"results": results, "offset": offset,
-                "next_offset": offset + limit if len(rows) > limit else None}
+        out = {"results": results, "offset": offset,
+               "next_offset": offset + limit if len(rows) > limit else None}
+        if by_meeting:
+            out["truncated"] = truncated
+        return out
 
     def get_transcript(args):
         meeting_id = _meeting_id(args)
@@ -407,7 +411,7 @@ def build_tools(library) -> dict[str, Tool]:
          "endpoint, REST, GraphQL) as separate searches. To answer 'when and why did we "
          "decide X': search with by_meeting=true to see which meetings discussed it and "
          "when, narrow with from/to, then read get_meeting (summary Decisions, the "
-         "user's notes) and get_transcript around start_seconds. Pass next_offset as "
+         "user's notes) and get_transcript around start_seconds. If truncated is true, the term was too common to count every passage, so some meetings may be missing: use a more distinctive term or narrow from/to. Pass next_offset as "
          "offset for more.",
          {"query": {"type": "string"}, **_FILTERS,
           "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},

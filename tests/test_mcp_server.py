@@ -87,6 +87,14 @@ def test_tools_call_param_errors():
     assert s.handle(_req("tools/call", "x"))["error"]["code"] == -32602
 
 
+def test_tools_call_result_is_compact_json():
+    value = {"a": 1, "b": [1, 2], "c": {"d": "é"}}
+    s = mcp_server.Server(_tool(lambda a: value))
+    text = s.handle(_req("tools/call", {"name": "t", "arguments": {}}))["result"]["content"][0]["text"]
+    assert ", " not in text and ": " not in text
+    assert json.loads(text) == value
+
+
 def test_tools_call_success_and_on_call():
     calls = []
     s = mcp_server.Server(_tool(lambda a: {"echo": a}), on_call=lambda: calls.append(1))

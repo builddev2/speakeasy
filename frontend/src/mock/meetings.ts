@@ -17,6 +17,7 @@ export interface MeetingMeta {
   id: string;
   title: string;
   dayLabel: string;
+  startDate: string;
   time: string;
   duration: string;
   subtitle: string;
@@ -148,6 +149,7 @@ const standupMeta: MeetingMeta = {
   id: 'm-standup',
   title: 'Stand-up',
   dayLabel: 'Today',
+  startDate: '2026-09-29',
   time: '9:00 AM',
   duration: '12 min',
   subtitle: 'Alex, Priya, Sam',
@@ -162,6 +164,7 @@ const oneOnOneMeta: MeetingMeta = {
   id: 'm-1on1-alex',
   title: 'Weekly 1:1 — Alex',
   dayLabel: 'Today',
+  startDate: '2026-09-29',
   time: '1:00 PM',
   duration: '23 min',
   subtitle: 'Alex, Jordan',
@@ -176,6 +179,7 @@ const designReviewMeta: MeetingMeta = {
   id: 'm-design-review',
   title: 'Design Review — Onboarding Flow',
   dayLabel: 'Yesterday',
+  startDate: '2026-09-28',
   time: '11:30 AM',
   duration: '31 min',
   subtitle: 'Priya, Sam, Morgan',
@@ -190,6 +194,7 @@ const sprintPlanningMeta: MeetingMeta = {
   id: 'm-sprint-planning',
   title: 'Sprint Planning',
   dayLabel: 'Yesterday',
+  startDate: '2026-09-28',
   time: '3:00 PM',
   duration: '45 min',
   subtitle: 'Alex, Priya, Sam, Jordan',
@@ -204,6 +209,7 @@ const customerCallMeta: MeetingMeta = {
   id: 'm-customer-call',
   title: 'Customer Call — Fenwick Labs',
   dayLabel: 'Thursday',
+  startDate: '2026-09-24',
   time: '2:15 PM',
   duration: '18 min',
   subtitle: 'Morgan, Priya',
@@ -218,6 +224,7 @@ const retroMeta: MeetingMeta = {
   id: 'm-retro',
   title: 'Retro — Sprint 14',
   dayLabel: 'Tuesday',
+  startDate: '2026-09-22',
   time: '4:00 PM',
   duration: '27 min',
   subtitle: 'Alex, Priya, Sam, Jordan',
@@ -232,6 +239,7 @@ const q3KickoffMeta: MeetingMeta = {
   id: 'm-q3-kickoff',
   title: 'Q3 Kickoff',
   dayLabel: 'August 2026',
+  startDate: '2026-08-04',
   time: '10:00 AM',
   duration: '52 min',
   subtitle: 'Alex, Priya, Sam, Jordan, Morgan',
@@ -246,6 +254,7 @@ const onboardingSamMeta: MeetingMeta = {
   id: 'm-onboarding-sam',
   title: 'Onboarding — Sam',
   dayLabel: 'August 2026',
+  startDate: '2025-11-12',
   time: '9:30 AM',
   duration: '34 min',
   subtitle: 'Sam, Jordan',

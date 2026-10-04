@@ -20,6 +20,9 @@ from .meetings import _ID_RE
 from .summary_format import SUMMARY_INSTRUCTIONS
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# Diarization's placeholder labels ("Speaker 12"); same pattern as
+# voice_profiles._ANONYMOUS_RE. Listing them made a 100-row page ~74k chars.
+_ANONYMOUS_SPEAKER_RE = re.compile(r"Speaker [1-9][0-9]*", re.IGNORECASE)
 _MAX_CALENDAR_DAYS = 366
 
 
@@ -126,6 +129,15 @@ def _str_list(args, key):
     return value
 
 
+def _bool(args, key, default=False):
+    value = args.get(key, default)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ToolError(f"{key} must be true or false.")
+    return value
+
+
 # -- formatting --------------------------------------------------------------
 
 def _start(started_at, tz_offset_minutes) -> str:
@@ -203,9 +215,13 @@ def build_tools(library) -> dict[str, Tool]:
                 "id": m.meeting_id, "title": m.title,
                 "start": _start(m.started_at, m.tz_offset_minutes),
                 "duration_minutes": _minutes(m.duration_seconds),
-                "speakers": m.speakers, "people": m.people, "tags": m.tags,
+                "named_speakers": [x for x in m.speakers
+                                   if not _ANONYMOUS_SPEAKER_RE.fullmatch(x)],
+                "speaker_count": m.speaker_count,
+                **({"people": m.people} if m.people else {}),
+                **({"tags": m.tags} if m.tags else {}),
                 "has_summary": m.has_summary,
-                "timestamps_approximate": m.timestamps_approximate,
+                **({"timestamps_approximate": True} if m.timestamps_approximate else {}),
             } for m in rows[:limit]],
             "offset": offset,
             "next_offset": offset + limit if len(rows) > limit else None,
@@ -236,19 +252,41 @@ def build_tools(library) -> dict[str, Tool]:
             "user_notes": user_notes,
         }
 
+    def _snippet(h):
+        return {"kind": h.kind, "speaker": h.speaker, "at": _hms(h.start_seconds),
+                "start_seconds": h.start_seconds, "snippet": _markdown(h.snippet)}
+
     def search_meetings(args):
         query = _text(args, "query", required=True, max_len=500)
         start, end = _range(args)
-        hits = library.search(query, from_date=start, to_date=end,
-                              tag=_text(args, "tag"), person=_text(args, "person"),
-                              limit=_int(args, "limit", 10, 1, 50))
-        return {"results": [{
-            "meeting_id": h.meeting_id, "title": h.title,
-            "meeting_start": _start(h.started_at, h.tz_offset_minutes),
-            "kind": h.kind, "speaker": h.speaker, "also_speakers": h.also_speakers,
-            "at": _hms(h.start_seconds), "start_seconds": h.start_seconds,
-            "snippet": _markdown(h.snippet),
-        } for h in hits]}
+        limit = _int(args, "limit", 10, 1, 50)
+        offset = _int(args, "offset", 0, 0, 1000)
+        filters = dict(from_date=start, to_date=end, tag=_text(args, "tag"),
+                       person=_text(args, "person"), limit=limit + 1, offset=offset)
+        by_meeting = _bool(args, "by_meeting")
+        if by_meeting:
+            rows, truncated = library.search_grouped(query, **filters)
+            results = [{
+                "meeting_id": g.meeting_id, "title": g.title,
+                "meeting_start": _start(g.started_at, g.tz_offset_minutes),
+                "hit_count": g.hit_count, "first_at": _hms(g.first_seconds),
+                "last_at": _hms(g.last_seconds), "kinds": g.kinds,
+                "snippets": [_snippet(h) for h in g.best],
+            } for g in rows[:limit]]
+        else:
+            rows = library.search(query, **filters)
+            results = [{
+                "meeting_id": h.meeting_id, "title": h.title,
+                "meeting_start": _start(h.started_at, h.tz_offset_minutes),
+                "kind": h.kind, "speaker": h.speaker, "also_speakers": h.also_speakers,
+                "at": _hms(h.start_seconds), "start_seconds": h.start_seconds,
+                "snippet": _markdown(h.snippet),
+            } for h in rows[:limit]]
+        out = {"results": results, "offset": offset,
+               "next_offset": offset + limit if len(rows) > limit else None}
+        if by_meeting:
+            out["truncated"] = truncated
+        return out
 
     def get_transcript(args):
         meeting_id = _meeting_id(args)
@@ -327,8 +365,10 @@ def build_tools(library) -> dict[str, Tool]:
 
     def pending_summaries(args):
         limit = _int(args, "limit", 5, 1, 10)
+        start, end = _range(args)
         meetings = []
-        for meeting_id, requested in library.pending_summaries(limit=limit):
+        for meeting_id, requested in library.pending_summaries(
+                limit=limit, from_date=start, to_date=end):
             try:
                 m = library.get_meeting(meeting_id, with_segments=False)
             except MeetingNotFound:
@@ -344,9 +384,11 @@ def build_tools(library) -> dict[str, Tool]:
 
     specs = [
         ("list_meetings",
-         "List saved meetings, newest first, with date, duration, speakers, tags "
-         "and whether a summary exists. No transcript text. Filter by title words "
-         "to find a meeting by name.",
+         "List saved meetings, newest first, with date, duration, named speakers "
+         "(unnamed 'Speaker N' labels are only counted in speaker_count), people, "
+         "tags and whether a summary exists (people, tags and timestamps_approximate "
+         "appear only when present). No transcript text. Filter by title "
+         "words to find a meeting by name; use get_meeting for full detail.",
          {**_FILTERS,
           "title": {"type": "string", "description": "Words that must all appear in "
                     "the meeting title, any order, case-insensitive."},
@@ -364,9 +406,19 @@ def build_tools(library) -> dict[str, Tool]:
          "'3 October 2026', '2026-10-03', 'today', 'yesterday') limits results to that "
          "day; a date alone lists that day's meetings. Title matches come first as kind "
          "meeting; content matches return ranked snippets (matches in **bold**) with the "
-         "meeting id and time offset.",
+         "meeting id and time offset. Every word must appear in the same passage, so "
+         "search one or two distinctive terms at a time and try synonyms (e.g. API, "
+         "endpoint, REST, GraphQL) as separate searches. To answer 'when and why did we "
+         "decide X': search with by_meeting=true to see which meetings discussed it and "
+         "when, narrow with from/to, then read get_meeting (summary Decisions, the "
+         "user's notes) and get_transcript around start_seconds. If truncated is true, the term was too common to count every passage, so some meetings may be missing: use a more distinctive term or narrow from/to. Pass next_offset as "
+         "offset for more.",
          {"query": {"type": "string"}, **_FILTERS,
-          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+          "by_meeting": {"type": "boolean", "default": False,
+                         "description": "One result per meeting (hit count, first/last "
+                                        "time, best 2 snippets) instead of per passage."},
+          "offset": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 0}},
          ["query"], search_meetings, True),
         ("get_transcript",
          "Read part of a meeting transcript as lines '[hh:mm:ss] Speaker: text'. "
@@ -426,9 +478,13 @@ def build_tools(library) -> dict[str, Tool]:
         ("pending_summaries",
          "Meetings waiting for a summary (new ones from the last 7 days, plus any "
          "the user asked to summarise or redo), with the summary format to use. "
-         "For each: read the whole transcript with get_transcript, then save the "
-         "summary, action items and tags with save_notes.",
-         {"limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}},
+         "To catch up older meetings when the user asks (e.g. 'summarise everything "
+         "from August'), pass from/to: unsummarised meetings in that range come back "
+         "oldest first; call again until none are left. For each: read the whole "
+         "transcript with get_transcript, then save the summary, action items and "
+         "tags with save_notes.",
+         {"limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+          "from": _FILTERS["from"], "to": _FILTERS["to"]},
          [], pending_summaries, True),
     ]
     return {

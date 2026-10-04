@@ -123,19 +123,19 @@ def test_limit_is_clamped(library_path):
     assert len(lib.search("standup", limit=0)) == 1
 
 
-def test_limit_is_clamped_to_50(library_path):
+def test_limit_is_clamped_to_100(library_path):
     # Controller ruling: assert the upper clamp itself, not just that a
-    # small dataset returns fewer than 50. Save 60 distinct meetings (each
+    # small dataset returns fewer than 100. Save 110 distinct meetings (each
     # a separate day) so the collapse logic keeps all of them, and confirm
-    # search(..., limit=1000) still returns exactly 50.
+    # search(..., limit=1000) still returns exactly 100.
     lib = MeetingLibrary()
     base = datetime(2026, 1, 1, 13, 0, tzinfo=EDT)
-    for i in range(60):
+    for i in range(110):
         day = base + timedelta(days=i)
         lib.save_meeting(NewMeeting(
             segments=[MeetingSegment("You", 0, 5, "quarterly standup notes")],
             duration_seconds=600, started_at=day))
-    assert len(lib.search("standup", limit=1000)) == 50
+    assert len(lib.search("standup", limit=1000)) == 100
 
 
 def test_snippet_is_about_30_words(library_path):
@@ -350,3 +350,53 @@ def test_punctuation_only_query_matches_nothing(library_path):
     _titled(lib, 24, "Standup")
     for query in ("?!", ", ", "-"):
         assert lib.search(query) == []
+
+
+def test_search_offset_pages_without_overlap(library_path):
+    lib = MeetingLibrary()
+    for day in range(1, 13):
+        _save(lib, day, ("You", 0, 5, "standup notes"))
+    first = lib.search("standup", limit=5)
+    second = lib.search("standup", limit=5, offset=5)
+    assert len(first) == 5 and len(second) == 5
+    assert not {h.meeting_id for h in first} & {h.meeting_id for h in second}
+    assert lib.search("standup", limit=5, offset=500) == []
+    assert lib.search("standup", limit=5, offset=0) == lib.search("standup", limit=5)
+
+
+def test_search_grouped_one_row_per_meeting(library_path):
+    lib = MeetingLibrary()
+    busy = _save(lib, 3, ("You", 10, 15, "the API design"), ("Speaker 1", 600, 605, "API versioning"),
+                 ("You", 1200, 1205, "API again"))
+    quiet = _save(lib, 4, ("You", 30, 35, "one API mention"))
+    groups, truncated = lib.search_grouped("API", limit=10)
+    assert truncated is False
+    assert [g.meeting_id for g in groups][:2] in ([busy, quiet], [quiet, busy])
+    g = next(g for g in groups if g.meeting_id == busy)
+    assert g.hit_count == 3
+    assert g.first_seconds == 10 and g.last_seconds == 1200
+    assert g.kinds == ["transcript"]
+    assert len(g.best) == 2 and all(h.meeting_id == busy for h in g.best)
+    assert lib.search_grouped("API", limit=1, offset=1)[0][0].meeting_id == groups[1].meeting_id
+    assert lib.search_grouped("API", offset=50)[0] == []
+
+
+def test_search_grouped_counts_title_hits_as_kind_meeting(library_path):
+    lib = MeetingLibrary()
+    mid = _save(lib, 5, ("You", 0, 5, "nothing relevant"), title="API roadmap")
+    [g], _ = lib.search_grouped("roadmap")
+    assert g.meeting_id == mid and g.kinds == ["meeting"]
+    assert g.hit_count == 1 and g.first_seconds is None and g.last_seconds is None
+
+
+def test_search_grouped_truncated_when_source_hits_fetch_cap(library_path, monkeypatch):
+    import speakeasy.meeting_library as ml
+    lib = MeetingLibrary()
+    for day in range(1, 6):
+        _save(lib, day, ("You", 0, 5, "standup notes"))
+    monkeypatch.setattr(ml, "GROUPED_FETCH", 3)
+    _, truncated = lib.search_grouped("standup", limit=10)
+    assert truncated is True
+    monkeypatch.setattr(ml, "GROUPED_FETCH", 2000)
+    _, truncated = lib.search_grouped("standup", limit=10)
+    assert truncated is False

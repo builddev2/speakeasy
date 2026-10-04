@@ -53,11 +53,38 @@ def test_list_meetings_shape_and_paging(lib, tools):
     assert m["id"] == ids[2]
     assert m["start"] == "2026-09-22T10:00-07:00"
     assert m["duration_minutes"] == 62.2
-    assert m["speakers"] == ["You", "Speaker 1"]
-    assert m["has_summary"] is False and m["tags"] == [] and m["people"] == []
+    assert "speakers" not in m
+    assert m["named_speakers"] == ["You"] and m["speaker_count"] == 2
+    assert m["has_summary"] is False
+    assert "tags" not in m and "people" not in m
+    assert "timestamps_approximate" not in m
     last = tools["list_meetings"].run({"limit": 2, "offset": 2})
     assert [m["title"] for m in last["meetings"]] == ["M20"]
     assert last["next_offset"] is None
+
+
+def test_list_meetings_timestamps_approximate_only_when_true(lib, tools):
+    normal = _seed(lib, day=20, title="Normal")
+    approx = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 4.0, "hi")], duration_seconds=4.0,
+        title="Approx", started_at=datetime(2026, 9, 21, 10, 0, tzinfo=PDT),
+        timestamps_approximate=True))
+    rows = {m["id"]: m for m in tools["list_meetings"].run({})["meetings"]}
+    assert "timestamps_approximate" not in rows[normal]
+    assert rows[approx]["timestamps_approximate"] is True
+
+
+def test_list_meetings_people_and_tags_only_when_present(lib, tools):
+    from speakeasy.meeting_library import EventPerson
+    bare = _seed(lib, day=20, title="Bare")
+    rich = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 4.0, "hi")], duration_seconds=4.0,
+        title="Rich", started_at=datetime(2026, 9, 21, 10, 0, tzinfo=PDT),
+        people=[EventPerson("Refayet K", None, "organizer")]))
+    tools["tag_meetings"].run({"ids": [rich], "add": ["Ops"]})
+    rows = {m["id"]: m for m in tools["list_meetings"].run({})["meetings"]}
+    assert "people" not in rows[bare] and "tags" not in rows[bare]
+    assert rows[rich]["people"] == ["Refayet K"] and rows[rich]["tags"] == ["Ops"]
 
 
 def test_list_meetings_title_filter_and_paging(lib, tools):
@@ -370,7 +397,7 @@ def test_pending_summaries_skips_meeting_deleted_mid_run(lib, tools, monkeypatch
     gone = _seed(lib, day=2)
     lib.delete(gone)
     monkeypatch.setattr(lib, "pending_summaries",
-                        lambda limit: [(gone, True), (real, True)])
+                        lambda limit, **kw: [(gone, True), (real, True)])
     out = tools["pending_summaries"].run({})
     assert [m["id"] for m in out["meetings"]] == [real]
 
@@ -412,3 +439,99 @@ def test_summary_instructions_and_descriptions_point_claude_at_user_notes():
     tools = build_tools(None)
     assert "user_notes" in tools["get_meeting"].description
     assert "the user's own notes" in tools["search_meetings"].description
+
+
+def test_list_meetings_drops_anonymous_speaker_labels(lib, tools):
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("Speaker 12", 0, 2, "a"), MeetingSegment("Priya", 2, 4, "b"),
+                  MeetingSegment("speaker 3", 4, 6, "c"), MeetingSegment("Speaker Phone", 6, 8, "d"),
+                  MeetingSegment("Speaker 2b", 8, 9, "f"),
+                  MeetingSegment("Guest Speaker 2", 9, 10, "g"),
+                  MeetingSegment("Speaker 01", 10, 11, "h"),
+                  MeetingSegment("You", 11, 12, "e")],
+        duration_seconds=600, title="Big", started_at=datetime(2026, 9, 20, 9, tzinfo=PDT)))
+    [m] = tools["list_meetings"].run({})["meetings"]
+    assert m["named_speakers"] == ["Priya", "Speaker Phone", "Speaker 2b",
+                                  "Guest Speaker 2", "Speaker 01", "You"]
+    assert m["speaker_count"] == 8
+
+
+def test_list_meetings_description_mentions_named_speakers(tools):
+    d = tools["list_meetings"].definition()["description"]
+    assert "named speakers" in d and "get_meeting" in d
+
+
+def test_search_meetings_offset_and_next_offset(lib, tools):
+    for d in range(1, 8):
+        _seed(lib, day=d, title=f"M{d}")
+    page = tools["search_meetings"].run({"query": "budget", "limit": 3})
+    assert len(page["results"]) == 3 and page["offset"] == 0 and page["next_offset"] == 3
+    tail = tools["search_meetings"].run({"query": "budget", "limit": 50, "offset": 3})
+    assert tail["next_offset"] is None
+    past = tools["search_meetings"].run({"query": "budget", "offset": 900})
+    assert past["results"] == [] and past["next_offset"] is None
+
+
+def test_search_meetings_by_meeting(lib, tools):
+    a = _seed(lib, day=20, title="Alpha")
+    _seed(lib, day=21, title="Beta")
+    out = tools["search_meetings"].run({"query": "budget", "by_meeting": True})
+    assert len(out["results"]) == 2
+    row = next(r for r in out["results"] if r["meeting_id"] == a)
+    assert set(row) == {"meeting_id", "title", "meeting_start", "hit_count", "first_at",
+                        "last_at", "kinds", "snippets"}
+    assert row["hit_count"] == 2 and row["first_at"] == "00:00:00" and row["last_at"] == "00:00:05"
+    assert row["kinds"] == ["transcript"]
+    assert [set(s) for s in row["snippets"]] == [{"kind", "speaker", "at", "start_seconds", "snippet"}] * 2
+    assert "**budget**" in row["snippets"][0]["snippet"].lower()
+    assert out["next_offset"] is None
+    assert out["truncated"] is False
+    assert "truncated" not in tools["search_meetings"].run({"query": "budget"})
+
+
+def test_search_meetings_by_meeting_pages(lib, tools):
+    for day in (20, 21, 22):
+        _seed(lib, day=day, title=f"M{day}")
+    first = tools["search_meetings"].run({"query": "budget", "by_meeting": True, "limit": 2})
+    assert len(first["results"]) == 2 and first["next_offset"] == 2
+    rest = tools["search_meetings"].run(
+        {"query": "budget", "by_meeting": True, "limit": 2, "offset": 2})
+    assert len(rest["results"]) == 1 and rest["next_offset"] is None
+
+
+def test_search_meetings_rejects_non_boolean_by_meeting(tools):
+    with pytest.raises(ToolError):
+        tools["search_meetings"].run({"query": "x", "by_meeting": "yes"})
+
+
+def test_pending_summaries_catches_up_a_past_range(lib, tools):
+    early_sep = [_seed(lib, day=d, title=f"A{d}") for d in (2, 3)]   # 2026-09-02/03, outside 7 days
+    done = _seed(lib, day=4, title="Done")
+    tools["save_notes"].run({"id": done, "summary": "TL;DR: x"})
+    short = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 4, "hi")], duration_seconds=60, title="Short",
+        started_at=datetime(2026, 9, 3, 12, 0, tzinfo=PDT)))
+    requested = _seed(lib, day=10, title="Asked")
+    lib.request_summary(requested)
+    out = tools["pending_summaries"].run({"from": "2026-09-01", "to": "2026-09-05"})
+    assert [m["id"] for m in out["meetings"]] == [requested, *early_sep]
+    assert short not in [m["id"] for m in out["meetings"]] and done not in [m["id"] for m in out["meetings"]]
+    # Without a range: unchanged (only the explicit request; September is outside 7 days).
+    assert [m["id"] for m in tools["pending_summaries"].run({})["meetings"]] == [requested]
+
+
+def test_pending_summaries_range_validation_and_description(tools):
+    with pytest.raises(ToolError):
+        tools["pending_summaries"].run({"from": "2026-09-05", "to": "2026-09-01"})
+    with pytest.raises(ToolError):
+        tools["pending_summaries"].run({"from": "Sept"})
+    d = tools["pending_summaries"].definition()
+    assert {"from", "to"} <= set(d["inputSchema"]["properties"])
+    assert "catch up" in d["description"]
+
+
+def test_search_description_teaches_recall_strategy(tools):
+    d = tools["search_meetings"].definition()["description"]
+    for phrase in ("one or two distinctive terms", "synonyms", "by_meeting", "from/to",
+                   "get_meeting", "get_transcript", "next_offset"):
+        assert phrase in d, phrase

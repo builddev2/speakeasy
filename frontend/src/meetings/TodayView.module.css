@@ -14,8 +14,6 @@
   gap: 12px;
   flex-shrink: 0;
   width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
   padding: 18px 24px 6px;
 }
 
@@ -25,10 +23,14 @@
   color: var(--text-hi);
 }
 
+.header > :last-child:not(.title) {
+  flex-shrink: 0;
+}
+
 .agenda {
   width: 100%;
   max-width: 760px;
-  margin: 0 auto;
+  margin: 0;
   padding: 6px 24px 8px;
 }
 
@@ -149,6 +151,8 @@ button.row:hover {
 
 .upcoming {
   flex-shrink: 0;
+  width: 100%;
+  max-width: 760px;
   padding: 6px 24px 24px;
 }
 
@@ -244,7 +248,7 @@ button.row:hover {
   gap: 12px;
   width: calc(100% - 48px);
   max-width: 712px;
-  margin: 6px auto;
+  margin: 6px 24px;
   padding: 10px 14px;
   border-radius: 9px;
   background: var(--surface-elevated);
@@ -264,7 +268,7 @@ button.row:hover {
   gap: 16px;
   width: calc(100% - 48px);
   max-width: 712px;
-  margin: 8px auto;
+  margin: 8px 24px;
   padding: 16px 18px;
   border-radius: 12px;
   background: var(--surface-opaque);
@@ -296,7 +300,7 @@ button.row:hover {
 .quiet {
   width: calc(100% - 48px);
   max-width: 712px;
-  margin: 8px auto;
+  margin: 8px 24px;
   padding: 12px 18px;
   font: 400 13px/1.4 var(--sans);
   color: var(--text-mid);
@@ -306,7 +310,7 @@ button.row:hover {
 .earlier {
   width: 100%;
   max-width: 760px;
-  margin: 0 auto;
+  margin: 0;
   padding: 0 24px;
 }
 

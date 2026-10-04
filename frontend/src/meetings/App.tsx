@@ -18,6 +18,7 @@ import { SettingsSheet } from './SettingsSheet';
 import { RecordingNotes } from './RecordingNotes';
 import { draftApi } from './draftApi';
 import { trackRecording } from './recordingState';
+import { localIsoDate } from './listSections';
 import { navigationAction } from './navigation';
 import type { Navigation } from './navigation';
 import { formatElapsed } from './transcriptTurns';
@@ -924,6 +925,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               <MeetingList
                 metas={visibleMetas}
                 selectedId={today || recordingView ? null : selectedId}
+                today={localIsoDate(isMock ? MOCK_NOW_MS : nowMs)}
+                expandAll={filter.type !== 'all'}
                 onSelect={(id) => {
                   userNavigatedRef.current = true;
                   setRecordingView(false);

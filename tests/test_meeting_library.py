@@ -544,3 +544,15 @@ def test_limit_is_clamped(lib):
     assert len(lib.pending_summaries(limit=0, now=NOW)) == 1
     assert len(lib.pending_summaries(now=NOW)) == 5
     assert len(lib.pending_summaries(limit=50, now=NOW)) == 10
+
+
+def test_list_meetings_none_limit_is_uncapped(library_path):
+    lib = MeetingLibrary()
+    base = datetime(2025, 1, 1, 9, 0, tzinfo=timezone.utc)
+    for i in range(502):
+        lib.save_meeting(NewMeeting(
+            segments=[MeetingSegment("You", 0, 5, "hi")], duration_seconds=300,
+            started_at=base + timedelta(hours=i), title=f"M{i}"))
+    assert len(lib.list_meetings(limit=None)) == 502
+    assert len(lib.list_meetings(limit=10_000)) == 500   # integers still clamp
+    assert len(lib.list_meetings()) == 100               # default unchanged

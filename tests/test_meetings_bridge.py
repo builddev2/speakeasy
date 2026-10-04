@@ -60,7 +60,8 @@ def test_list_and_get_shapes(library_path):
     # meta.subtitle verbatim, and the mock's only populated example is
     # linked people joined by ", ").
     assert metas == [{
-        "id": mid, "title": "1:1 Alex", "dayLabel": "Today", "time": "1:17 PM",
+        "id": mid, "title": "1:1 Alex", "dayLabel": "Today", "startDate": "2026-09-24",
+        "time": "1:17 PM",
         "duration": "23 min", "subtitle": "You, Speaker 1", "speakerCount": 2,
         "hasSummary": True, "approximate": False, "tags": ["VFA"], "people": []}]
 
@@ -69,7 +70,8 @@ def test_list_and_get_shapes(library_path):
     # ruling) and lines[].start (jump-to seconds).
     detail = bridge.get_payload({"id": mid})
     assert detail == {
-        "id": mid, "title": "1:1 Alex", "dayLabel": "Today", "time": "1:17 PM",
+        "id": mid, "title": "1:1 Alex", "dayLabel": "Today", "startDate": "2026-09-24",
+        "time": "1:17 PM",
         "duration": "23 min", "subtitle": "You, Speaker 1", "speakerCount": 2,
         "hasSummary": True, "approximate": False, "tags": ["VFA"], "people": [],
         "hasUserNotes": False, "userNotes": {"markdown": "", "stamps": []},
@@ -842,3 +844,26 @@ def test_search_reports_title_hits(library_path):
     assert res[0]["meetingId"] == mid and res[0]["kind"] == "meeting"
     assert res[0]["seconds"] is None and res[0]["segmentIndex"] is None
     assert res[0]["parts"] == [{"text": "1:1 ", "hit": False}, {"text": "Alex", "hit": True}]
+
+
+def test_list_returns_every_meeting_past_500(library_path):
+    lib = MeetingLibrary()
+    start = datetime(2025, 1, 1, 9, 0, tzinfo=TZ)
+    for i in range(501):
+        lib.save_meeting(NewMeeting(
+            segments=[MeetingSegment("You", 0, 5, "hi")], duration_seconds=300,
+            started_at=start + timedelta(hours=i), title=f"M{i}"))
+    bridge = MeetingsBridge(lib, now=NOW)
+    assert len(bridge.list_payload({})) == 501
+
+
+def test_meta_start_date_is_local_day(library_path):
+    lib = MeetingLibrary()
+    # 23:30 at UTC-4 is already the next day in UTC: startDate must stay local.
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0, 5, "late")], duration_seconds=300,
+        started_at=datetime(2026, 9, 23, 23, 30, tzinfo=TZ), title="Late"))
+    bridge = MeetingsBridge(lib, now=NOW)
+    [meta] = bridge.list_payload({})
+    assert meta["startDate"] == "2026-09-23"
+    assert bridge.get_payload({"id": meta["id"]})["startDate"] == "2026-09-23"

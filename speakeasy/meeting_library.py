@@ -760,7 +760,9 @@ class MeetingLibrary:
     def list_meetings(self, *, from_date=None, to_date=None, tag=None,
                       person=None, title=None, limit=100, offset=0) -> list[MeetingSummary]:
         where, params = meeting_filters(from_date, to_date, tag, person, title)
-        limit = max(1, min(int(limit), 500))
+        # None = every meeting (the Meetings window groups them itself);
+        # SQLite treats LIMIT -1 as no limit.
+        limit = -1 if limit is None else max(1, min(int(limit), 500))
         with self._transaction() as conn:
             rows = conn.execute(
                 "SELECT m.*, (SELECT COUNT(DISTINCT speaker) FROM segments s"

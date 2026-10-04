@@ -305,6 +305,7 @@ class MeetingsBridge:
         return {
             "id": meeting_id, "title": title,
             "dayLabel": day_label(meeting_local_start, self._now()),
+            "startDate": meeting_local_start.date().isoformat(),
             "time": meeting_local_start.strftime("%-I:%M %p"), "duration": f"{minutes} min",
             "subtitle": subtitle, "speakerCount": speaker_count, "hasSummary": has_summary,
             "approximate": approximate, "tags": tags, "people": people,
@@ -320,7 +321,7 @@ class MeetingsBridge:
 
     def list_payload(self, params) -> list[dict]:
         return [self._meta(m) for m in self.library.list_meetings(
-            tag=params.get("tag") or None, person=params.get("person") or None, limit=500)]
+            tag=params.get("tag") or None, person=params.get("person") or None, limit=None)]
 
     def filters_payload(self, params) -> dict:
         return {

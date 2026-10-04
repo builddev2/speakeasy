@@ -359,10 +359,12 @@ def build_tools(library) -> dict[str, Tool]:
          "get_transcript for that.",
          _ID, ["id"], get_meeting, True),
         ("search_meetings",
-         "Full-text search across transcripts, summaries and the user's own notes "
-         "(kind user_notes). Returns ranked snippets (matches in **bold**) with the "
-         "meeting id and time offset. Meeting titles aren't searched: use "
-         "list_meetings with title.",
+         "Search meetings by title, date and content: transcripts, summaries and the "
+         "user's own notes (kind user_notes). A date in the query (e.g. 'Oct 3', "
+         "'3 October 2026', '2026-10-03', 'today', 'yesterday') limits results to that "
+         "day; a date alone lists that day's meetings. Title matches come first as kind "
+         "meeting; content matches return ranked snippets (matches in **bold**) with the "
+         "meeting id and time offset.",
          {"query": {"type": "string"}, **_FILTERS,
           "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
          ["query"], search_meetings, True),

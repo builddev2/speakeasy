@@ -80,7 +80,19 @@ def test_title_lookup_is_described(tools):
     assert "find a meeting by name" in listing["description"]
     search = tools["search_meetings"].definition()
     assert "title" not in search["inputSchema"]["properties"]
-    assert "titles aren't searched: use list_meetings with title" in search["description"]
+    assert "Search meetings by title, date and content" in search["description"]
+    assert "a date alone lists that day's meetings" in search["description"]
+
+
+def test_search_meetings_title_and_date_hits(lib, tools):
+    mid = _seed(lib, title="Budget review")
+    hits = tools["search_meetings"].run({"query": "review"})["results"]
+    assert hits[0] == {
+        "meeting_id": mid, "title": "Budget review", "meeting_start": hits[0]["meeting_start"],
+        "kind": "meeting", "speaker": None, "also_speakers": [], "at": None,
+        "start_seconds": None, "snippet": "Budget **review**"}
+    day = tools["search_meetings"].run({"query": "2026-09-24"})["results"]
+    assert [(h["meeting_id"], h["kind"]) for h in day] == [(mid, "meeting")]
 
 
 def test_list_meetings_coerces_and_clamps_loose_numbers(lib, tools, monkeypatch):

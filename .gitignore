@@ -22,3 +22,5 @@ dist/
 # Diarization ONNX models (fetch with scripts/fetch_diarization_models.sh)
 models/
 packaging/mcpb/node_modules/
+
+.superpowers/

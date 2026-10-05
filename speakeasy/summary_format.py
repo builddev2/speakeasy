@@ -26,6 +26,11 @@ Rules:
 - Short, plain sentences. No speaker-mapping notes, no notes about
   transcription errors, no "Speaker 3": use a name if the transcript gives
   one, otherwise describe the role ("the facilitator").
+- Names: get_meeting's people and calendar_event invitees are the source of
+  truth for spelling. Transcripts mishear names ("Rafael" for "Refayet"), so
+  when a name heard in the transcript sounds like an invitee, write the
+  invitee's name. Use first names ("Siam, Refayet" is Refayet). Keep names of
+  people who were not invited as the transcript gives them.
 - Action items go in action_items, not the summary, each as
   "Owner — task (due)"; use "Unassigned" when nobody took it. Parked ideas go
   under Open questions, not action items.

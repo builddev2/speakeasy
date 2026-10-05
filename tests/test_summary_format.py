@@ -90,5 +90,6 @@ def test_empty():
 
 def test_instructions_name_the_sections_and_limits():
     for needle in ("TL;DR:", "## Decisions", "## Key points", "## Open questions",
-                   "150 words", "Owner — task", "list_tags", "at most 3 new"):
+                   "150 words", "Owner — task", "list_tags", "at most 3 new",
+                   "invitees are the source of"):
         assert needle in SUMMARY_INSTRUCTIONS

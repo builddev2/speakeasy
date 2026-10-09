@@ -17,7 +17,8 @@ from datetime import date, datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from . import meeting_store
+from . import action_item_store, action_items as ai, meeting_store
+from .action_item_store import ActionItem, ActionItemNotFound  # noqa: F401 (re-exported)
 from .meetings import MeetingSegment, _ID_RE, filter_capture_health
 from .search_dates import parse_date_phrase
 from .tag_names import (MAX_DESCRIPTION_CHARS, MAX_NEW_TAGS_PER_SAVE,
@@ -126,6 +127,12 @@ def local_day_bounds(from_date, to_date):
             (datetime.fromisoformat(to_date) + timedelta(days=1)).astimezone()
         )
     return lower, upper
+
+
+def _as_list(value):
+    """Tuples become lists for ai.check_tags; anything else (notably a bare
+    str) passes through so check_tags rejects it."""
+    return list(value) if isinstance(value, tuple) else value
 
 
 def _check_id(meeting_id: str) -> None:
@@ -295,6 +302,7 @@ class StoredMeeting:
     speakers: list[str] = field(default_factory=list)
     segment_count: int = 0
     user_notes: UserNotes | None = None
+    action_items: list = field(default_factory=list)
 
     @property
     def local_start(self) -> datetime:
@@ -675,6 +683,7 @@ class MeetingLibrary:
     def delete(self, meeting_id: str) -> None:
         _check_id(meeting_id)
         with self._transaction() as conn:
+            action_item_store.delete_untouched_for_meeting(conn, meeting_id)
             if conn.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,)).rowcount == 0:
                 raise MeetingNotFound(meeting_id)
             # Orphaned tags would linger in list_tags() (unless they still
@@ -740,6 +749,7 @@ class MeetingLibrary:
                 people=self._people(conn, meeting_id),
                 speakers=speakers, segment_count=segment_count,
                 user_notes=self._user_notes(conn, meeting_id),
+                action_items=action_item_store.list_items(conn, meeting_id=meeting_id),
             )
 
     def _user_notes(self, conn, meeting_id):
@@ -1093,6 +1103,106 @@ class MeetingLibrary:
             " AND id NOT IN (SELECT tag_id FROM tag_aliases)"
             " AND id NOT IN (SELECT tag_id FROM tag_suppressions)"
             " AND id NOT IN (SELECT tag_id FROM action_item_tags)")
+
+    # -- action items -----------------------------------------------------
+
+    def _resolve_or_create_tag(self, conn, name) -> int:
+        return self._find_tag(conn, name) or self._create_tag(conn, name)
+
+    def list_action_items(self, *, meeting_id=None, include_deleted=False) -> list[ActionItem]:
+        with self._transaction() as conn:
+            return action_item_store.list_items(conn, meeting_id=meeting_id,
+                                                include_deleted=include_deleted)
+
+    def get_action_item(self, item_id) -> ActionItem:
+        with self._transaction() as conn:
+            return action_item_store.get_item(conn, ai.check_id(item_id))
+
+    def create_action_item(self, *, task, owner="", meeting_id=None, due=None, priority="normal",
+                           notes="", tags=(), updated_by="user") -> ActionItem:
+        inp = ai.ItemInput(ai.check_task(task), ai.clean_owner(owner), None, "",
+                           ai.check_priority(priority), tuple(ai.check_tags(_as_list(tags))))
+        due_override, notes = ai.check_date(due, "due"), ai.check_notes(notes or "")
+        if meeting_id is not None:
+            _check_id(meeting_id)
+        with self._transaction() as conn:
+            if meeting_id is not None and conn.execute(
+                    "SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+                raise MeetingNotFound(meeting_id)
+            item_id = action_item_store.insert_item(
+                conn, inp, meeting_id=meeting_id, source="manual", updated_by=updated_by,
+                position=1_000_000, notes=notes, due_override=due_override, touched=True)
+            action_item_store.set_own_tags(conn, item_id, inp.tags, self._resolve_or_create_tag)
+            if meeting_id:
+                action_item_store.sync_mirror(conn, meeting_id)
+            return action_item_store.get_item(conn, item_id)
+
+    def update_action_item(self, item_id, *, updated_by, task=ai.UNSET, owner=ai.UNSET,
+                           priority=ai.UNSET, status=ai.UNSET, notes=ai.UNSET, due=ai.UNSET,
+                           due_reset=False, tags=ai.UNSET) -> ActionItem:
+        item_id = ai.check_id(item_id)
+        sets = {}
+        if task is not ai.UNSET:
+            sets["task"] = ai.check_task(task)
+        if owner is not ai.UNSET:
+            sets["owner"] = ai.clean_owner(owner)
+        if priority is not ai.UNSET:
+            sets["priority"] = ai.check_priority(priority)
+        if status is not ai.UNSET:
+            sets["status"] = ai.check_status(status)
+        if notes is not ai.UNSET:
+            sets["notes"] = ai.check_notes(notes)
+        if due_reset:
+            sets.update(due_override=None, due_cleared=0)
+        elif due is not ai.UNSET:
+            day = ai.check_date(due, "due")
+            sets.update(due_override=day, due_cleared=0 if day else 1)
+        names = None if tags is ai.UNSET else ai.check_tags(_as_list(tags))
+        with self._transaction() as conn:
+            action_item_store.update_item(conn, item_id, sets, updated_by=updated_by,
+                                          tags=names, resolve=self._resolve_or_create_tag)
+            if names is not None:
+                self._drop_orphan_tags(conn)
+            return action_item_store.get_item(conn, item_id)
+
+    def delete_action_item(self, item_id, *, updated_by) -> None:
+        with self._transaction() as conn:
+            action_item_store.update_item(conn, ai.check_id(item_id),
+                                          {"deleted_at": action_item_store._now()},
+                                          updated_by=updated_by)
+
+    def restore_action_item(self, item_id, *, updated_by) -> ActionItem:
+        item_id = ai.check_id(item_id)
+        with self._transaction() as conn:
+            action_item_store.update_item(conn, item_id, {"deleted_at": None}, updated_by=updated_by)
+            return action_item_store.get_item(conn, item_id)
+
+    def bulk_update_action_items(self, ids, *, updated_by, status=ai.UNSET, add_tags=(),
+                                 remove_tags=(), delete=False) -> list[ActionItem]:
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("ids must list at least one action item.")
+        if len(ids) > ai.MAX_BULK_IDS:
+            raise ValueError(f"At most {ai.MAX_BULK_IDS} action items at once.")
+        ids = list(dict.fromkeys(ai.check_id(i) for i in ids))
+        add, remove = ai.check_tags(_as_list(add_tags)), ai.check_tags(_as_list(remove_tags))
+        sets = {}
+        if status is not ai.UNSET:
+            sets["status"] = ai.check_status(status)
+        if delete:
+            sets["deleted_at"] = action_item_store._now()
+        with self._transaction() as conn:
+            for item_id in ids:
+                current = action_item_store.get_item(conn, item_id)
+                names = None
+                if add or remove:
+                    gone = {self._find_tag(conn, n) for n in remove} - {None}
+                    keep = [t for t in current.tags if self._find_tag(conn, t) not in gone]
+                    names = keep + [n for n in add if self._find_tag(conn, n) not in
+                                    {self._find_tag(conn, k) for k in keep}]
+                action_item_store.update_item(conn, item_id, sets, updated_by=updated_by,
+                                              tags=names, resolve=self._resolve_or_create_tag)
+            self._drop_orphan_tags(conn)
+            return [action_item_store.get_item(conn, i) for i in ids]
 
     def tag_catalog(self) -> list[TagInfo]:
         """Tags in use, most used first, with descriptions and aliases."""

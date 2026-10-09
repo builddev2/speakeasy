@@ -35,8 +35,10 @@ def test_tool_names_order_and_definitions(tools):
     assert list(tools) == ["list_meetings", "get_meeting", "search_meetings",
                            "get_transcript", "get_calendar", "list_tags",
                            "list_people", "save_notes", "tag_meetings", "manage_tags",
-                           "pending_summaries"]
-    writers = {"save_notes", "tag_meetings", "manage_tags"}
+                           "pending_summaries", "list_action_items", "create_action_item",
+                           "update_action_item", "delete_action_item"]
+    writers = {"save_notes", "tag_meetings", "manage_tags", "create_action_item",
+               "update_action_item", "delete_action_item"}
     for t in tools.values():
         d = t.definition()
         assert d["name"] == t.name and d["description"]
@@ -357,7 +359,8 @@ def test_tag_descriptions_steer_reuse(tools):
 
 
 def test_pending_summaries_returns_meetings_and_instructions(lib, tools):
-    from speakeasy.summary_format import SUMMARY_INSTRUCTIONS
+    from speakeasy import settings
+    from speakeasy.summary_format import summary_instructions
     recent = lib.save_meeting(NewMeeting(
         segments=[MeetingSegment("You", 0, 4, "hello")], duration_seconds=600,
         title="Recent", started_at=datetime.now(timezone.utc) - timedelta(days=1)))
@@ -369,7 +372,7 @@ def test_pending_summaries_returns_meetings_and_instructions(lib, tools):
     first = out["meetings"][0]
     assert set(first) == {"id", "title", "start", "duration_minutes", "speakers",
                           "tags", "has_summary", "requested"}
-    assert out["instructions"] == SUMMARY_INSTRUCTIONS
+    assert out["instructions"] == summary_instructions(settings.get_identity())
     assert tools["pending_summaries"].run({"limit": 1})["meetings"][0]["id"] == old
     # Out-of-range limits clamp (like every other tool's _int), not raise.
     assert len(tools["pending_summaries"].run({"limit": 11})["meetings"]) == 2

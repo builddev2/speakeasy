@@ -74,3 +74,40 @@ def test_omitting_action_items_leaves_items_alone(lib):
     lib.save_notes(mid, summary="s", action_items=["Keep"])
     lib.save_notes(mid, summary="new summary")
     assert tasks(lib, mid) == ["Keep"]
+
+
+def _tag_count(lib, name):
+    with lib._transaction() as conn:
+        return conn.execute("SELECT COUNT(*) FROM tags WHERE name = ?", (name,)).fetchone()[0]
+
+
+def test_resummarise_drops_orphan_tags_but_keeps_tags_of_kept_items(lib):
+    mid = _meeting(lib, "M")
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "B", "tags": ["Budgetzz"]}, {"task": "Keeper", "tags": ["Keepzz"]}])
+    keeper = next(i for i in lib.list_action_items(meeting_id=mid) if i.task == "Keeper")
+    lib.update_action_item(keeper.id, updated_by="user", notes="n")
+    lib.save_notes(mid, action_items=["C"])
+    assert _tag_count(lib, "Budgetzz") == 0
+    assert _tag_count(lib, "Keepzz") == 1
+
+
+def test_similarity_threshold_is_pinned(lib):
+    from speakeasy import action_items as ai
+    assert ai.SIMILAR_TASK_RATIO == 0.85
+    assert ai.similar("Draft budget proposal", "Draft budget proposals now") >= 0.85
+    assert ai.similar("Draft budget proposal", "Draft budget plan for Q4") < 0.85
+    mid = _meeting(lib, "M")
+    lib.create_action_item(task="Draft budget proposal", meeting_id=mid)
+    lib.save_notes(mid, summary="s", action_items=[
+        "Draft budget proposals now", "Draft budget plan for Q4"])
+    assert sorted(tasks(lib, mid)) == ["Draft budget plan for Q4", "Draft budget proposal"]
+
+
+def test_similarity_equal_to_threshold_suppresses(lib, monkeypatch):
+    from speakeasy import action_item_store, action_items as ai
+    monkeypatch.setattr(action_item_store.ai, "similar", lambda a, b: ai.SIMILAR_TASK_RATIO)
+    mid = _meeting(lib, "M")
+    lib.create_action_item(task="Alpha", meeting_id=mid)
+    lib.save_notes(mid, summary="s", action_items=["Beta"])
+    assert tasks(lib, mid) == ["Alpha"]

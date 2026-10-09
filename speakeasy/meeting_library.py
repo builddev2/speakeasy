@@ -926,6 +926,7 @@ class MeetingLibrary:
             if inputs is not None:
                 action_item_store.merge_summary_items(
                     conn, meeting_id, inputs, self._resolve_or_create_tag, updated_by=updated_by)
+                self._drop_orphan_tags(conn)
             if new_summary:  # a written summary answers any pending request
                 conn.execute("DELETE FROM summary_requests WHERE meeting_id = ?",
                              (meeting_id,))

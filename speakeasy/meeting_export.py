@@ -6,7 +6,7 @@ import shutil
 import sqlite3
 import tempfile
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -57,13 +57,64 @@ def notes_section(stored) -> list[str]:
     return ["## My notes", "", *lines, ""]
 
 
+def _due_text(day: str) -> str:
+    d = date.fromisoformat(day)
+    return f"{d:%a} {d.day} {d:%b %Y}"
+
+
+def format_item_md(item) -> list[str]:
+    parts = [f"- [{'x' if item.status == 'done' else ' '}] {item.task}"]
+    if item.owner:
+        parts.append(item.owner)
+    head = " — ".join(parts)
+    extras = []
+    if item.effective_due:
+        due = f"due {_due_text(item.effective_due)}"
+        extras.append(f'{due} ("{item.due_phrase}")' if item.due_phrase else due)
+    if item.priority != "normal":
+        extras.append(item.priority)
+    lines = [" · ".join([head, *extras])]
+    if item.notes:
+        first, *rest = item.notes.split("\n")
+        lines += [f"  Notes: {first}", *[f"  {r}" for r in rest]]
+    return lines
+
+
+def _item_with_source(item) -> list[str]:
+    lines = format_item_md(item)
+    if item.meeting_id and item.meeting_title and item.meeting_started_at:
+        started = datetime.fromisoformat(item.meeting_started_at.replace("Z", "+00:00"))
+        local = started.astimezone(timezone(timedelta(minutes=item.meeting_tz_offset_minutes or 0)))
+        lines.insert(1, f"  From: {item.meeting_title} ({local:%Y-%m-%d})")
+    return lines
+
+
+def _write_action_items_file(folder: Path, library) -> None:
+    items = library.list_action_items()
+    if not items:
+        return
+    lines = ["# Action items", ""]
+    for heading, done in (("Open", False), ("Completed", True)):
+        group = [i for i in items if (i.status == "done") == done]
+        lines += [f"## {heading}", ""]
+        for item in group:
+            lines += _item_with_source(item)
+        lines.append("")
+    (folder / "Action items.md").write_text("\n".join(lines), encoding="utf-8")
+
+
 def render_export_md(stored) -> str:
     body = render_md(stored)
     title_line, _, rest = body.partition("\n")
     extra = []
     if stored.notes and stored.notes.summary:
         extra += ["## Summary", "", stored.notes.summary, ""]
-    if stored.notes and stored.notes.action_items:
+    if getattr(stored, "action_items", None):
+        extra += ["## Action items", ""]
+        for item in stored.action_items:
+            extra += format_item_md(item)
+        extra.append("")
+    elif stored.notes and stored.notes.action_items:
         extra += ["## Action items", ""] + [f"- [ ] {a}" for a in stored.notes.action_items] + [""]
     extra += notes_section(stored)
     if stored.tags:
@@ -111,6 +162,7 @@ def export_all(folder: Path, library=None) -> int:
             (folder / f"{candidate}.md").write_text(render_export_md(stored), encoding="utf-8")
             count += 1
         offset += len(batch)
+    _write_action_items_file(folder, library)
     return count
 
 

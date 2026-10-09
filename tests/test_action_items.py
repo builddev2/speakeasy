@@ -12,6 +12,9 @@ from speakeasy import action_items as ai
     ("Follow up - urgent", "", "Follow up - urgent", ""),           # plain hyphen is not an owner split
     ("A very long owner name here — task", "", "A very long owner name here — task", ""),  # 5 words: not an owner
     ("Just a task", "", "Just a task", ""),
+    ("Alpha Beta Gamma Delta Epsilon — task", "", "Alpha Beta Gamma Delta Epsilon — task", ""),  # exactly 5 words
+    ("Alpha Beta Gamma Delta — task", "Alpha Beta Gamma Delta", "task", ""),  # exactly 4 words splits
+    ("Jason — (Fri)", "Jason", "(Fri)", ""),
     ("(Fri)", "", "(Fri)", ""),                                     # empty task falls back to the original
     ("Jason —   Send   it  ", "Jason", "Send it", ""),
 ])
@@ -112,3 +115,10 @@ def test_format_mirror():
     assert ai.format_mirror("Jason", "Send it", "by Friday", "2026-10-16") == "Jason — Send it (by Friday)"
     assert ai.format_mirror("", "Send it", "", "2026-10-16") == "Send it (2026-10-16)"
     assert ai.format_mirror("", "Send it", "", None) == "Send it"
+
+
+def test_check_status():
+    assert ai.check_status("open") == "open" and ai.check_status("done") == "done"
+    for bad in ("closed", "", None, "Open"):
+        with pytest.raises(ValueError, match="status must be open or done."):
+            ai.check_status(bad)

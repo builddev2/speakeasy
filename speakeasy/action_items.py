@@ -91,6 +91,12 @@ def check_priority(value) -> str:
     return value
 
 
+def check_status(value) -> str:
+    if value not in ("open", "done"):
+        raise ValueError("status must be open or done.")
+    return value
+
+
 def check_notes(value) -> str:
     if not isinstance(value, str):
         raise ValueError("notes must be text.")

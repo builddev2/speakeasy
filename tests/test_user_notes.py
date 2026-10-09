@@ -22,7 +22,7 @@ def _new(started=START, **kw):
 def test_schema_is_v5_with_notepad_tables(library_path):
     conn = meeting_store.connect()
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
         assert {"user_notes", "user_notes_fts", "note_draft"} <= names
     finally:
@@ -39,7 +39,7 @@ def test_v4_library_migrates_to_v5_keeping_meetings(library_path):
     assert lib.get_meeting(mid).title
     assert lib.get_user_notes(mid) is None
     conn = meeting_store.connect()
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     conn.close()
 
 

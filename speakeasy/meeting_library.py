@@ -1085,12 +1085,14 @@ class MeetingLibrary:
     def _drop_orphan_tags(conn) -> None:
         # A tag no meeting uses is clutter, unless it still means something:
         # a description, an alias, or a user's "not this tag on this meeting"
-        # (deleting the tag would cascade that suppression away).
+        # (deleting the tag would cascade that suppression away), or an
+        # action item's own tag.
         conn.execute(
             "DELETE FROM tags WHERE description = ''"
             " AND id NOT IN (SELECT tag_id FROM meeting_tags)"
             " AND id NOT IN (SELECT tag_id FROM tag_aliases)"
-            " AND id NOT IN (SELECT tag_id FROM tag_suppressions)")
+            " AND id NOT IN (SELECT tag_id FROM tag_suppressions)"
+            " AND id NOT IN (SELECT tag_id FROM action_item_tags)")
 
     def tag_catalog(self) -> list[TagInfo]:
         """Tags in use, most used first, with descriptions and aliases."""

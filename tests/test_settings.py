@@ -169,3 +169,5 @@ def test_identity_ignores_corrupt_stored_value():
     from speakeasy import settings
     settings._write({"identity": {"name": 5, "aliases": "nope"}})
     assert settings.get_identity() == {"name": "", "aliases": []}
+    settings._write({"identity": {"name": "x" * 81, "aliases": []}})
+    assert settings.get_identity() == {"name": "", "aliases": []}

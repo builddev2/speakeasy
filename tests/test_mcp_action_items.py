@@ -64,6 +64,7 @@ def test_create_update_delete_round_trip(env):
     assert created["due"] == "2026-10-20" and created["due_source"] == "user"
     updated = run(tools, "update_action_item", id=str(created["id"]), status="done", notes="called")
     assert updated["status"] == "done" and updated["notes"] == "called"
+    assert updated["due"] == "2026-10-20" and updated["tags"] == ["Money"]
     cleared = run(tools, "update_action_item", id=created["id"], due="")
     assert cleared["due"] is None
     assert lib.get_action_item(created["id"]).updated_by == "claude"

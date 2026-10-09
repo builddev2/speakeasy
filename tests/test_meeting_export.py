@@ -302,3 +302,30 @@ def test_export_without_items_writes_no_action_items_file(tmp_path, library_path
     _meeting(lib, "Quiet")
     export_all(tmp_path / "out", lib)
     assert not (tmp_path / "out" / "Action items.md").exists()
+
+
+def test_export_excludes_soft_deleted_items(tmp_path, library_path):
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "Weekly")
+    lib.save_notes(mid, summary="s", action_items=["Keep me", "Drop me"])
+    keep, drop = lib.list_action_items(meeting_id=mid)
+    lib.delete_action_item(drop.id, updated_by="user")
+    export_all(tmp_path / "out", lib)
+    assert "Keep me" in (tmp_path / "out" / "Action items.md").read_text()
+    for f in (tmp_path / "out").iterdir():
+        assert "Drop me" not in f.read_text(encoding="utf-8")
+
+
+def test_per_meeting_section_formats_status_due_and_notes(library_path):
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "M")
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "Send draft", "owner": "Jason", "due_date": "2026-10-16",
+         "due_phrase": "by Friday", "priority": "high"}])
+    (item,) = lib.list_action_items(meeting_id=mid)
+    lib.update_action_item(item.id, updated_by="user", status="done", notes="a\nb")
+    md = render_export_md(lib.get_meeting(mid))
+    assert ('## Action items\n\n- [x] Send draft — Jason · due Fri 16 Oct 2026 '
+            '("by Friday") · high\n  Notes: a\n  b\n') in md

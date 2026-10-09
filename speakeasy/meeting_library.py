@@ -135,6 +135,15 @@ def _as_list(value):
     return list(value) if isinstance(value, tuple) else value
 
 
+_ACTOR = ("claude", "user")  # the action_items.updated_by CHECK in meeting_store
+
+
+def _check_actor(updated_by) -> str:
+    if updated_by not in _ACTOR:
+        raise ValueError("updated_by must be claude or user.")
+    return updated_by
+
+
 def _check_id(meeting_id: str) -> None:
     # The id reaches SQL only as a bound parameter, but it is also a
     # filename in exports and legacy JSON; keep the one accepted shape.
@@ -1122,6 +1131,7 @@ class MeetingLibrary:
                            notes="", tags=(), updated_by="user") -> ActionItem:
         inp = ai.ItemInput(ai.check_task(task), ai.clean_owner(owner), None, "",
                            ai.check_priority(priority), tuple(ai.check_tags(_as_list(tags))))
+        _check_actor(updated_by)
         due_override, notes = ai.check_date(due, "due"), ai.check_notes(notes or "")
         if meeting_id is not None:
             _check_id(meeting_id)
@@ -1141,6 +1151,7 @@ class MeetingLibrary:
                            priority=ai.UNSET, status=ai.UNSET, notes=ai.UNSET, due=ai.UNSET,
                            due_reset=False, tags=ai.UNSET) -> ActionItem:
         item_id = ai.check_id(item_id)
+        _check_actor(updated_by)
         sets = {}
         if task is not ai.UNSET:
             sets["task"] = ai.check_task(task)
@@ -1166,12 +1177,14 @@ class MeetingLibrary:
             return action_item_store.get_item(conn, item_id)
 
     def delete_action_item(self, item_id, *, updated_by) -> None:
+        _check_actor(updated_by)
         with self._transaction() as conn:
             action_item_store.update_item(conn, ai.check_id(item_id),
                                           {"deleted_at": action_item_store._now()},
                                           updated_by=updated_by)
 
     def restore_action_item(self, item_id, *, updated_by) -> ActionItem:
+        _check_actor(updated_by)
         item_id = ai.check_id(item_id)
         with self._transaction() as conn:
             action_item_store.update_item(conn, item_id, {"deleted_at": None}, updated_by=updated_by)
@@ -1179,6 +1192,7 @@ class MeetingLibrary:
 
     def bulk_update_action_items(self, ids, *, updated_by, status=ai.UNSET, add_tags=(),
                                  remove_tags=(), delete=False) -> list[ActionItem]:
+        _check_actor(updated_by)
         if not isinstance(ids, list) or not ids:
             raise ValueError("ids must list at least one action item.")
         if len(ids) > ai.MAX_BULK_IDS:
@@ -1191,6 +1205,7 @@ class MeetingLibrary:
         if delete:
             sets["deleted_at"] = action_item_store._now()
         with self._transaction() as conn:
+            plan = []
             for item_id in ids:
                 current = action_item_store.get_item(conn, item_id)
                 names = None
@@ -1199,6 +1214,10 @@ class MeetingLibrary:
                     keep = [t for t in current.tags if self._find_tag(conn, t) not in gone]
                     names = keep + [n for n in add if self._find_tag(conn, n) not in
                                     {self._find_tag(conn, k) for k in keep}]
+                    if len(names) > ai.MAX_ITEM_TAGS:
+                        raise ValueError(f"At most {ai.MAX_ITEM_TAGS} tags per action item.")
+                plan.append((item_id, names))
+            for item_id, names in plan:  # validated every item first: all or nothing
                 action_item_store.update_item(conn, item_id, sets, updated_by=updated_by,
                                               tags=names, resolve=self._resolve_or_create_tag)
             self._drop_orphan_tags(conn)

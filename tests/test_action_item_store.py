@@ -165,3 +165,38 @@ def test_delete_meeting_keeps_touched_items_without_save_notes(lib):
     assert set(left) == {"Touched", "Done", "Manual"}
     assert all(i.meeting_id is None for i in left.values())
     assert manual.id in {i.id for i in left.values()}
+
+
+def test_bulk_cannot_exceed_item_tag_limit_and_is_all_or_nothing(lib):
+    full = lib.create_action_item(task="full", tags=[f"T{i}" for i in range(10)])
+    other = lib.create_action_item(task="other")
+    with pytest.raises(ValueError, match="10 tags"):
+        lib.bulk_update_action_items([other.id, full.id], updated_by="user", status="done",
+                                     add_tags=[f"N{i}" for i in range(10)])
+    assert lib.get_action_item(full.id).tags == [f"T{i}" for i in range(10)]
+    unchanged = lib.get_action_item(other.id)
+    assert unchanged.status == "open" and unchanged.tags == []
+
+
+def test_ids_are_validated_at_the_library(lib):
+    item = lib.create_action_item(task="x")
+    calls = (lambda: lib.bulk_update_action_items([True], updated_by="user", status="done"),
+             lambda: lib.get_action_item(True),
+             lambda: lib.update_action_item(True, updated_by="user", notes="n"),
+             lambda: lib.delete_action_item(True, updated_by="user"),
+             lambda: lib.restore_action_item(True, updated_by="user"))
+    for call in calls:
+        with pytest.raises(ValueError):
+            call()
+    assert lib.get_action_item(item.id).status == "open"
+
+
+def test_updated_by_is_validated(lib):
+    item = lib.create_action_item(task="x")
+    for call in (lambda: lib.create_action_item(task="y", updated_by="bot"),
+                 lambda: lib.update_action_item(item.id, updated_by="bot", notes="n"),
+                 lambda: lib.delete_action_item(item.id, updated_by="bot"),
+                 lambda: lib.restore_action_item(item.id, updated_by="bot"),
+                 lambda: lib.bulk_update_action_items([item.id], updated_by="bot", status="done")):
+        with pytest.raises(ValueError, match="claude or user"):
+            call()

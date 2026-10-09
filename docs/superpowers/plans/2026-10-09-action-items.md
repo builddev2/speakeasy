@@ -2910,4 +2910,8 @@ Take one screenshot for the report. Stop the dev server.
 
 ## Progress
 
-- Not started (plan written 2026-10-09).
+- Plan written 2026-10-09.
+- Task 0 done 2026-10-09: export/recovery (v6) committed as `6af9601` and
+  merged into local master as `9cef40d` (push to origin still pending, the
+  user's call). Worktree `.claude/worktrees/action-items`, branch
+  `feature/action-items`. Baseline: 1,285 Python passed, 52 frontend passed.

@@ -158,3 +158,20 @@ def sync_mirror(conn, meeting_id: str) -> None:
 def delete_untouched_for_meeting(conn, meeting_id: str) -> None:
     conn.execute("DELETE FROM action_items WHERE meeting_id = ? AND source = 'summary'"
                  " AND user_touched = 0 AND status = 'open'", (meeting_id,))
+
+
+def merge_summary_items(conn, meeting_id: str, inputs, resolve, *, updated_by) -> None:
+    """Spec §2: keep manual/touched/done/deleted items, replace the rest, and
+    skip incoming items that match a kept one."""
+    kept = [r["task"] for r in conn.execute(
+        "SELECT task FROM action_items WHERE meeting_id = ? AND (source = 'manual'"
+        " OR user_touched = 1 OR status = 'done' OR deleted_at IS NOT NULL)", (meeting_id,))]
+    delete_untouched_for_meeting(conn, meeting_id)
+    for position, inp in enumerate(inputs):
+        if any(ai.similar(inp.task, k) >= ai.SIMILAR_TASK_RATIO for k in kept):
+            continue
+        item_id = insert_item(conn, inp, meeting_id=meeting_id, source="summary",
+                              updated_by=updated_by, position=position)
+        if inp.tags:
+            set_own_tags(conn, item_id, inp.tags, resolve)
+    sync_mirror(conn, meeting_id)

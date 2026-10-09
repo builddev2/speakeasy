@@ -893,10 +893,12 @@ class MeetingLibrary:
             summary = str(summary).strip()
             if len(summary) > 20_000:
                 raise ValueError("Summary is longer than 20,000 characters.")
+        inputs = None
         if action_items is not None:
-            action_items = [str(a).strip() for a in action_items if str(a).strip()]
-            if len(action_items) > 50 or any(len(a) > 500 for a in action_items):
-                raise ValueError("At most 50 action items of 500 characters each.")
+            raw_items = [a for a in action_items if not (isinstance(a, str) and not a.strip())]
+            if len(raw_items) > ai.MAX_ITEMS_PER_SAVE:
+                raise ValueError(f"At most {ai.MAX_ITEMS_PER_SAVE} action items.")
+            inputs = [ai.validate_input(a) for a in raw_items]
         if tags is not None:
             tags = clean_tag_names(tags)
             if len(tags) > MAX_TAGS_PER_MEETING:
@@ -908,7 +910,6 @@ class MeetingLibrary:
                 self._set_claude_tags(conn, meeting_id, tags)
             current = self._notes(conn, meeting_id) or Notes("", [], "", updated_by)
             summary = current.summary if summary is None else summary
-            action_items = current.action_items if action_items is None else action_items
             now = _now_iso()
             conn.execute(
                 "INSERT INTO notes (meeting_id, summary, action_items_json,"
@@ -919,9 +920,12 @@ class MeetingLibrary:
                 " action_items_json = excluded.action_items_json,"
                 " action_items_text = excluded.action_items_text,"
                 " updated_at = excluded.updated_at, updated_by = excluded.updated_by",
-                (meeting_id, summary, json.dumps(action_items),
-                 "\n".join(action_items), now, updated_by),
+                (meeting_id, summary, json.dumps(current.action_items),
+                 "\n".join(current.action_items), now, updated_by),
             )
+            if inputs is not None:
+                action_item_store.merge_summary_items(
+                    conn, meeting_id, inputs, self._resolve_or_create_tag, updated_by=updated_by)
             if new_summary:  # a written summary answers any pending request
                 conn.execute("DELETE FROM summary_requests WHERE meeting_id = ?",
                              (meeting_id,))

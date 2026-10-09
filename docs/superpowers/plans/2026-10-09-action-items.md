@@ -2930,3 +2930,15 @@ Take one screenshot for the report. Stop the dev server.
   merged into local master as `9cef40d` (push to origin still pending, the
   user's call). Worktree `.claude/worktrees/action-items`, branch
   `feature/action-items`. Baseline: 1,285 Python passed, 52 frontend passed.
+- Pre-flight scan done; rulings F1–F21 in "Pre-flight rulings" above.
+- Tasks 1–8 complete, each Opus-reviewed with mutation checks and one fix
+  round (commits 8c885ae..fd30fee). Full Python suite 1,391 passed after Task 8.
+- Task 9 implemented (`3de6841`, 64 frontend tests, build ok); **its review is
+  still pending**. Task 10 and Task 11 not started.
+- Controller rulings beyond pre-flight: `ai.check_status` added in Task 1;
+  legacy import positions count non-blank entries; `updated_by` validated as
+  ValueError; get_meeting shows items only under `notes` (spec §6); export
+  omits an empty owner (spec §9).
+- Ledger with deferred minors for the final review:
+  `.superpowers/sdd/2026-10-09-action-items/progress.md` (git-ignored).
+- Pre-existing flake seen twice: `test_meeting_recorder.py::test_gap_fill_queue_full_is_retried_on_the_next_block` (passes on rerun).

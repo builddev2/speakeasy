@@ -1,4 +1,4 @@
-from speakeasy.summary_format import SUMMARY_INSTRUCTIONS, parse_summary
+from speakeasy.summary_format import SUMMARY_INSTRUCTIONS, parse_summary, summary_instructions
 
 
 def test_new_format():
@@ -90,6 +90,18 @@ def test_empty():
 
 def test_instructions_name_the_sections_and_limits():
     for needle in ("TL;DR:", "## Decisions", "## Key points", "## Open questions",
-                   "150 words", "Owner — task", "list_tags", "at most 3 new",
+                   "150 words", "due_phrase", "list_tags", "at most 3 new",
                    "invitees are the source of"):
         assert needle in SUMMARY_INSTRUCTIONS
+
+
+def test_instructions_describe_structured_items_and_due_dates():
+    text = summary_instructions({"name": "", "aliases": []})
+    assert text.startswith(SUMMARY_INSTRUCTIONS)
+    assert "due_date" in text and "due_phrase" in text and "meeting's start date" in text
+    assert "The user is" not in text
+
+
+def test_instructions_name_the_user():
+    text = summary_instructions({"name": "Jason Chiu", "aliases": ["JC"]})
+    assert 'The user is Jason Chiu (also JC). Write the user\'s own items with owner "Jason Chiu".' in text

@@ -107,6 +107,21 @@ owning task.
    Monday viewed on Sunday is "later", not "this week". Pinned in Task 1
    (Python `due_bucket`) and Task 9 (TS `dueBucket`).
 
+## Pre-flight rulings (controller, 2026-10-09)
+
+The pre-flight scan applied Tasks 1–7 to a scratch copy and found that every
+new test passes, but these existing tests break or these gaps exist. The
+fixes below override the task text where they differ.
+
+- **T2:** In `test_backup_restore_preserves_master_data_and_rebuilds_derived`, also insert one `action_item_tags` row (F1). Add `tests/test_user_notes.py` to the run list and change its `user_version == 6` literals to `meeting_store.SCHEMA_VERSION`. Change `test_meeting_store.py:459` to `== 7` (F5). The idempotency test resets `user_version` to 6 with the tables kept, reopens, and asserts one row and version 7 (F7). `_v6_with_notes` uses a plain INSERT (F9). Drop the moot `_meeting` fallback (F20). Add a v6-backup→v7 restore-imports test (F18).
+- **T3:** The orphan-tag test asserts `SELECT COUNT(*) FROM tags WHERE name='A'` is 0, not `tag_catalog()` (F6). Use `ai.check_status` instead of duplicating it (F10). Reject a `str` passed as tags (F11). `_now()` ends with `Z` and keeps microseconds (F12). Raise `ValueError` instead of `assert` for column names (F13).
+- **T4:** The merge's DELETE calls `delete_untouched_for_meeting` (F10).
+- **T5:** Merge the import into the top of `test_summary_format.py`; the `"Owner — task"` needle becomes `"due_phrase"` (F19).
+- **T6:** Don't wrap `save_notes` in `_call` (F3). Update the existing exact assertions: tool list, `writers`, instructions `== summary_instructions(settings.get_identity())`, and the tool count changes to 15 (F4).
+- **T8:** Write `Action items.md` only when at least one item exists; add `list_action_items() -> []` to `_FakeLibrary` (F2).
+- **T9:** Add a `created` sort assertion (F8). The mock details' `actionItems` are built from `MOCK_ACTION_ITEMS` (`import type` only) (F14). Add `MeetingDetail.tsx` to the Files list (F15).
+- **T10:** Use the spec §8 wording for the banner and "Nothing due — nice." for the empty state. Show the phrase whenever there is one (F16). Completed starts collapsed only when status is All (F17). Add `forcedSummaryId`, mirroring `forcedNotesId` (F21).
+
 ---
 
 ### Task 0: Preconditions and worktree (controller, no subagent)

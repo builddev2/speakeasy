@@ -77,3 +77,30 @@ def test_meeting_detail_sends_item_payloads(env):
     lib.save_notes(mid, summary="s", action_items=["A"])
     detail = bridge.get_payload({"id": mid})
     assert detail["actionItems"][0]["task"] == "A" and "id" in detail["actionItems"][0]
+
+
+def test_bridge_mutations_are_attributed_to_user(env):
+    lib, bridge = env
+    created = bridge.actions_create_payload({"task": "New"})
+    assert lib.get_action_item(created["id"]).updated_by == "user"
+
+    def claude_touch(item_id):
+        lib.update_action_item(item_id, updated_by="claude", notes="c")
+        assert lib.get_action_item(item_id).updated_by == "claude"
+
+    claude_touch(created["id"])
+    bridge.actions_update_payload({"id": float(created["id"]), "notes": "u"})
+    assert lib.get_action_item(created["id"]).updated_by == "user"
+
+    claude_touch(created["id"])
+    bridge.actions_delete_payload({"id": float(created["id"])})
+    assert lib.get_action_item(created["id"]).updated_by == "user"
+
+    lib.restore_action_item(created["id"], updated_by="claude")
+    assert lib.get_action_item(created["id"]).updated_by == "claude"
+    bridge.actions_bulk_payload({"ids": [float(created["id"])], "status": "done"})
+    assert lib.get_action_item(created["id"]).updated_by == "user"
+
+    lib.delete_action_item(created["id"], updated_by="claude")
+    bridge.actions_restore_payload({"id": created["id"]})
+    assert lib.get_action_item(created["id"]).updated_by == "user"

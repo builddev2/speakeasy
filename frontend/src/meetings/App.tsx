@@ -536,6 +536,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             detectCalls: patch.detectCalls ?? prev.detectCalls,
             appearance: patch.appearance ?? prev.appearance,
             identifyVoices: patch.identifyVoices ?? prev.identifyVoices,
+            userName: prev.userName,
+            userAliases: prev.userAliases,
             startAtLogin: prev.startAtLogin === null ? null : (patch.startAtLogin ?? prev.startAtLogin),
             accounts: prev.accounts.map((account) => ({
               ...account,

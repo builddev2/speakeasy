@@ -649,10 +649,10 @@ export function MeetingDetail({
                       <>
                         <div className={styles.actionItemsHeading}>Action items</div>
                         <ul className={styles.actionItems}>
-                          {detail.actionItems.map((item, i) => (
-                            <li key={i}>
+                          {detail.actionItems.map((item) => (
+                            <li key={item.id}>
                               <span className={styles.actionDot} aria-hidden="true" />
-                              {item}
+                              {item.task}
                             </li>
                           ))}
                         </ul>

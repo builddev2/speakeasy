@@ -2,6 +2,9 @@
 // exactly. Used only in mock mode (`!bridge.embedded`) so the redesigned UI
 // can be reviewed against realistic fake data before anything is wired up.
 
+import type { ActionItem } from '../meetings/actionItems.ts';
+import { MOCK_ACTION_ITEMS } from './actionItems.ts';
+
 export interface TranscriptLine {
   time: string;
   speakerNumber: number;
@@ -34,7 +37,7 @@ export interface UpcomingDay { dayLabel: string; events: AgendaEvent[] }
 export interface CalendarToggle { id: string; name: string; enabled: boolean }
 export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
 export type Appearance = 'system' | 'light' | 'dark';
-export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; identifyVoices: boolean; startAtLogin: boolean | null; accounts: CalendarAccountSettings[] }
+export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; identifyVoices: boolean; startAtLogin: boolean | null; accounts: CalendarAccountSettings[]; userName: string; userAliases: string[] }
 
 export type SummaryBlock =
   | { kind: 'tldr'; text: string }
@@ -57,7 +60,7 @@ export interface MeetingDetail extends MeetingMeta {
   summary: string | null;
   summaryBlocks: SummaryBlock[];
   summaryQueued: boolean;
-  actionItems: string[];
+  actionItems: ActionItem[];
   event: EventChip | null;
   hasUserNotes: boolean;
   userNotes: NotesValue;
@@ -280,11 +283,15 @@ export const MOCK_METAS: MeetingMeta[] = [
 // Meeting details (one per meta, keyed by id).
 // ---------------------------------------------------------------------------
 
-type DetailExtra = Omit<MeetingDetail, keyof MeetingMeta | 'hasUserNotes' | 'userNotes'>
+type DetailExtra = Omit<MeetingDetail, keyof MeetingMeta | 'hasUserNotes' | 'userNotes' | 'actionItems'>
   & Partial<Pick<MeetingDetail, 'hasUserNotes' | 'userNotes'>>;
 
 function detail(meta: MeetingMeta, extra: DetailExtra): MeetingDetail {
-  return { hasUserNotes: false, userNotes: { markdown: '', stamps: [] }, ...meta, ...extra };
+  return {
+    hasUserNotes: false, userNotes: { markdown: '', stamps: [] }, ...meta, ...extra,
+    // One source of truth: the library-wide mock items, filtered to this meeting.
+    actionItems: MOCK_ACTION_ITEMS.filter((i) => i.meetingId === meta.id),
+  };
 }
 
 const standupDetail = detail(standupMeta, {
@@ -306,7 +313,6 @@ const standupDetail = detail(standupMeta, {
     { kind: 'heading', text: 'Blockers' },
     { kind: 'bullets', items: ['Mobile offline sync still drops on airplane mode', 'Raised to P1; Sam already has a repro'] },
   ],
-  actionItems: ['Fix offline sync drop on airplane mode (Sam)', 'Ship revenue dashboard by Friday (Priya)'],
   lines: [
     ln('9:00:03 AM', 3, 1, 'Alex', "Morning — let's keep this quick. Priya, how's the dashboard?", 0),
     ln('9:00:14 AM', 14, 2, 'Priya', "On track. I'll have it in review by Friday.", 1),
@@ -332,7 +338,6 @@ const oneOnOneDetail = detail(oneOnOneMeta, {
     { kind: 'heading', text: 'Next steps' },
     { kind: 'bullets', items: ['Revisit the roadmap after the offline-sync fix ships'] },
   ],
-  actionItems: ["Draft Q4 growth plan (Jordan)", 'Confirm mobile hire start date (Alex)'],
   lines: [
     ln('1:00:05 PM', 5, 1, 'Alex', "How are you feeling about the quarter so far?", 0),
     ln('1:00:19 PM', 19, 4, 'Jordan', 'Good overall. I want to talk about growth goals for Q4.', 1),
@@ -348,7 +353,6 @@ const designReviewDetail = detail(designReviewMeta, {
   summary: null,
   summaryQueued: false,
   summaryBlocks: [],
-  actionItems: [],
   lines: [
     ln('11:30:08 AM', 8, 2, 'Priya', "Let's walk through the new onboarding flow.", 0),
     ln('11:30:24 AM', 24, 3, 'Sam', 'The second screen feels a little dense to me.', 1),
@@ -371,7 +375,6 @@ const sprintPlanningDetail = detail(sprintPlanningMeta, {
     { kind: 'heading', text: 'Risks' },
     { kind: 'bullets', items: ['Mobile hire starts mid-sprint, so no scope increase'] },
   ],
-  actionItems: ['Move offline sync fix to top of backlog (Alex)', 'Split onboarding tickets by screen (Sam)'],
   lines: [
     ln('3:00:10 PM', 10, 1, 'Alex', "Let's size the offline sync fix first.", 0),
     ln('3:00:28 PM', 28, 3, 'Sam', "I'd call it a five — there's real device testing involved.", 1),
@@ -395,7 +398,6 @@ const customerCallDetail = detail(customerCallMeta, {
     { kind: 'heading', text: 'Requests' },
     { kind: 'bullets', items: ['Timing for calendar integration', 'Follow-up demo once Today view ships'] },
   ],
-  actionItems: ['Send Fenwick the calendar integration timeline (Morgan)', 'Schedule follow-up demo (Priya)'],
   lines: [
     ln('2:15:00 PM', 0, 5, 'Morgan', "Thanks for hopping on — how has export been working for you?", 0),
     ln('2:15:22 PM', 22, 6, 'Priya', "Really well. Our team asked about calendar integration though.", 1),
@@ -418,7 +420,6 @@ const retroDetail = detail(retroMeta, {
     { kind: 'heading', text: 'To improve' },
     { kind: 'bullets', items: ['Offline sync bug took longer than planned', 'Add a device-testing buffer to estimates'] },
   ],
-  actionItems: ['Add a device-testing buffer to sprint estimates (Jordan)'],
   lines: [
     ln('4:00:06 PM', 6, 1, 'Alex', "What went well this sprint?", 0),
     ln('4:00:20 PM', 20, 2, 'Priya', "Dashboard shipped a day early, that felt good.", 1),
@@ -441,7 +442,6 @@ const q3KickoffDetail = detail(q3KickoffMeta, {
     { kind: 'heading', text: 'Next steps' },
     { kind: 'bullets', items: ['Rough milestones for each priority', 'Mid-quarter check-in'] },
   ],
-  actionItems: ['Draft mobile reliability milestones (Sam)', 'Schedule mid-quarter check-in (Alex)'],
   lines: [
     ln('10:00:12 AM', 12, 1, 'Alex', "Let's set priorities for the quarter.", 0),
     ln('10:00:30 AM', 30, 3, 'Sam', "Mobile reliability has to be top of the list.", 1),
@@ -457,7 +457,6 @@ const onboardingSamDetail = detail(onboardingSamMeta, {
   summary: null,
   summaryQueued: false,
   summaryBlocks: [],
-  actionItems: [],
   lines: [
     ln('9:30:05 AM', 5, 3, 'Sam', "Excited to get started — where should I look first?", 0),
     ln('9:30:20 AM', 20, 4, 'Jordan', "Start with the onboarding doc, then the codebase tour.", 1),
@@ -717,6 +716,8 @@ export const MOCK_MEETING_SETTINGS: MeetingSettings = {
   appearance: 'system',
   identifyVoices: false,
   startAtLogin: false,
+  userName: 'Jason',
+  userAliases: [],
   accounts: [
     {
       name: 'iCloud',

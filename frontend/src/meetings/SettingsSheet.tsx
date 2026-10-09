@@ -12,10 +12,20 @@ interface SettingsSheetProps {
   onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean> }) => void;
   onClose: () => void;
   onExportAll: () => void;
+  exportStatus: string;
+  onRevealExport: () => void;
+  exportReady: boolean;
+  onBackup: () => void;
+  onRestore: () => void;
+  backupStatus: string;
+  restoreStatus: string;
+  backupReady: boolean;
+  onRevealBackup: () => void;
+  libraryBusy: boolean;
 }
 
 /** Meetings section of Settings: record prompts, appearance, calendar checklist, export. */
-export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll }: SettingsSheetProps) {
+export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll, exportStatus, onRevealExport, exportReady, onBackup, onRestore, backupStatus, restoreStatus, backupReady, onRevealBackup, libraryBusy }: SettingsSheetProps) {
   const { offerToRecord, detectCalls, appearance, identifyVoices, startAtLogin, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
 
@@ -92,9 +102,20 @@ export function SettingsSheet({ settings, calendarConnected, onChange, onClose, 
         ))}
       </div>
 
-      <button className={styles.exportButton} onClick={onExportAll}>
+      <button className={styles.exportButton} onClick={onExportAll} disabled={libraryBusy}>
         Export all meetings…
       </button>
+      {exportStatus && <div role="status" className={styles.hint}>{exportStatus}</div>}
+      {exportReady && <button className={styles.exportButton} onClick={onRevealExport}>Reveal export folder</button>}
+      <button className={styles.exportButton} onClick={onBackup} disabled={libraryBusy}>
+        Back up library…
+      </button>
+      {backupStatus && <div role="status" className={styles.hint}>{backupStatus}</div>}
+      {backupReady && <button className={styles.exportButton} onClick={onRevealBackup}>Reveal backup file</button>}
+      <button className={styles.exportButton} onClick={onRestore} disabled={libraryBusy}>
+        Restore library…
+      </button>
+      {restoreStatus && <div role="status" className={styles.hint}>{restoreStatus}</div>}
 
       <div className={styles.footer}>
         <div className={styles.doneWrap}>

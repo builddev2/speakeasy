@@ -255,6 +255,36 @@ from that estimated start, instead of importing the stale end-time title.
 Four CLI commands operate on the library directly (`.venv/bin/python -m
 speakeasy <flag>`):
 
+The Meetings window's **Settings** offers two ways to take your data out.
+**Export all meetings** asks for a folder and creates a dated subfolder of
+Markdown files from one consistent SQLite snapshot. **Back up library** saves
+one restorable `.speakeasy-library` SQLite file. The backup keeps meeting and
+segment IDs, notes and drafts, tags and their source/suppression records,
+people, links, and summary requests. It rebuilds search indexes and omits the
+derived Calendar.app cache; a connected calendar refills that cache later.
+Audio, models, profiles, app settings, and archived legacy JSON are outside
+the meeting library and are not in this backup.
+
+**Restore library** validates a selected backup without changing it, shows
+the backup and current meeting counts, and asks before replacement. It first
+saves a verified recovery copy beside `library.sqlite`, then restores while
+the app is idle and other current Speakeasy/Claude library processes are
+disconnected. Close Claude's Speakeasy connection before restoring. The
+recovery copy remains afterward. If the current database is already corrupt,
+automatic restore stops without replacing its raw files; preserve the
+database and its `-wal`/`-shm` sidecars for manual recovery. A restore that
+cannot establish its final state leaves capture paused and displays the
+recovery-copy path for review; a recovery-required marker blocks new
+connections until that state is reviewed. The selected backup must be a
+standalone SQLite file, not a live WAL database with sidecars.
+
+On 9 October 2026, the native export, backup, and restore panels passed a
+synthetic-library run in an isolated test harness, including a restore from
+the retained recovery copy. This exercised the production Meetings window
+without starting capture or touching the installed app. See the
+[verification record](docs/superpowers/plans/2026-10-07-library-export-recovery.md#verification-on-9-october-2026);
+installed-app acceptance remains pending.
+
 - `--import-json-meetings` — run the same legacy-JSON import manually,
 - `--rebuild-index` — rebuild the search indexes from the meetings/segments/
   notes tables, and clear the calendar cache (the calendar sync refills it from

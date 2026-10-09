@@ -169,6 +169,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
   const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
+  const [exportStatus, setExportStatus] = useState('');
+  const [exportReady, setExportReady] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [backupStatus, setBackupStatus] = useState('');
+  const [backupReady, setBackupReady] = useState(false);
+  const [restoreStatus, setRestoreStatus] = useState('');
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [embeddedStatus, setEmbeddedStatus] = useState<LibraryStatus>(IDLE_STATUS);
   const mockConnection: TodayConnection =
     mockState === 'today-denied' ? 'denied' : mockState === 'today-unconnected' ? 'unconnected' : 'connected';
@@ -202,6 +210,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const homeAppliedRef = useRef(false);
   const recordingFirstSeenRef = useRef<string | null>(null);
   const editorRef = useRef<(() => NotesValue) | null>(null);
+  const flushNotesRef = useRef<(() => Promise<void>) | null>(null);
   const recordingViewRef = useRef(recordingView);
   const recordingStartedAtRef = useRef(recordingStartedAt);
   const recordingActive = recording.recording || recording.processing;
@@ -273,7 +282,6 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   function onMeetingSaved(id: string) {
     if (!recordingViewRef.current) return; // save_meeting already adopted the draft
     const startedAt = recordingStartedAtRef.current;
-    const value = editorRef.current?.(); // takes the final value: no draft save can follow
     const open = () => {
       setRecordingView(false);
       select(id);
@@ -281,10 +289,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       selectedIdRef.current = id;
       if (embedded) void refreshList(filterParams(filterRef.current), true);
     };
-    if (!value || !startedAt) { open(); return; }
-    draftApi
-      .finish({ id, ...value, startedAt })
-      .then(() => { if (!embedded) void onSaveNotes(id, value); })
+    void (flushNotesRef.current?.() ?? Promise.resolve())
+      .then(() => {
+        const value = editorRef.current?.(); // takes the final value: no draft save can follow
+        if (!value || !startedAt) return;
+        return draftApi.finish({ id, ...value, startedAt })
+          .then(() => { if (!embedded) void onSaveNotes(id, value); });
+      })
       .catch((err) => console.error('notes.draft.finish failed', err))
       .finally(open);
   }
@@ -707,6 +718,108 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     settingsButtonRef.current?.focus();
   }
 
+  async function exportAllMeetings() {
+    if (!embedded) return;
+    setExportBusy(true);
+    setExportReady(false);
+    setExportStatus('Preparing export…');
+    try {
+      await flushNotesRef.current?.();
+      const result = await bridge.call<{ status: string; count?: number; path?: string }>('library.exportAll');
+      if (result.status === 'cancelled') { setExportStatus(''); return; }
+      setExportStatus(`Exported ${result.count} meetings to ${result.path}`);
+      setExportReady(true);
+    } catch (err) {
+      setExportStatus('Export failed. Your library was not changed.');
+      console.error('library.exportAll failed', err);
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function backUpLibrary() {
+    if (!embedded) return;
+    setLibraryBusy(true);
+    setBackupReady(false);
+    setBackupStatus('Preparing backup…');
+    try {
+      await flushNotesRef.current?.();
+      const result = await bridge.call<{ status: string; count?: number; path?: string }>('library.backup');
+      if (result.status === 'cancelled') { setBackupStatus(''); return; }
+      setBackupStatus(`Backed up ${result.count} meetings to ${result.path}`);
+      setBackupReady(true);
+    } catch (err) {
+      setBackupStatus('Backup failed. Your library was not changed.');
+      console.error('library.backup failed', err);
+    } finally {
+      setLibraryBusy(false);
+    }
+  }
+
+  async function restoreLibrary() {
+    if (!embedded) return;
+    setLibraryBusy(true);
+    setRestoreStatus('Checking backup…');
+    const previousId = selectedIdRef.current;
+    let restored = false;
+    let fatal = false;
+    try {
+      try {
+        await flushNotesRef.current?.();
+      } catch (err) {
+        setRestoreStatus('Open notes could not be saved. Resolve the save error before restoring.');
+        console.error('notes flush before restore failed', err);
+        return;
+      }
+      setRestoring(true);
+      ++listRequestIdRef.current;
+      // Unmount the old editor before replacement. Its cleanup must finish
+      // while the old library is still active, not after same-ID rows return.
+      setSelectedId(null);
+      selectedIdRef.current = null;
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      const result = await bridge.call<{ status: string; count?: number; recovery?: string; markerPersisted?: boolean }>('library.restore');
+      if (result.status === 'cancelled') { setRestoreStatus(''); return; }
+      if (result.status === 'needs_recovery') {
+        fatal = true;
+        setRestoreStatus(`Restore needs manual review. Keep Speakeasy closed; recovery copy: ${result.recovery}`
+          + (result.markerPersisted ? '' : ' Recovery lock could not be saved; do not reopen the library until reviewed.'));
+        return;
+      }
+      restored = true;
+      setRecordingView(false);
+      setDetails({});
+      setMetas([]);
+      setSelectedId(null);
+      selectedIdRef.current = null;
+      setFilter({ type: 'all' });
+      filterRef.current = { type: 'all' };
+      setSearching(false);
+      setSearchQuery('');
+      setSearchResults([]);
+      setRestoreStatus(`Restored ${result.count} meetings. Recovery copy: ${result.recovery}`);
+      void refreshList({}, false);
+      void bridge.call<Filters>('meetings.filters').then(setFilters);
+      refreshCalendar();
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      setRestoreStatus(code === 'library_in_use'
+        ? 'Close other Speakeasy and Claude connections, then try again.'
+          : code === 'invalid_backup' ? 'That file is not a compatible, healthy Speakeasy backup.'
+          : code === 'current_unhealthy' ? 'The current library failed validation. It was left untouched; automatic restore cannot safely replace it.'
+          : code === 'recording_in_progress' ? 'Finish recording or processing and close training before restoring.'
+            : 'Restore failed. The current library was retained.');
+      console.error('library.restore failed', err);
+    } finally {
+      if (!restored && !fatal) {
+        setSelectedId(previousId);
+        selectedIdRef.current = previousId;
+      }
+      if (!fatal) setLibraryBusy(false);
+      if (!fatal) setRestoring(false);
+    }
+  }
+
   function onSearchChange(value: string) {
     userNavigatedRef.current = true;
     setSearchQuery(value);
@@ -939,8 +1052,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             )}
           </Sidebar>
 
-          {recordingView && recordingStartedAt ? (
-            <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} />
+          {restoring ? <div /> : recordingView && recordingStartedAt ? (
+            <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} flushNotesRef={flushNotesRef} />
           ) : today ? (
             <TodayView
               connection={todayConnection}
@@ -1030,6 +1143,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
                 }
               }}
               onSaveNotes={onSaveNotes}
+              flushNotesRef={flushNotesRef}
               jumpTarget={jumpTarget}
               onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
               onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
@@ -1051,8 +1165,18 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               settings={meetingSettings}
               calendarConnected={todayConnection === 'connected'}
               onChange={onChangeSettings}
-              onClose={closeSettings}
-              onExportAll={() => console.log('export-all-meetings')}
+              onClose={() => { if (!libraryBusy && !exportBusy) closeSettings(); }}
+              onExportAll={() => void exportAllMeetings()}
+              exportStatus={exportStatus}
+              exportReady={exportReady}
+              libraryBusy={libraryBusy || exportBusy}
+              onRevealExport={() => void bridge.call('library.revealExport')}
+              onBackup={() => void backUpLibrary()}
+              onRestore={() => void restoreLibrary()}
+              backupStatus={backupStatus}
+              restoreStatus={restoreStatus}
+              backupReady={backupReady}
+              onRevealBackup={() => void bridge.call('library.revealBackup')}
             />
           )}
 

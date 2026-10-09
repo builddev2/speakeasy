@@ -24,10 +24,10 @@ import sqlite3
 import time
 from pathlib import Path
 
-from . import settings
+from . import library_lease, settings
 from .tag_names import tag_slug
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -307,7 +307,16 @@ PRAGMA user_version = 5;
 COMMIT;
 """
 
-_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3), (4, _SCHEMA_V4), (5, _SCHEMA_V5)]
+# v6 fences older app/MCP builds from opening a restored library. Their
+# connect() refuses a user_version above 5 rather than writing stale state.
+_SCHEMA_V6 = """
+BEGIN IMMEDIATE;
+PRAGMA user_version = 6;
+COMMIT;
+"""
+
+_MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3),
+               (4, _SCHEMA_V4), (5, _SCHEMA_V5), (6, _SCHEMA_V6)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05
@@ -319,6 +328,7 @@ def _casefold(value):
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
     path = Path(path) if path is not None else settings.library_path()
+    library_lease.shared(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         # Create the file with owner-only permissions up front so it is

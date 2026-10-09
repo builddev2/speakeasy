@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, MutableRefObject } from 'react';
 import type { EventChip, MeetingDetail as MeetingDetailType, NotesValue, SummaryBlock, TranscriptLine } from '../mock/meetings';
 import { speakerColor } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
@@ -36,6 +36,7 @@ interface MeetingDetailProps {
   onExport: () => void;
   onRequestSummary: () => void;
   onSaveNotes: (id: string, value: NotesValue) => Promise<void>;
+  flushNotesRef?: MutableRefObject<(() => Promise<void>) | null>;
   jumpTarget?: JumpTarget | null;
   /** Same-day events the meeting can be linked to; the chip menu fetches on open. */
   onLoadEvents?: () => Promise<EventChip[]>;
@@ -127,6 +128,7 @@ export function MeetingDetail({
   onExport,
   onRequestSummary,
   onSaveNotes,
+  flushNotesRef,
   jumpTarget,
   onLoadEvents,
   onLinkEvent,
@@ -673,6 +675,7 @@ export function MeetingDetail({
                 key={detail.id}
                 initial={detail.userNotes}
                 save={(v) => onSaveNotes(detail.id, v)}
+                flushRef={flushNotesRef}
               />
             ) : (
               <div ref={transcriptRef} className={styles.transcriptPane} tabIndex={0}>

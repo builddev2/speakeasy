@@ -11,11 +11,12 @@ interface RecordingNotesProps {
   info: RecordingInfo;
   startedAt: string;
   editorRef: MutableRefObject<(() => NotesValue) | null>;
+  flushNotesRef?: MutableRefObject<(() => Promise<void>) | null>;
 }
 
 interface Loaded { initial: NotesValue; leftover: boolean }
 
-export function RecordingNotes({ info, startedAt, editorRef }: RecordingNotesProps) {
+export function RecordingNotes({ info, startedAt, editorRef, flushNotesRef }: RecordingNotesProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [draftKey, setDraftKey] = useState(0);
   // The save callback is captured once, so it reads the start time through a ref.
@@ -43,9 +44,9 @@ export function RecordingNotes({ info, startedAt, editorRef }: RecordingNotesPro
   }, []);
 
   function discard() {
-    // Take the editor's final value first so no pending autosave can recreate the draft.
-    editorRef.current?.();
-    draftApi.discard()
+    // Wait for an in-flight autosave before clearing the draft.
+    (flushNotesRef?.current?.() ?? Promise.resolve())
+      .then(() => { editorRef.current?.(); return draftApi.discard(); })
       .catch((err) => console.error('notes.draft.discard failed', err))
       .finally(() => {
         setLoaded({ initial: { markdown: '', stamps: [] }, leftover: false });
@@ -64,6 +65,7 @@ export function RecordingNotes({ info, startedAt, editorRef }: RecordingNotesPro
               initial={loaded.initial}
               save={(v) => draftApi.set({ ...v, startedAt: startedAtRef.current })}
               valueRef={editorRef}
+              flushRef={flushNotesRef}
               notice={loaded.leftover ? (
                 <div className={styles.notice}>
                   <span className={styles.noticeText}>Notes from a recording that wasn't saved</span>

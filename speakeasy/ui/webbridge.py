@@ -27,8 +27,9 @@ class BridgeDispatcher:
     save-panel completion handler). Extra calls are ignored.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, guard: Callable[[str], bool] | None = None) -> None:
         self._methods: dict[str, Callable[[dict, Callable], None]] = {}
+        self._guard = guard
 
     def register(self, method: str, handler: Callable[[dict, Callable], None]) -> None:
         self._methods[method] = handler
@@ -62,6 +63,9 @@ class BridgeDispatcher:
         handler = self._methods.get(method)
         if handler is None:
             respond(error=f"unknown method: {method}")
+            return
+        if self._guard is not None and not self._guard(method):
+            respond(error="library_busy")
             return
         try:
             handler(params, respond)

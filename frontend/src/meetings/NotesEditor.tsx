@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { docToNotes, notesToDoc, type NotesValue } from './notesMarkdown';
 import { Stamps } from './notesStamps';
+import { queueNotesSave } from './notesSaveQueue';
 import styles from './NotesEditor.module.css';
 
 const SAVE_DELAY_MS = 500;
@@ -16,14 +17,16 @@ interface NotesEditorProps {
   notice?: ReactNode;
   /** Set to "take the final value": cancels pending/retry saves, blocks further saves, returns the text. */
   valueRef?: MutableRefObject<(() => NotesValue) | null>;
+  flushRef?: MutableRefObject<(() => Promise<void>) | null>;
 }
 
-export function NotesEditor({ initial, save, notice, valueRef }: NotesEditorProps) {
+export function NotesEditor({ initial, save, notice, valueRef, flushRef }: NotesEditorProps) {
   const [status, setStatus] = useState<Status>('idle');
   const timer = useRef<number | null>(null);
   const pending = useRef<NotesValue | null>(null);
   const closed = useRef(false);
   const saveRef = useRef(save);
+  const saving = useRef<Promise<void>>(Promise.resolve());
   saveRef.current = save;
 
   const editor = useEditor({
@@ -42,14 +45,16 @@ export function NotesEditor({ initial, save, notice, valueRef }: NotesEditorProp
     onUpdate: ({ editor: e }) => schedule(docToNotes(e.getJSON())),
   });
 
-  const flush = () => {
-    if (closed.current) return;
+  const flush = (): Promise<void> => {
+    if (closed.current) return saving.current;
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
     const value = pending.current;
-    if (value === null) return;
+    if (value === null) return saving.current;
     setStatus('saving');
-    saveRef.current(value).then(
+    saving.current = queueNotesSave(saving.current, value,
+      () => closed.current, (v) => saveRef.current(v));
+    saving.current.then(
       () => { if (pending.current === value) { pending.current = null; setStatus('saved'); } },
       (err: Error) => {
         if (String(err?.message).includes('Notes are too long to save')) { setStatus('tooLong'); return; }
@@ -57,6 +62,7 @@ export function NotesEditor({ initial, save, notice, valueRef }: NotesEditorProp
         timer.current = window.setTimeout(flush, RETRY_MS);
       },
     );
+    return saving.current;
   };
 
   function schedule(value: NotesValue) {
@@ -65,6 +71,13 @@ export function NotesEditor({ initial, save, notice, valueRef }: NotesEditorProp
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_DELAY_MS);
   }
+
+  useEffect(() => {
+    if (!flushRef) return;
+    const current = () => flush();
+    flushRef.current = current;
+    return () => { if (flushRef.current === current) flushRef.current = null; };
+  });
 
   useEffect(() => {
     const onHide = () => flush();

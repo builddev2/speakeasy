@@ -132,6 +132,7 @@ class DictationEngine:
         self._dictation_take_ids = count(1)
         self._dictation_clock_ns = time.perf_counter_ns
         self._recorder_busy = False
+        self._library_maintenance = False
         self._dictation_stream: StreamingSession | None = None
         self._dictation_stream_timing: DictationTiming | None = None
         self._dictation_stream_lock = threading.Lock()
@@ -175,6 +176,7 @@ class DictationEngine:
         the mic. Single source of truth for the menu item."""
         return (
             self.transcriber is not None
+            and not self._library_maintenance
             and self._diagnostic_cancel is None
             and self.profile is not None
             and self.state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING,
@@ -191,6 +193,8 @@ class DictationEngine:
         self._set_state(State.PAUSED)
 
     def resume(self) -> None:
+        if self._library_maintenance:
+            return
         self._user_paused = False
         if self._meeting_active:
             # The training window closed mid-meeting: dictation stays off
@@ -198,6 +202,24 @@ class DictationEngine:
             return
         self._listener.resume()
         self._set_state(self._idle_state())
+
+    def begin_library_maintenance(self) -> bool:
+        """Stop new capture while the control/worker queues are drained."""
+        if self.state is not State.READY:
+            raise RuntimeError("Recording or processing is active.")
+        self._library_maintenance = True
+        self.pause()
+        return False
+
+    def library_maintenance_idle(self) -> bool:
+        """Call on control after queued work has reached a barrier."""
+        return (not self._meeting_active and not self._recorder_busy
+                and self._diagnostic_cancel is None)
+
+    def end_library_maintenance(self, was_paused: bool) -> None:
+        self._library_maintenance = False
+        if not was_paused:
+            self.resume()
 
     def shutdown(self) -> None:
         self._shutting_down = True
@@ -263,7 +285,7 @@ class DictationEngine:
         self.control.submit(self._stop_recording, release_received)
 
     def _start_recording(self) -> None:
-        if getattr(self, "_shutting_down", False):
+        if getattr(self, "_shutting_down", False) or self._library_maintenance:
             return
         pending = getattr(self, "_recorder_stop_pending", None)
         if pending is not None and not pending.is_set():
@@ -813,7 +835,8 @@ class DictationEngine:
     def begin_meeting(self, options: MeetingOptions | None = None) -> None:
         """Start a meeting recording. Only meaningful from READY — the menu
         item is disabled otherwise, and _begin_meeting re-checks on control."""
-        self.control.submit(self._begin_meeting, options or MeetingOptions())
+        if not self._library_maintenance:
+            self.control.submit(self._begin_meeting, options or MeetingOptions())
 
     def end_meeting(self) -> None:
         self.control.submit(self._end_meeting)
@@ -885,7 +908,7 @@ class DictationEngine:
         self._set_state(self._idle_state())
 
     def _begin_meeting(self, options: MeetingOptions) -> None:
-        if self.state is not State.READY or self._meeting_active:
+        if self._library_maintenance or self.state is not State.READY or self._meeting_active:
             return
         with self._dictation_stream_lock:
             if self._dictation_stream is not None:

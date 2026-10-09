@@ -190,6 +190,7 @@ class CalendarSync:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="calendar")
         self._lock = threading.Lock()
         self._pending = False
+        self._suspended = False
         self._store = None
         self.calendars: list[CalendarInfo] = []
 
@@ -217,20 +218,22 @@ class CalendarSync:
 
     def request_sync(self) -> None:
         with self._lock:
-            if self._pending:
+            if self._pending or self._suspended:
                 return
             self._pending = True
-        try:
-            self._executor.submit(self._run_sync)
-        except RuntimeError:   # shut down (quit): may be called from an ObjC block
-            with self._lock:
+            try:
+                self._executor.submit(self._run_sync)
+            except RuntimeError:   # shut down (quit): may be called from an ObjC block
                 self._pending = False
 
     def request_access(self) -> None:
-        try:
-            self._executor.submit(self._request_access)
-        except RuntimeError:
-            pass
+        with self._lock:
+            if self._suspended:
+                return
+            try:
+                self._executor.submit(self._request_access)
+            except RuntimeError:
+                pass
 
     def _request_access(self) -> None:
         if self.access() != "unconnected":
@@ -245,10 +248,13 @@ class CalendarSync:
         # "no calendars", so start from a fresh one.
         # One job, so a sync queued earlier can't run on the pre-grant store
         # with the drop landing after it.
-        try:
-            self._executor.submit(self._drop_store_and_sync)
-        except RuntimeError:
-            pass
+        with self._lock:
+            if self._suspended:
+                return
+            try:
+                self._executor.submit(self._drop_store_and_sync)
+            except RuntimeError:
+                pass
 
     def _drop_store_and_sync(self) -> None:
         self._drop_store()
@@ -296,3 +302,14 @@ class CalendarSync:
         self._drop_store()
         if restart:
             self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="calendar")
+
+    def pause_for_maintenance(self) -> None:
+        """Drain queued syncs and drop EventKit state on its owning thread."""
+        with self._lock:
+            self._suspended = True
+        self._executor.submit(self._drop_store).result()
+
+    def resume_after_maintenance(self) -> None:
+        with self._lock:
+            self._suspended = False
+        self.tick()

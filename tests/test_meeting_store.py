@@ -456,7 +456,7 @@ def test_v4_adds_summary_requests(library_path):
     conn = meeting_store.connect(library_path)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(summary_requests)")]
     assert cols == ["meeting_id", "requested_at"]
-    assert meeting_store.SCHEMA_VERSION == 5
+    assert meeting_store.SCHEMA_VERSION == 6
     conn.close()
 
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from speakeasy import profiles, settings
+from speakeasy import library_lease, profiles, settings
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +21,8 @@ def isolated_home(tmp_path_factory, monkeypatch):
     support.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(settings, "app_support_dir", lambda: support)
-    return home
+    yield home
+    library_lease.release_private(support / "library.sqlite")
 
 
 @pytest.fixture
@@ -36,7 +37,8 @@ def library_path(tmp_path, monkeypatch):
     """Point the SQLite meeting library at a throwaway file."""
     path = tmp_path / "library.sqlite"
     monkeypatch.setattr(settings, "library_path", lambda: path)
-    return path
+    yield path
+    library_lease.release_private(path)
 
 
 @pytest.fixture

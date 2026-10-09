@@ -16,6 +16,7 @@ import sqlite3
 import sys
 from typing import BinaryIO, Callable
 
+from . import library_lease
 from .meeting_library import MeetingLibrary, MeetingNotFound
 from .mcp_tools import ToolError, build_tools, record_use
 
@@ -155,6 +156,7 @@ def main() -> None:
     protocol_in = os.fdopen(os.dup(0), "rb")
     os.dup2(2, 1)
     sys.stdout = sys.stderr
+    library_lease.shared()
     server = Server(build_tools(MeetingLibrary()), on_call=record_use)
     try:
         serve(protocol_in, protocol_out, server)

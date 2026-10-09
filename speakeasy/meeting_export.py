@@ -1,10 +1,16 @@
 """Plain-text way out of the SQLite library (`--export-meetings`): one
-Markdown file per meeting, for backups and troubleshooting."""
+Markdown file per meeting for reading and troubleshooting."""
 
 import re
+import shutil
+import sqlite3
+import tempfile
 import unicodedata
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
+from . import library_lease, meeting_store
 from .meeting_library import NOTES_LINE_PREFIX, MeetingLibrary, MeetingNotFound
 from .meetings import render_md
 
@@ -106,3 +112,43 @@ def export_all(folder: Path, library=None) -> int:
             count += 1
         offset += len(batch)
     return count
+
+
+def export_snapshot(parent: Path, library=None) -> tuple[Path, int]:
+    """Publish a complete Markdown export from one consistent library view."""
+    library = library or MeetingLibrary()
+    parent = Path(parent)
+    if not parent.is_dir():
+        raise NotADirectoryError(parent)
+    stem = f"Speakeasy meetings {datetime.now().astimezone():%Y-%m-%d %H-%M-%S} {uuid4().hex[:8]}"
+    destination = parent / stem
+    suffix = 2
+    while destination.exists():
+        destination = parent / f"{stem} ({suffix})"
+        suffix += 1
+    staging = Path(tempfile.mkdtemp(prefix=".Speakeasy-export-", dir=parent))
+    try:
+        with tempfile.TemporaryDirectory(prefix="speakeasy-snapshot-") as temp:
+            snapshot = Path(temp) / "library.sqlite3"
+            source = meeting_store.connect(library._path)
+            try:
+                target = sqlite3.connect(snapshot)
+                try:
+                    source.backup(target)
+                finally:
+                    target.close()
+            finally:
+                source.close()
+            try:
+                count = export_all(staging, MeetingLibrary(snapshot))
+            finally:
+                library_lease.release_private(snapshot)
+        # A concurrent export can pick the same name; never replace its output.
+        while destination.exists():
+            destination = parent / f"{stem} ({suffix})"
+            suffix += 1
+        staging.rename(destination)
+        return destination, count
+    except BaseException:
+        shutil.rmtree(staging)
+        raise

@@ -1,7 +1,8 @@
 import unicodedata
+import pytest
 from datetime import datetime, timedelta, timezone
 
-from speakeasy.meeting_export import export_all, render_export_md, safe_filename
+from speakeasy.meeting_export import export_all, export_snapshot, render_export_md, safe_filename
 from speakeasy.meeting_library import (
     MeetingLibrary,
     MeetingNotFound,
@@ -35,6 +36,44 @@ def test_export_writes_notes_and_transcript(tmp_path, library_path):
     out = tmp_path / "export"
     assert export_all(out) == 1
     assert (out / "2026-09-24 1-1 - Refayet.md").read_text(encoding="utf-8") == text
+
+
+def test_export_snapshot_publishes_unique_folder(tmp_path, library_path):
+    lib = MeetingLibrary()
+    lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 0.0, 1.0, "snapshot text")],
+        duration_seconds=60, started_at=datetime(2026, 9, 24, 9, tzinfo=EDT), title="Snapshot"))
+    first, count = export_snapshot(tmp_path, lib)
+    second, count_again = export_snapshot(tmp_path, lib)
+    assert count == count_again == 1
+    assert first != second
+    assert "snapshot text" in next(first.glob("*.md")).read_text()
+    assert not list(tmp_path.glob(".Speakeasy-export-*"))
+
+
+def test_export_snapshot_failure_does_not_publish_partial_folder(tmp_path, library_path, monkeypatch):
+    import speakeasy.meeting_export as module
+
+    def fail(folder, library):
+        (folder / "partial.md").write_text("partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(module, "export_all", fail)
+    with pytest.raises(OSError, match="disk full"):
+        export_snapshot(tmp_path, MeetingLibrary())
+    assert not list(tmp_path.glob(".Speakeasy-export-*"))
+
+
+def test_export_snapshot_includes_more_than_one_page_of_real_meetings(tmp_path, library_path):
+    lib = MeetingLibrary(library_path)
+    for index in range(501):
+        lib.save_meeting(NewMeeting(
+            segments=[MeetingSegment("You", 0.0, 1.0, f"meeting {index}")],
+            duration_seconds=60, started_at=datetime(2026, 9, 24, 9, tzinfo=EDT),
+            title=f"Meeting {index}", meeting_id=f"20260924-090000-{index:04x}"))
+    folder, count = export_snapshot(tmp_path, lib)
+    assert count == 501
+    assert len(list(folder.glob("*.md"))) == 501
 
 
 def test_export_disambiguates_same_day_titles(tmp_path, library_path):

@@ -8,6 +8,8 @@ import styles from './MeetingDetail.module.css';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import { useOverlayEscape } from './overlayStack';
 import { NotesEditor } from './NotesEditor';
+import { ActionItemRow } from './ActionItemRow';
+import type { ItemChange } from './ActionItemRow';
 
 type Tab = 'summary' | 'transcript' | 'notes';
 
@@ -42,6 +44,8 @@ interface MeetingDetailProps {
   onLoadEvents?: () => Promise<EventChip[]>;
   /** key null unlinks. Absent when Calendar isn't available: no chip controls. */
   onLinkEvent?: (key: string | null) => void;
+  onUpdateItem: (id: number, change: ItemChange) => Promise<void>;
+  onDeleteItem: (id: number) => void;
 }
 
 interface FindMatch {
@@ -132,6 +136,8 @@ export function MeetingDetail({
   jumpTarget,
   onLoadEvents,
   onLinkEvent,
+  onUpdateItem,
+  onDeleteItem,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>('summary');
   const [renaming, setRenaming] = useState(false);
@@ -645,19 +651,6 @@ export function MeetingDetail({
                       <div className={styles.queuedNote}>Queued for a new summary. Claude checks every 30 minutes while the Claude app is open.</div>
                     )}
                     <SummaryBlocks blocks={detail.summaryBlocks} />
-                    {detail.actionItems.length > 0 && (
-                      <>
-                        <div className={styles.actionItemsHeading}>Action items</div>
-                        <ul className={styles.actionItems}>
-                          {detail.actionItems.map((item, i) => (
-                            <li key={i}>
-                              <span className={styles.actionDot} aria-hidden="true" />
-                              {item}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
                   </>
                 ) : (
                   <div className={styles.noSummary}>
@@ -668,6 +661,17 @@ export function MeetingDetail({
                       Summarise
                     </ActionButton>
                   </div>
+                )}
+                {detail.actionItems.length > 0 && (
+                  <>
+                    <div className={styles.actionItemsHeading}>Action items</div>
+                    <ul className={styles.actionItems}>
+                      {detail.actionItems.map((item) => (
+                        <ActionItemRow key={item.id} item={item} showMeeting={false}
+                          onChange={(c) => onUpdateItem(item.id, c)} onDelete={() => onDeleteItem(item.id)} />
+                      ))}
+                    </ul>
+                  </>
                 )}
               </div>
             ) : tab === 'notes' ? (

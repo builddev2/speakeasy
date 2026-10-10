@@ -19,6 +19,7 @@ succeeds or the file already reports 'wal' from a connection that won the
 race.
 """
 
+import json
 import os
 import sqlite3
 import time
@@ -27,7 +28,7 @@ from pathlib import Path
 from . import library_lease, settings
 from .tag_names import tag_slug
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -309,14 +310,92 @@ COMMIT;
 
 # v6 fences older app/MCP builds from opening a restored library. Their
 # connect() refuses a user_version above 5 rather than writing stale state.
+# v7 likewise fences v6 builds (see below).
 _SCHEMA_V6 = """
 BEGIN IMMEDIATE;
 PRAGMA user_version = 6;
 COMMIT;
 """
 
+# v7: action items as rows (spec 2026-10-09-action-items-design.md §1).
+# Python, like v3: the import parses legacy "Owner — task (due)" strings.
+# Takes the write lock first, then checks whether another connection already
+# created the table, so concurrent first opens converge.
+_ACTION_ITEMS_DDL = (
+    "CREATE TABLE action_items ("
+    " id INTEGER PRIMARY KEY,"
+    " meeting_id TEXT REFERENCES meetings(id) ON DELETE SET NULL,"
+    " task TEXT NOT NULL,"
+    " owner TEXT NOT NULL DEFAULT '',"
+    " priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('high','normal','low')),"
+    " status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','done')),"
+    " completed_at TEXT,"
+    " due_date TEXT,"
+    " due_phrase TEXT NOT NULL DEFAULT '',"
+    " due_override TEXT,"
+    " due_cleared INTEGER NOT NULL DEFAULT 0,"
+    " notes TEXT NOT NULL DEFAULT '',"
+    " source TEXT NOT NULL CHECK (source IN ('summary','manual')),"
+    " user_touched INTEGER NOT NULL DEFAULT 0,"
+    " position INTEGER NOT NULL DEFAULT 0,"
+    " created_at TEXT NOT NULL,"
+    " updated_at TEXT NOT NULL,"
+    " updated_by TEXT NOT NULL CHECK (updated_by IN ('claude','user')),"
+    " deleted_at TEXT)",
+    "CREATE INDEX action_items_meeting ON action_items(meeting_id)",
+    "CREATE TABLE action_item_tags ("
+    " item_id INTEGER NOT NULL REFERENCES action_items(id) ON DELETE CASCADE,"
+    " tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,"
+    " PRIMARY KEY (item_id, tag_id))",
+)
+
+
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'action_items'").fetchone()
+        if not exists:
+            for statement in _ACTION_ITEMS_DDL:
+                conn.execute(statement)
+            _import_legacy_action_items(conn)
+        conn.execute("PRAGMA user_version = 7")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _import_legacy_action_items(conn: sqlite3.Connection) -> None:
+    """Every notes.action_items_json string becomes an open summary item.
+    Indexed access: migrate() may run without the Row factory."""
+    from .action_items import parse_legacy
+    rows = conn.execute("SELECT meeting_id, action_items_json, updated_at FROM notes").fetchall()
+    for meeting_id, items_json, updated_at in rows:
+        try:
+            items = json.loads(items_json)
+        except ValueError:
+            continue
+        if not isinstance(items, list):
+            continue
+        position = 0
+        for raw in items:
+            text = " ".join(str(raw).split())[:500]
+            if not text:
+                continue
+            item = parse_legacy(text)
+            conn.execute(
+                "INSERT INTO action_items (meeting_id, task, owner, due_phrase, source,"
+                " position, created_at, updated_at, updated_by)"
+                " VALUES (?, ?, ?, ?, 'summary', ?, ?, ?, 'claude')",
+                (meeting_id, item.task[:500], item.owner, item.due_phrase[:80],
+                 position, updated_at, updated_at))
+            position += 1
+
+
 _MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3),
-               (4, _SCHEMA_V4), (5, _SCHEMA_V5), (6, _SCHEMA_V6)]
+               (4, _SCHEMA_V4), (5, _SCHEMA_V5), (6, _SCHEMA_V6),
+               (7, _migrate_v7)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05

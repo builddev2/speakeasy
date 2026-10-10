@@ -12,6 +12,11 @@ import { ConfirmSheet } from './ConfirmSheet';
 import { LibraryBanner, useLibraryBannerDismissed } from './LibraryBanner';
 import { EmptyState } from './EmptyState';
 import { TodayView } from './TodayView';
+import { ActionItemsView } from './ActionItemsView';
+import type { ItemChange } from './ActionItemRow';
+import { actionItemsApi } from './actionItemsApi';
+import { sidebarCounts } from './actionItems';
+import type { ActionItem, Priority } from './actionItems';
 import type { TodayConnection } from './TodayView';
 import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
@@ -53,6 +58,7 @@ import type {
   MeetingSettings,
   RecordingInfo,
 } from '../mock/meetings';
+import { MOCK_ACTION_ITEMS } from '../mock/actionItems';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
 
@@ -75,7 +81,8 @@ type MockState =
   | 'settings'
   | 'notes'
   | 'recording'
-  | 'recording-leftover';
+  | 'recording-leftover'
+  | 'actions';
 
 const KNOWN_STATES: MockState[] = [
   'default',
@@ -97,6 +104,7 @@ const KNOWN_STATES: MockState[] = [
   'notes',
   'recording',
   'recording-leftover',
+  'actions',
 ];
 
 const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected', 'today-recording', 'today-micfailed'];
@@ -165,6 +173,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   );
   const [recordingView, setRecordingView] = useState(mockRecording && mockState !== 'today-recording');
   const [forcedNotesId, setForcedNotesId] = useState<string | null>(null);
+  const [forcedSummaryId, setForcedSummaryId] = useState<string | null>(null);
+  const [actionsView, setActionsView] = useState(mockState === 'actions');
+  const [actionItems, setActionItems] = useState<ActionItem[]>(() => {
+    if (!isMock) return [];
+    actionItemsApi.seedMock(MOCK_ACTION_ITEMS);
+    return MOCK_ACTION_ITEMS;
+  });
+  const [identitySet, setIdentitySet] = useState(true);
+  const [actionsToday, setActionsToday] = useState(() => localIsoDate(isMock ? MOCK_NOW_MS : Date.now()));
+  const [userName, setUserName] = useState(isMock ? MOCK_MEETING_SETTINGS.userName : '');
+  const [pendingUndo, setPendingUndo] = useState<{ id: number; task: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [actionsLoadFailed, setActionsLoadFailed] = useState(false);
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<number[] | null>(null);
   const [tick, setTick] = useState(0);
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
   const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);
@@ -325,6 +347,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           userNavigatedRef.current = true;
           setRecordingView(false);
           setToday(false);
+          setActionsView(false);
           setSearching(false);
           // Pin the selection first so a list load in flight keeps it, and
           // list under "all" so the meeting is in the list being shown.
@@ -472,6 +495,48 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded]);
 
+  // Action items: the library-wide list, kept in step with meetings.changed.
+  const loadActions = useCallback(() => {
+    return actionItemsApi
+      .list()
+      .then((r) => {
+        setActionsLoadFailed(false);
+        setActionItems(r.items);
+        setIdentitySet(r.identitySet);
+        setActionsToday(r.today);
+        // Keep any cached meeting detail's items in step with the list.
+        setDetails((prev) => {
+          const next = { ...prev };
+          for (const id of Object.keys(next)) next[id] = { ...next[id], actionItems: r.items.filter((i) => i.meetingId === id) };
+          return next;
+        });
+      })
+      .catch((err) => { console.error('actions.list failed', err); setActionsLoadFailed(true); });
+  }, []);
+  useEffect(() => {
+    if (!embedded) return;
+    void loadActions();
+    void bridge
+      .call<MeetingSettings>('settings.meetings.get')
+      .then((m) => setUserName(m.userName))
+      // Deliberately silent: without a name the view falls back to no identity (everyone's items).
+      .catch((err) => console.error('settings.meetings.get failed', err));
+    return bridge.on('meetings.changed', () => void loadActions());
+  }, [embedded, loadActions]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const id = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [notice]);
+
+  // The undo toast clears itself after six seconds.
+  useEffect(() => {
+    if (!pendingUndo) return;
+    const id = window.setTimeout(() => setPendingUndo(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [pendingUndo]);
+
   // Today's agenda and Upcoming come from the calendar thread's cached table.
   const refreshCalendar = useCallback(() => {
     if (!embedded) return;
@@ -521,14 +586,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
       });
   }, [embedded, settingsOpen]);
 
-  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean> }) {
+  function onChangeSettings(patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean>; userName?: string; userAliases?: string[] }) {
     if (embedded) {
       bridge
         .call<MeetingSettings>('settings.meetings.set', patch)
-        .then(setMeetingSettings)
+        .then((m) => {
+          setMeetingSettings(m);
+          setUserName(m.userName);
+          // The mine flags depend on the name, so refresh them.
+          void loadActions();
+        })
         .catch((err) => console.error('settings.meetings.set failed', err));
       return;
     }
+    if (patch.userName !== undefined) setUserName(patch.userName);
     setMeetingSettings((prev) =>
       prev
         ? {
@@ -536,6 +607,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             detectCalls: patch.detectCalls ?? prev.detectCalls,
             appearance: patch.appearance ?? prev.appearance,
             identifyVoices: patch.identifyVoices ?? prev.identifyVoices,
+            userName: patch.userName ?? prev.userName,
+            userAliases: patch.userAliases ?? prev.userAliases,
             startAtLogin: prev.startAtLogin === null ? null : (patch.startAtLogin ?? prev.startAtLogin),
             accounts: prev.accounts.map((account) => ({
               ...account,
@@ -570,6 +643,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             .call<Filters>('meetings.filters')
             .then(setFilters)
             .catch((err) => console.error('meetings.filters failed', err));
+          void loadActions();
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);
@@ -626,6 +700,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // (row deleted/renamed elsewhere) re-lists and selects the first row.
   function select(id: string | null) {
     setForcedNotesId(null);
+    setForcedSummaryId(null);
     setSelectedId(id);
     setPopover(null);
     setJumpTarget(null);
@@ -646,6 +721,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     setFilter(next);
     setSearching(false);
     setToday(false);
+    setActionsView(false);
     if (embedded) {
       void refreshList(filterParams(next), false);
       return;
@@ -657,9 +733,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     select(list[0]?.id ?? null);
   }
 
+  function onSelectActions() {
+    userNavigatedRef.current = true;
+    setRecordingView(false);
+    setToday(false);
+    setActionsView(true);
+    setSearching(false);
+    setPopover(null);
+    setConfirmOpen(false);
+  }
+
   function onSelectToday() {
     userNavigatedRef.current = true;
     setRecordingView(false);
+    setActionsView(false);
     setToday(true);
     setSearching(false);
     setPopover(null);
@@ -670,6 +757,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     userNavigatedRef.current = true;
     setRecordingView(true);
     setToday(false);
+    setActionsView(false);
     setSearching(false);
     setSearchQuery('');
     setPopover(null);
@@ -679,6 +767,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   function onSelectTodayMeeting(meetingId: string) {
     setRecordingView(false);
     setToday(false);
+    setActionsView(false);
     select(meetingId);
   }
 
@@ -846,6 +935,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     userNavigatedRef.current = true;
     setRecordingView(false);
     setToday(false);
+    setActionsView(false);
     setSearching(false);
     setSearchQuery('');
     select(result.meetingId);
@@ -965,6 +1055,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             .call<Filters>('meetings.filters')
             .then(setFilters)
             .catch((err) => console.error('meetings.filters failed', err));
+          void loadActions();
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);
@@ -982,11 +1073,150 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     select(nextSelectionAfterDelete(id, visibleMetas.filter((m) => m.id !== id)));
   }
 
+  // ---- Action items ----
+  const actionItemsRef = useRef(actionItems);
+  actionItemsRef.current = actionItems;
+  const detailsRef = useRef(details);
+  detailsRef.current = details;
+
+  function findItem(id: number): ActionItem | undefined {
+    const listed = actionItemsRef.current.find((i) => i.id === id);
+    if (listed) return listed;
+    for (const d of Object.values(detailsRef.current)) {
+      const hit = d.actionItems.find((i) => i.id === id);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  // Replace (or insert) an item in the list and in its meeting's cached detail.
+  function putItem(next: ActionItem) {
+    setActionItems((list) => (list.some((i) => i.id === next.id) ? list.map((i) => (i.id === next.id ? next : i)) : [...list, next]));
+    if (next.meetingId) {
+      const mid = next.meetingId;
+      setDetails((prev) => {
+        const d = prev[mid];
+        if (!d) return prev;
+        const has = d.actionItems.some((i) => i.id === next.id);
+        return { ...prev, [mid]: { ...d, actionItems: has ? d.actionItems.map((i) => (i.id === next.id ? next : i)) : [...d.actionItems, next] } };
+      });
+    }
+  }
+
+  function dropItems(ids: number[]) {
+    const gone = new Set(ids);
+    setActionItems((list) => list.filter((i) => !gone.has(i.id)));
+    setDetails((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        if (next[k].actionItems.some((i) => gone.has(i.id))) next[k] = { ...next[k], actionItems: next[k].actionItems.filter((i) => !gone.has(i.id)) };
+      }
+      return next;
+    });
+  }
+
+  function optimistic(item: ActionItem, c: ItemChange): ActionItem {
+    const next: ActionItem = { ...item };
+    if (c.task !== undefined) next.task = c.task;
+    if (c.owner !== undefined) next.owner = c.owner;
+    if (c.priority !== undefined) next.priority = c.priority;
+    if (c.notes !== undefined) next.notes = c.notes;
+    if (c.tags !== undefined) next.tags = c.tags;
+    if (c.status !== undefined && c.status !== item.status) {
+      next.status = c.status;
+      next.completedAt = c.status === 'done' ? new Date().toISOString() : null;
+    }
+    if (c.dueReset) {
+      next.due = item.claudeDue;
+      next.dueSource = item.claudeDue ? 'claude' : null;
+    } else if (c.due !== undefined) {
+      next.due = c.due;
+      next.dueSource = 'user';
+    }
+    return next;
+  }
+
+  async function onUpdateItem(id: number, change: ItemChange): Promise<void> {
+    const before = findItem(id);
+    if (!before) return;
+    putItem(optimistic(before, change));
+    try {
+      putItem(await actionItemsApi.update(id, change));
+    } catch (err) {
+      putItem(before);
+      throw err;
+    }
+  }
+
+  async function onCreateItem(fields: { task: string; owner: string; due: string | null; priority: Priority }): Promise<void> {
+    putItem(await actionItemsApi.create(fields));
+  }
+
+  function onDeleteItem(id: number) {
+    const item = findItem(id);
+    if (!item) return;
+    actionItemsApi
+      .remove(id)
+      .then(() => {
+        dropItems([id]);
+        setPendingUndo({ id, task: item.task });
+      })
+      .catch((err) => { console.error('actions.delete failed', err); setNotice('Couldn’t delete the item — try again.'); });
+  }
+
+  function onUndoDelete() {
+    if (!pendingUndo) return;
+    const { id } = pendingUndo;
+    setPendingUndo(null);
+    actionItemsApi
+      .restore(id)
+      .then(putItem)
+      .catch((err) => { console.error('actions.restore failed', err); setNotice('Couldn’t restore the item.'); });
+  }
+
+  function runBulk(ids: number[], change: { status?: 'open' | 'done'; addTags?: string[]; delete?: boolean }): Promise<void> {
+    return actionItemsApi.bulk(ids, change).then((changed) => {
+      if (change.delete) dropItems(ids);
+      else changed.forEach(putItem);
+    });
+  }
+
+  function onBulkItems(ids: number[], change: { status?: 'open' | 'done'; addTags?: string[]; delete?: boolean }): Promise<void> {
+    if (change.delete && ids.length === 1) {
+      onDeleteItem(ids[0]);
+      return Promise.resolve();
+    }
+    if (change.delete && ids.length > 1) {
+      setBulkDeleteIds(ids);
+      return Promise.resolve();
+    }
+    return runBulk(ids, change);
+  }
+
+  function onOpenMeeting(id: string) {
+    userNavigatedRef.current = true;
+    setActionsView(false);
+    setRecordingView(false);
+    setToday(false);
+    setSearching(false);
+    if (embedded && filterRef.current.type !== 'all') {
+      // List under "all" so the meeting is in the list being shown.
+      selectedIdRef.current = id;
+      filterRef.current = { type: 'all' };
+      setFilter({ type: 'all' });
+      void refreshList({}, true);
+    }
+    select(id);
+    setForcedSummaryId(id);
+  }
+
   const selectedDetail = selectedId ? details[selectedId] ?? null : null;
   const forcedTab =
     selectedId !== null && selectedId === forcedNotesId
       ? 'notes'
-      : mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : mockState === 'notes' ? 'notes' : undefined;
+      : selectedId !== null && selectedId === forcedSummaryId
+        ? 'summary'
+        : mockState === 'no-summary' ? 'summary' : mockState === 'popover' ? 'transcript' : mockState === 'notes' ? 'notes' : undefined;
   void tick; // re-render each second so the elapsed time on the row advances
   const recordingRow =
     recordingActive && recordingStartedAt
@@ -1005,6 +1235,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             filters={filters}
             activeFilter={filter}
             activeToday={today}
+            activeActions={actionsView}
+            actionCounts={sidebarCounts(actionItems, identitySet, actionsToday)}
+            onSelectActions={onSelectActions}
             todayCount={
               todayConnection === 'connected' ? (isMock ? mockAgenda : calendar.agenda).length : undefined
             }
@@ -1037,13 +1270,14 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             ) : (
               <MeetingList
                 metas={visibleMetas}
-                selectedId={today || recordingView ? null : selectedId}
+                selectedId={today || recordingView || actionsView ? null : selectedId}
                 today={localIsoDate(isMock ? MOCK_NOW_MS : nowMs)}
                 expandAll={filter.type !== 'all'}
                 onSelect={(id) => {
                   userNavigatedRef.current = true;
                   setRecordingView(false);
                   setToday(false);
+                  setActionsView(false);
                   select(id);
                 }}
                 onRequestSearchFocus={() => setSearchFocusToken((t) => (t ?? 0) + 1)}
@@ -1054,6 +1288,20 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
 
           {restoring ? <div /> : recordingView && recordingStartedAt ? (
             <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} flushNotesRef={flushNotesRef} />
+          ) : actionsView ? (
+            <ActionItemsView
+              items={actionItems}
+              identitySet={identitySet}
+              today={actionsToday}
+              userName={userName}
+              onUpdate={onUpdateItem}
+              onCreate={onCreateItem}
+              onDelete={onDeleteItem}
+              onBulk={onBulkItems}
+              onOpenMeeting={onOpenMeeting}
+              onOpenSettings={() => setSettingsOpen(true)}
+              loadError={actionsLoadFailed}
+            />
           ) : today ? (
             <TodayView
               connection={todayConnection}
@@ -1147,6 +1395,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               jumpTarget={jumpTarget}
               onLoadEvents={isMock || filters.features.calendar ? loadEventsForMeeting : undefined}
               onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
+              onUpdateItem={onUpdateItem}
+              onDeleteItem={onDeleteItem}
             />
           )}
 
@@ -1186,6 +1436,33 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               anchor={popover.anchor}
               onCancel={() => setPopover(null)}
               onRename={onRenameSpeaker}
+            />
+          )}
+
+          {notice && !pendingUndo && (
+            <div className={styles.toast} role="status">
+              <span>{notice}</span>
+            </div>
+          )}
+
+          {pendingUndo && (
+            <div className={styles.toast} role="status">
+              <span>Deleted “{pendingUndo.task}” —</span>
+              <button type="button" onClick={onUndoDelete}>Undo</button>
+            </div>
+          )}
+
+          {bulkDeleteIds && (
+            <ConfirmSheet
+              title={`Delete ${bulkDeleteIds.length} action items?`}
+              body="They can't be restored from here."
+              confirmLabel="Delete"
+              onCancel={() => setBulkDeleteIds(null)}
+              onConfirm={() => {
+                const ids = bulkDeleteIds;
+                setBulkDeleteIds(null);
+                runBulk(ids, { delete: true }).catch((err) => { console.error('actions.bulk failed', err); setNotice('Couldn’t delete the items — try again.'); });
+              }}
             />
           )}
 

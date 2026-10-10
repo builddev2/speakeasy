@@ -13,7 +13,7 @@ from speakeasy.meetings import MeetingSegment
 MASTER = (
     "meetings", "segments", "notes", "user_notes", "note_draft", "tags",
     "meeting_tags", "tag_aliases", "tag_suppressions", "people",
-    "meeting_people", "summary_requests",
+    "meeting_people", "summary_requests", "action_items", "action_item_tags",
 )
 
 
@@ -49,6 +49,11 @@ def test_backup_restore_preserves_master_data_and_rebuilds_derived(tmp_path, lib
                      (tag_id,))
         conn.execute("INSERT INTO tag_suppressions (meeting_id, tag_id, created_at)"
                      " VALUES (?, ?, '2026-09-30')", (second, tag_id))
+        conn.execute("INSERT INTO action_items (meeting_id, task, source, created_at, updated_at,"
+                     " updated_by) VALUES (?, 'Send it', 'summary', '2026-09-30', '2026-09-30',"
+                     " 'claude')", (first,))
+        conn.execute("INSERT INTO action_item_tags (item_id, tag_id)"
+                     " SELECT last_insert_rowid(), ?", (tag_id,))
         conn.execute("INSERT INTO calendar_events (event_key, calendar_name, title, start_utc,"
                      " end_utc, all_day, synced_at) VALUES"
                      " ('linked-event', 'Calendar', 'Event', '2026-09-30T12:00:00Z',"

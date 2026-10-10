@@ -31,9 +31,10 @@ Rules:
   when a name heard in the transcript sounds like an invitee, write the
   invitee's name. Use first names ("Siam, Refayet" is Refayet). Keep names of
   people who were not invited as the transcript gives them.
-- Action items go in action_items, not the summary, each as
-  "Owner — task (due)"; use "Unassigned" when nobody took it. Parked ideas go
-  under Open questions, not action items.
+- Action items go in action_items, not the summary, each as an object
+  {"task", "owner", "due_date", "due_phrase", "priority"}: owner "Unassigned"
+  when nobody took it; priority "high" only when stressed as urgent, else
+  leave it out. Parked ideas go under Open questions, not action items.
 - Tags: call list_tags first and reuse existing tags (any spelling or alias
   matches). Create a new tag only for a genuinely new topic, at most 3 new
   per meeting; 3-8 tags in total. If save_notes says it would create too
@@ -45,6 +46,24 @@ Rules:
   down is what mattered. Build the summary on them; don't copy them back word
   for word. Their checklist items stay theirs: don't repeat them as action items.
 - Save with save_notes (summary, action_items and tags together)."""
+
+DUE_DATE_RULE = (
+    "- Resolve relative due dates (\"by Friday\", \"next week\", \"end of month\") "
+    "to a YYYY-MM-DD due_date counted from the meeting's start date, and put the "
+    "words said in due_phrase. Leave due_date out when no time was given. \"Next "
+    "week\" means that week's Friday; \"end of month\" means the month's last day.")
+
+
+def summary_instructions(identity: dict) -> str:
+    """SUMMARY_INSTRUCTIONS plus the rules that depend on settings."""
+    lines = [SUMMARY_INSTRUCTIONS, DUE_DATE_RULE]
+    name = (identity or {}).get("name") or ""
+    if name:
+        aliases = identity.get("aliases") or []
+        also = f" (also {', '.join(aliases)})" if aliases else ""
+        lines.append(f'- The user is {name}{also}. Write the user\'s own items with owner "{name}".')
+    return "\n".join(lines)
+
 
 _MD_HEADING = re.compile(r"^#{1,6}\s+(.*)$")
 _BULLET = re.compile(r"^[-*•]\s+(.*)$")

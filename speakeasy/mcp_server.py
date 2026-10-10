@@ -31,7 +31,9 @@ INSTRUCTIONS = (
     "Start with search_meetings or list_meetings, then read only what you need "
     "with get_transcript (start_seconds/end_seconds, or cursor). Dates are the "
     "user's local days, YYYY-MM-DD. save_notes stores a summary, action items "
-    "or tags the user can see in Speakeasy."
+    "or tags the user can see in Speakeasy; list_action_items, "
+    "create_action_item, update_action_item and delete_action_item manage the "
+    "user's action items."
 )
 _BUSY = "The meeting library is busy. Try again in a moment."
 

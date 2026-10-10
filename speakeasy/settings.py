@@ -238,6 +238,32 @@ def set_prompted_events(day: str, keys) -> None:
     _write(data)
 
 
+# -- identity (action items: which owner is "me") --------------------------------
+
+
+def get_identity() -> dict:
+    raw = _read().get("identity")
+    raw = raw if isinstance(raw, dict) else {}
+    name = raw.get("name") if isinstance(raw.get("name"), str) else ""
+    aliases = raw.get("aliases") if isinstance(raw.get("aliases"), list) else []
+    try:
+        from .action_items import clean_identity
+        return clean_identity(name, [a for a in aliases if isinstance(a, str)])
+    except ValueError:
+        return {"name": "", "aliases": []}
+
+
+def set_identity(name=None, aliases=None) -> dict:
+    from .action_items import clean_identity
+    current = get_identity()
+    identity = clean_identity(current["name"] if name is None else name,
+                              current["aliases"] if aliases is None else aliases)
+    data = _read()
+    data["identity"] = identity
+    _write(data)
+    return identity
+
+
 # -- model location --------------------------------------------------------
 
 

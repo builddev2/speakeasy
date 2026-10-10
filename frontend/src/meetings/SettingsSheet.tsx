@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import type { Appearance, MeetingSettings } from '../mock/meetings';
 import { Sheet } from './Sheet';
 import { Switch } from '../components/Switch';
@@ -9,7 +10,7 @@ interface SettingsSheetProps {
   settings: MeetingSettings;
   /** "No calendars found." only makes sense once access is granted. */
   calendarConnected: boolean;
-  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean> }) => void;
+  onChange: (patch: { offerToRecord?: boolean; detectCalls?: boolean; appearance?: Appearance; identifyVoices?: boolean; startAtLogin?: boolean; calendars?: Record<string, boolean>; userName?: string; userAliases?: string[] }) => void;
   onClose: () => void;
   onExportAll: () => void;
   exportStatus: string;
@@ -28,6 +29,8 @@ interface SettingsSheetProps {
 export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll, exportStatus, onRevealExport, exportReady, onBackup, onRestore, backupStatus, restoreStatus, backupReady, onRevealBackup, libraryBusy }: SettingsSheetProps) {
   const { offerToRecord, detectCalls, appearance, identifyVoices, startAtLogin, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
+  const [nameDraft, setNameDraft] = useState(settings.userName);
+  const [aliasDraft, setAliasDraft] = useState(settings.userAliases.join(', '));
 
   return (
     <Sheet ariaLabel="Settings" onClose={onClose} initialFocusRef={doneRef} className={styles.sheet}>
@@ -72,6 +75,24 @@ export function SettingsSheet({ settings, calendarConnected, onChange, onClose, 
         </span>
         <Switch checked={identifyVoices} onChange={(value) => onChange({ identifyVoices: value })} ariaLabelledBy="identify-voices-label" />
       </div>
+
+      <div className={styles.sectionTitle}>Action items</div>
+      <label className={styles.fieldRow}>
+        <span>Your name</span>
+        <input {...NO_AUTOCORRECT} className={styles.textField} value={nameDraft} maxLength={80}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={() => { if (nameDraft.trim() !== settings.userName) onChange({ userName: nameDraft.trim() }); }} />
+      </label>
+      <label className={styles.fieldRow}>
+        <span>Other names</span>
+        <input {...NO_AUTOCORRECT} className={styles.textField} value={aliasDraft} placeholder="Comma-separated"
+          onChange={(e) => setAliasDraft(e.target.value)}
+          onBlur={() => {
+            const aliases = aliasDraft.split(',').map((s) => s.trim()).filter(Boolean);
+            if (aliases.join('\n') !== settings.userAliases.join('\n')) onChange({ userAliases: aliases });
+          }} />
+      </label>
+      <div className={styles.hint}>Items whose owner matches any of these are yours. Anyone who shares your first name also matches.</div>
 
       <div className={styles.sectionTitle}>General</div>
       <div className={styles.toggleRow}>

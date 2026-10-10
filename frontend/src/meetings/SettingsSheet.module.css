@@ -104,3 +104,17 @@
 .segment { border: 0; background: transparent; color: var(--text-mid); font: 500 12.5px var(--sans); padding: 4px 14px; border-radius: 6px; cursor: pointer; }
 .segmentOn { background: var(--surface-elevated); color: var(--text-hi); box-shadow: 0 1px 2px var(--hairline); }
 .segment:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.fieldRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 400 13px/1.4 var(--sans); color: var(--text-hi); }
+.textField {
+  flex: 0 1 240px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 0.5px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--glass-fill-2);
+  color: var(--text-hi);
+  font: 400 13px/1.4 var(--sans);
+}
+.textField:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

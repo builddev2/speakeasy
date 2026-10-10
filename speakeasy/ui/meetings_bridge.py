@@ -12,9 +12,11 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from speakeasy import action_items as ai
 from speakeasy import mcp_setup
 from speakeasy import meetings as meeting_render
 from speakeasy import settings
+from speakeasy.action_item_store import ActionItemNotFound
 from speakeasy.meeting_export import render_export_md
 from speakeasy.summary_format import parse_summary
 from speakeasy.meeting_library import (
@@ -146,6 +148,12 @@ class MeetingsBridge:
             "notes.draft.finish": self.draft_finish_payload,
             "recording.get": self.recording_payload,
             "meetings.takeNavigation": self.take_navigation_payload,
+            "actions.list": self.actions_list_payload,
+            "actions.create": self.actions_create_payload,
+            "actions.update": self.actions_update_payload,
+            "actions.delete": self.actions_delete_payload,
+            "actions.restore": self.actions_restore_payload,
+            "actions.bulk": self.actions_bulk_payload,
         }.items():
             dispatcher.register(method, self._wrap(fn))
 
@@ -154,7 +162,7 @@ class MeetingsBridge:
         def handler(params, respond):
             try:
                 respond(fn(params or {}))
-            except MeetingNotFound:
+            except (MeetingNotFound, ActionItemNotFound):
                 respond(error="not_found")
             except BridgeError as err:
                 respond(error=str(err))
@@ -252,11 +260,13 @@ class MeetingsBridge:
 
     def settings_get_payload(self, params) -> dict:
         stored = settings.get_meeting_settings()
+        identity = settings.get_identity()
         calendars = self._calendar.calendars if self._calendar is not None else []
         return {"offerToRecord": stored["offer_to_record"],
                 "detectCalls": stored["detect_calls"],
                 "appearance": settings.get_appearance(),
                 "identifyVoices": settings.get_identify_voices(),
+                "userName": identity["name"], "userAliases": identity["aliases"],
                 "startAtLogin": self._login_status() if self._login_status else None,
                 "accounts": calendar_payloads.calendars_payload(
                     calendars, stored["calendar_choices"])}
@@ -276,6 +286,8 @@ class MeetingsBridge:
                 self._set_login(params["startAtLogin"])
             except RuntimeError as err:
                 raise ValueError(str(err)) from err
+        if params.get("userName") is not None or params.get("userAliases") is not None:
+            settings.set_identity(name=params.get("userName"), aliases=params.get("userAliases"))
         settings.set_meeting_settings(
             offer_to_record=params.get("offerToRecord"),
             detect_calls=params.get("detectCalls"),
@@ -334,6 +346,7 @@ class MeetingsBridge:
 
     def get_payload(self, params) -> dict:
         m = self.library.get_meeting(str(params.get("id", "")))
+        identity = settings.get_identity()
         speakers = _distinct_speakers(m.segments)
         detail = self._meta_fields(
             meeting_id=m.meeting_id, title=m.title, meeting_local_start=m.local_start,
@@ -350,7 +363,7 @@ class MeetingsBridge:
             "summary": (m.notes.summary or None) if m.notes else None,
             "summaryBlocks": parse_summary(m.notes.summary if m.notes else ""),
             "summaryQueued": self.library.summary_pending(m.meeting_id, now=self._now()),
-            "actionItems": m.notes.action_items if m.notes else [],
+            "actionItems": [self._action_payload(i, identity) for i in m.action_items],
             "hasUserNotes": bool(m.user_notes),
             "userNotes": {"markdown": m.user_notes.markdown if m.user_notes else "",
                           "stamps": [list(s) for s in m.user_notes.stamps] if m.user_notes else []},
@@ -360,6 +373,60 @@ class MeetingsBridge:
                       and (ev := self.library.calendar_event(m.calendar_event_id)) else None),
         })
         return detail
+
+    # -- action items -------------------------------------------------------
+
+    @staticmethod
+    def _action_payload(item, identity) -> dict:
+        meeting_date = (local_start(item.meeting_started_at, item.meeting_tz_offset_minutes)
+                        .date().isoformat() if item.meeting_started_at else None)
+        return {
+            "id": item.id, "meetingId": item.meeting_id, "meetingTitle": item.meeting_title,
+            "meetingDate": meeting_date, "task": item.task, "owner": item.owner,
+            "mine": ai.is_mine(item.owner, identity), "priority": item.priority,
+            "status": item.status, "completedAt": item.completed_at, "due": item.effective_due,
+            "dueSource": item.due_source, "duePhrase": item.due_phrase, "claudeDue": item.due_date,
+            "notes": item.notes, "tags": item.tags, "meetingTags": item.meeting_tags,
+            "source": item.source, "createdAt": item.created_at, "updatedAt": item.updated_at,
+        }
+
+    def actions_list_payload(self, params) -> dict:
+        identity = settings.get_identity()
+        return {"items": [self._action_payload(i, identity) for i in self.library.list_action_items()],
+                "identitySet": bool(identity["name"]),
+                "today": self._now().date().isoformat()}
+
+    def actions_create_payload(self, params) -> dict:
+        item = self.library.create_action_item(
+            task=params.get("task"), owner=params.get("owner") or "",
+            meeting_id=params.get("meetingId"), due=params.get("due"),
+            priority=params.get("priority") or "normal", notes=params.get("notes") or "",
+            tags=params.get("tags") or [], updated_by="user")
+        return self._action_payload(item, settings.get_identity())
+
+    def actions_update_payload(self, params) -> dict:
+        fields = {k: params[k] for k in ("task", "owner", "priority", "status", "notes", "due", "tags")
+                  if k in params}
+        item = self.library.update_action_item(
+            ai.check_id(params.get("id")), updated_by="user",
+            due_reset=params.get("dueReset") is True, **fields)
+        return self._action_payload(item, settings.get_identity())
+
+    def actions_delete_payload(self, params) -> bool:
+        self.library.delete_action_item(ai.check_id(params.get("id")), updated_by="user")
+        return True
+
+    def actions_restore_payload(self, params) -> dict:
+        item = self.library.restore_action_item(ai.check_id(params.get("id")), updated_by="user")
+        return self._action_payload(item, settings.get_identity())
+
+    def actions_bulk_payload(self, params) -> dict:
+        kwargs = {"status": params["status"]} if params.get("status") is not None else {}
+        items = self.library.bulk_update_action_items(
+            params.get("ids"), updated_by="user", add_tags=params.get("addTags") or [],
+            remove_tags=params.get("removeTags") or [], delete=params.get("delete") is True, **kwargs)
+        identity = settings.get_identity()
+        return {"items": [self._action_payload(i, identity) for i in items]}
 
     def notes_set_payload(self, params) -> dict:
         notes = self.library.set_user_notes(str(params.get("id", "")),

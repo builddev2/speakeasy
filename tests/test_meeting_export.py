@@ -194,6 +194,9 @@ class _FakeLibrary:
         self.total = total
         self.deleted_id = None
 
+    def list_action_items(self, **kw):
+        return []
+
     def list_meetings(self, *, limit, offset):
         remaining = self.total - offset
         if remaining <= 0:
@@ -260,3 +263,80 @@ def test_export_puts_my_notes_after_the_summary_with_stamps(library_path):
     md = render_export_md(lib.get_meeting(mid))
     assert md.index("## Summary") < md.index("## My notes") < md.index("## Transcript")
     assert "## Plan\n- [ ] [12:40] send deck\nplain" in md
+
+
+def test_export_renders_item_status_owner_due_priority_notes(library_path):
+    from speakeasy.meeting_export import format_item_md
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "M")
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "Send budget draft", "owner": "Jason", "due_date": "2026-10-16",
+         "due_phrase": "by Friday", "priority": "high"}, "Plain"])
+    first, second = lib.list_action_items(meeting_id=mid)
+    lib.update_action_item(first.id, updated_by="user", status="done", notes="line one\nline two")
+    assert format_item_md(lib.get_action_item(first.id)) == [
+        '- [x] Send budget draft — Jason · due Fri 16 Oct 2026 ("by Friday") · high',
+        "  Notes: line one", "  line two"]
+    assert format_item_md(second) == ["- [ ] Plain"]
+
+
+def test_export_all_writes_action_items_file(tmp_path, library_path):
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "Weekly")
+    lib.save_notes(mid, summary="s", action_items=["Open one"])
+    done = lib.create_action_item(task="Manual done")
+    lib.update_action_item(done.id, updated_by="user", status="done")
+    count = export_all(tmp_path / "out", lib)
+    text = (tmp_path / "out" / "Action items.md").read_text()
+    assert count == 1                                         # still counts meetings only
+    assert "## Open" in text and "- [ ] Open one" in text and "Weekly" in text
+    assert "  From: Weekly (2026-09-30)" in text
+    assert "## Completed" in text and "- [x] Manual done" in text
+
+
+def test_export_without_items_writes_no_action_items_file(tmp_path, library_path):
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    _meeting(lib, "Quiet")
+    export_all(tmp_path / "out", lib)
+    assert not (tmp_path / "out" / "Action items.md").exists()
+
+
+def test_export_excludes_soft_deleted_items(tmp_path, library_path):
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "Weekly")
+    lib.save_notes(mid, summary="s", action_items=["Keep me", "Drop me"])
+    keep, drop = lib.list_action_items(meeting_id=mid)
+    lib.delete_action_item(drop.id, updated_by="user")
+    export_all(tmp_path / "out", lib)
+    assert "Keep me" in (tmp_path / "out" / "Action items.md").read_text()
+    for f in (tmp_path / "out").iterdir():
+        assert "Drop me" not in f.read_text(encoding="utf-8")
+
+
+def test_per_meeting_section_formats_status_due_and_notes(library_path):
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "M")
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "Send draft", "owner": "Jason", "due_date": "2026-10-16",
+         "due_phrase": "by Friday", "priority": "high"}])
+    (item,) = lib.list_action_items(meeting_id=mid)
+    lib.update_action_item(item.id, updated_by="user", status="done", notes="a\nb")
+    md = render_export_md(lib.get_meeting(mid))
+    assert ('## Action items\n\n- [x] Send draft — Jason · due Fri 16 Oct 2026 '
+            '("by Friday") · high\n  Notes: a\n  b\n') in md
+
+
+def test_export_keeps_due_phrase_when_there_is_no_date(library_path):
+    from speakeasy.meeting_export import format_item_md
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "M")
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "send draft", "owner": "Jason", "due_phrase": "by Friday"}])
+    (item,) = lib.list_action_items(meeting_id=mid)
+    assert format_item_md(item) == ['- [ ] send draft — Jason · "by Friday"']

@@ -14,10 +14,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import settings
+from . import action_items as ai, settings
+from .action_item_store import ActionItemNotFound
 from .meeting_library import HIT_CLOSE, HIT_OPEN, MeetingNotFound, local_start, utc_iso
 from .meetings import _ID_RE
-from .summary_format import SUMMARY_INSTRUCTIONS
+from .summary_format import summary_instructions
+from .tag_names import tag_slug
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 # Diarization's placeholder labels ("Speaker 12"); same pattern as
@@ -201,6 +203,60 @@ _FILTERS = {
 _ID = {"id": {"type": "string", "description": "Meeting id from list_meetings or search_meetings."}}
 
 
+_SORTS = ("due", "priority", "meeting", "created")
+_PRIORITY_RANK = {"high": 0, "normal": 1, "low": 2}
+
+
+def _item_id(args):
+    value = args.get("id")
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    try:
+        return ai.check_id(value)
+    except ValueError as err:
+        raise ToolError(f"id: {err}") from None
+
+
+def _item_json(item, identity) -> dict:
+    tags = sorted({t.casefold(): t for t in [*item.meeting_tags, *item.tags]}.values(), key=str.casefold)
+    return {
+        "id": item.id, "task": item.task, "owner": item.owner or "Unassigned",
+        "mine": ai.is_mine(item.owner, identity), "priority": item.priority,
+        "status": item.status, "due": item.effective_due, "due_source": item.due_source,
+        **({"due_phrase": item.due_phrase} if item.due_phrase else {}),
+        **({"notes": item.notes} if item.notes else {}),
+        "tags": tags,
+        "meeting": None if item.meeting_id is None else {
+            "id": item.meeting_id, "title": item.meeting_title,
+            "start": _start(item.meeting_started_at, item.meeting_tz_offset_minutes)},
+        **({"completed_at": item.completed_at} if item.completed_at else {}),
+    }
+
+
+def _sorted(items, sort):
+    def due_key(i):
+        return (i.effective_due is None, i.effective_due or "")
+    if sort == "meeting":     # newest meeting first; items without a meeting last
+        dated = sorted((i for i in items if i.meeting_started_at),
+                       key=lambda i: (i.meeting_started_at, -i.position), reverse=True)
+        return dated + [i for i in items if not i.meeting_started_at]
+    if sort == "created":
+        return sorted(items, key=lambda i: (i.created_at, i.id), reverse=True)
+    if sort == "priority":
+        return sorted(items, key=lambda i: (_PRIORITY_RANK[i.priority], *due_key(i), i.id))
+    return sorted(items, key=lambda i: (*due_key(i), _PRIORITY_RANK[i.priority], i.id))
+
+
+def _call(fn, *args, **kwargs):
+    """Library errors -> ToolError messages Claude can act on."""
+    try:
+        return fn(*args, **kwargs)
+    except ActionItemNotFound:
+        raise ToolError("Action item not found: check the id with list_action_items.") from None
+    except ValueError as err:
+        raise ToolError(str(err)) from None
+
+
 def build_tools(library) -> dict[str, Tool]:
     def list_meetings(args):
         start, end = _range(args)
@@ -231,7 +287,10 @@ def build_tools(library) -> dict[str, Tool]:
         m = library.get_meeting(_meeting_id(args), with_segments=False)
         notes = None
         if m.notes is not None:
-            notes = {"summary": m.notes.summary, "action_items": m.notes.action_items,
+            notes = {"summary": m.notes.summary,
+                     "action_items": [{"id": i.id, "task": i.task, "owner": i.owner or "Unassigned",
+                                       "status": i.status, "due": i.effective_due,
+                                       "priority": i.priority} for i in m.action_items],
                      "updated_at": m.notes.updated_at, "updated_by": m.notes.updated_by}
         un = m.user_notes
         user_notes = None if un is None else {
@@ -322,7 +381,9 @@ def build_tools(library) -> dict[str, Tool]:
         summary = args.get("summary")
         if summary is not None and not isinstance(summary, str):
             raise ToolError("summary must be text.")
-        action_items, tags = _str_list(args, "action_items"), _str_list(args, "tags")
+        action_items, tags = args.get("action_items"), _str_list(args, "tags")
+        if action_items is not None and not isinstance(action_items, list):
+            raise ToolError("action_items must be a list.")
         if summary is None and action_items is None and tags is None:
             raise ToolError("Give at least one of summary, action_items or tags.")
         notes = library.save_notes(meeting_id, summary=summary, action_items=action_items,
@@ -380,7 +441,79 @@ def build_tools(library) -> dict[str, Tool]:
                 "speakers": m.speakers, "tags": m.tags,
                 "has_summary": bool(m.notes and m.notes.summary),
                 "requested": requested})
-        return {"meetings": meetings, "instructions": SUMMARY_INSTRUCTIONS}
+        return {"meetings": meetings, "instructions": summary_instructions(settings.get_identity())}
+
+    def list_action_items(args):
+        status = _text(args, "status", max_len=10) or "open"
+        if status not in ("open", "done", "all"):
+            raise ToolError("status must be open, done or all.")
+        sort = _text(args, "sort", max_len=10) or "due"
+        if sort not in _SORTS:
+            raise ToolError("sort must be due, priority, meeting or created.")
+        limit, offset = _int(args, "limit", 50, 1, 100), _int(args, "offset", 0, 0, 1_000_000)
+        identity = settings.get_identity()
+        today = datetime.now().astimezone().date()
+        due_from, due_to = _date(args, "due_from"), _date(args, "due_to")
+        owner, tag = _text(args, "owner"), _text(args, "tag")
+        query, meeting_id = _text(args, "query", max_len=200), args.get("meeting_id")
+        mine, overdue = _bool(args, "mine"), _bool(args, "overdue")
+        items = library.list_action_items()
+
+        def keep(i):
+            if status != "all" and i.status != status:
+                return False
+            if mine and not ai.is_mine(i.owner, identity):
+                return False
+            if owner and (i.owner or "Unassigned").casefold() != owner.casefold():
+                return False
+            if tag and tag_slug(tag) not in {tag_slug(t) for t in [*i.tags, *i.meeting_tags]}:
+                return False
+            if meeting_id and i.meeting_id != meeting_id:
+                return False
+            if due_from and (i.effective_due is None or i.effective_due < due_from):
+                return False
+            if due_to and (i.effective_due is None or i.effective_due > due_to):
+                return False
+            if overdue and not (i.status == "open"
+                                and ai.due_bucket(i.effective_due, today) == "overdue"):
+                return False
+            if query and query.casefold() not in " ".join(
+                    [i.task, i.notes, i.owner, i.meeting_title or ""]).casefold():
+                return False
+            return True
+
+        rows = _sorted([i for i in items if keep(i)], sort)
+        page = rows[offset:offset + limit]
+        return {"items": [_item_json(i, identity) for i in page],
+                "identity_set": bool(identity["name"]),
+                "offset": offset,
+                "next_offset": offset + limit if len(rows) > offset + limit else None}
+
+    def create_action_item(args):
+        item = _call(library.create_action_item, task=args.get("task"), owner=args.get("owner") or "",
+                     meeting_id=args.get("meeting_id"), due=args.get("due"),
+                     priority=args.get("priority") or "normal", notes=args.get("notes") or "",
+                     tags=args.get("tags") or [], updated_by="claude")
+        return _item_json(item, settings.get_identity())
+
+    def update_action_item(args):
+        item_id = _item_id(args)
+        fields = {k: args[k] for k in ("task", "owner", "priority", "status", "notes", "due", "tags")
+                  if k in args}
+        reset = _bool(args, "reset_due")
+        if not fields and not reset:
+            raise ToolError("Give at least one field to change.")
+        item = _call(library.update_action_item, item_id, updated_by="claude",
+                     due_reset=reset, **fields)
+        return _item_json(item, settings.get_identity())
+
+    def delete_action_item(args):
+        item_id = _item_id(args)
+        if _bool(args, "undo"):
+            return _item_json(_call(library.restore_action_item, item_id, updated_by="claude"),
+                              settings.get_identity())
+        _call(library.delete_action_item, item_id, updated_by="claude")
+        return {"deleted": item_id}
 
     specs = [
         ("list_meetings",
@@ -397,7 +530,7 @@ def build_tools(library) -> dict[str, Tool]:
         ("get_meeting",
          "Get one meeting's details: the user's own notes (user_notes; read these "
          "first, they show what mattered to the user), Claude's notes (summary, "
-         "action items), tags, people and calendar event. No transcript: use "
+         "action items with ids), tags, people and calendar event. No transcript: use "
          "get_transcript for that.",
          _ID, ["id"], get_meeting, True),
         ("search_meetings",
@@ -447,11 +580,19 @@ def build_tools(library) -> dict[str, Tool]:
          "create a new tag only for a genuinely new topic, at most 3 per call. "
          "Replacing tags never removes tags the user added, and tags the user "
          "removed from this meeting are skipped. "
-         "Write summaries in the format pending_summaries returns.",
+         "Write summaries in the format pending_summaries returns. "
+         "Action items the user completed, edited, added or deleted are kept; the rest are replaced by the list you give.",
          {**_ID, "summary": {"type": "string", "maxLength": 20000,
                              "description": "Use the format from pending_summaries: a TL;DR line, "
                                             "then ## Decisions, ## Key points, ## Open questions."},
-          "action_items": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+          "action_items": {"type": "array", "maxItems": 50, "items": {"anyOf": [
+              {"type": "string"},
+              {"type": "object", "additionalProperties": False, "required": ["task"],
+               "properties": {"task": {"type": "string", "maxLength": 500},
+                              "owner": {"type": "string", "maxLength": 80},
+                              "due_date": {"type": "string"}, "due_phrase": {"type": "string", "maxLength": 80},
+                              "priority": {"type": "string", "enum": ["high", "normal", "low"]},
+                              "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 10}}}]}},
           "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 20}},
          ["id"], save_notes, False),
         ("tag_meetings",
@@ -486,6 +627,49 @@ def build_tools(library) -> dict[str, Tool]:
          {"limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
           "from": _FILTERS["from"], "to": _FILTERS["to"]},
          [], pending_summaries, True),
+        ("list_action_items",
+         "List action items across meetings (open ones by default), soonest due first. "
+         "Each has an id, task, owner (mine is true when it is the user's), priority, "
+         "due date (due_source user means the user set it), notes, tags (the item's and "
+         "its meeting's) and its meeting. Filter by mine, owner, tag, meeting_id, "
+         "due_from/due_to, overdue or query (words in the task, notes, owner or meeting "
+         "title). Pass next_offset as offset for more.",
+         {"status": {"type": "string", "enum": ["open", "done", "all"], "default": "open"},
+          "mine": {"type": "boolean"}, "owner": {"type": "string"}, "tag": {"type": "string"},
+          "meeting_id": {"type": "string"}, "due_from": _FILTERS["from"], "due_to": _FILTERS["to"],
+          "overdue": {"type": "boolean"}, "query": {"type": "string"},
+          "sort": {"type": "string", "enum": list(_SORTS), "default": "due"},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+          "offset": {"type": "integer", "minimum": 0, "default": 0}},
+         [], list_action_items, True),
+        ("create_action_item",
+         "Add an action item because the user asked you to, optionally linked to a "
+         "meeting. due is YYYY-MM-DD. Items you add or change are kept when the meeting "
+         "is summarised again.",
+         {"task": {"type": "string", "maxLength": 500}, "owner": {"type": "string", "maxLength": 80},
+          "meeting_id": {"type": "string"}, "due": {"type": "string"},
+          "priority": {"type": "string", "enum": ["high", "normal", "low"]},
+          "notes": {"type": "string", "maxLength": 5000},
+          "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 10}},
+         ["task"], create_action_item, False),
+        ("update_action_item",
+         "Change an action item because the user asked you to: mark it done (status "
+         "done) or open, edit task, owner, priority or notes, set due (YYYY-MM-DD; empty "
+         "text means no date), reset_due to go back to the date from the summary, or "
+         "replace its own tags. Only the fields you give change.",
+         {"id": {"type": "integer"}, "task": {"type": "string", "maxLength": 500},
+          "owner": {"type": "string", "maxLength": 80},
+          "priority": {"type": "string", "enum": ["high", "normal", "low"]},
+          "status": {"type": "string", "enum": ["open", "done"]},
+          "notes": {"type": "string", "maxLength": 5000}, "due": {"type": "string"},
+          "reset_due": {"type": "boolean"},
+          "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 10}},
+         ["id"], update_action_item, False),
+        ("delete_action_item",
+         "Delete an action item because the user asked you to (it stays out of future "
+         "summaries of that meeting). undo true restores it.",
+         {"id": {"type": "integer"}, "undo": {"type": "boolean"}},
+         ["id"], delete_action_item, False),
     ]
     return {
         name: Tool(name, description,

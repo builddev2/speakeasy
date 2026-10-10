@@ -1,0 +1,160 @@
+.row {
+  list-style: none;
+  border-bottom: 0.5px solid var(--hairline-lo);
+  padding: 8px 4px;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.select { margin-top: 3px; flex-shrink: 0; }
+
+.check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--on-accent);
+  font: 700 11px/1 var(--sans);
+  cursor: pointer;
+}
+.check:hover { background: var(--glass-fill); }
+.check:focus-visible, .main:focus-visible, .meeting:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.checkOn { background: var(--accent); border-color: var(--accent); }
+.checkOn:hover { background: var(--accent); }
+
+.main {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.task {
+  font: 400 13px/1.45 var(--sans);
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+.done .task { text-decoration: line-through; color: var(--text-lo); }
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font: 400 11.5px/1.4 var(--sans);
+  color: var(--text-mid);
+}
+
+.owner { color: var(--text-mid); }
+.due { color: var(--text-mid); }
+.phrase, .edited { font: 400 11px/1.4 var(--sans); color: var(--text-lo); }
+.hasNotes { color: var(--text-lo); }
+
+.priority {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font: 600 10.5px/1.5 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.high { background: var(--danger-bg); color: var(--danger-text); border: 0.5px solid var(--danger-border); }
+.low { background: var(--glass-fill-2); color: var(--text-lo); border: 0.5px solid var(--hairline-lo); }
+.normal { color: var(--text-mid); }
+
+.tag, .tagMuted {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font: 400 11px/1.5 var(--sans);
+}
+.tag { background: var(--glass-fill); color: var(--text-hi); }
+.tagMuted { border: 0.5px solid var(--hairline); color: var(--text-lo); }
+
+.meeting {
+  flex: 0 1 auto;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-mid);
+  font: 400 11.5px/1.4 var(--sans);
+  text-decoration: underline;
+  text-decoration-color: var(--hairline);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meeting:hover { color: var(--text-hi); }
+.meetingGone { font: 400 11.5px/1.4 var(--sans); color: var(--text-lo); }
+
+.editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin: 10px 0 4px 26px;
+  min-width: 0;
+}
+@container (max-width: 560px) {
+  .editor { grid-template-columns: 1fr; margin-left: 0; }
+}
+.editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font: 500 11px/1.4 var(--sans);
+  color: var(--text-lo);
+}
+.editor input, .editor select, .editor textarea {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 0.5px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--glass-fill-2);
+  color: var(--text-hi);
+  font: 400 13px/1.4 var(--sans);
+}
+.editor textarea { resize: vertical; }
+.editor input:focus-visible, .editor select:focus-visible, .editor textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.notes { grid-column: 1 / -1; }
+.dueActions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.dueActions button, .delete {
+  padding: 5px 10px;
+  border: 0.5px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--glass-fill-2);
+  color: var(--text-mid);
+  font: 400 12px/1.4 var(--sans);
+  cursor: pointer;
+}
+.dueActions button:hover:not(:disabled) { background: var(--glass-fill); color: var(--text-hi); }
+.dueActions button:disabled { opacity: 0.45; cursor: default; }
+.delete { justify-self: start; color: var(--danger-text); border-color: var(--danger-border); }
+.delete:hover { background: var(--danger-bg); }
+
+.error { margin: 6px 0 0 26px; font: 400 12px/1.4 var(--sans); color: var(--danger-text); }

@@ -152,3 +152,22 @@ def test_corrupt_pill_origin_reads_as_none():
     data["pill_origin"] = ["x", 3]
     settings._write(data)
     assert settings.get_pill_origin() is None
+
+
+def test_identity_round_trip_and_validation():
+    from speakeasy import settings
+    assert settings.get_identity() == {"name": "", "aliases": []}
+    assert settings.set_identity(name=" Jason ", aliases=["JC", "jc"]) == {"name": "Jason", "aliases": ["JC"]}
+    assert settings.set_identity(aliases=["Jas"]) == {"name": "Jason", "aliases": ["Jas"]}
+    assert settings.get_identity() == {"name": "Jason", "aliases": ["Jas"]}
+    import pytest
+    with pytest.raises(ValueError):
+        settings.set_identity(name="x" * 81)
+
+
+def test_identity_ignores_corrupt_stored_value():
+    from speakeasy import settings
+    settings._write({"identity": {"name": 5, "aliases": "nope"}})
+    assert settings.get_identity() == {"name": "", "aliases": []}
+    settings._write({"identity": {"name": "x" * 81, "aliases": []}})
+    assert settings.get_identity() == {"name": "", "aliases": []}

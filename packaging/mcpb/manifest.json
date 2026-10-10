@@ -22,7 +22,7 @@
     },
     {
       "name": "get_meeting",
-      "description": "Get one meeting's details: the user's own notes (user_notes; read these first, they show what mattered to the user), Claude's notes (summary, action items), tags, people and calendar event. No transcript: use get_transcript for that."
+      "description": "Get one meeting's details: the user's own notes (user_notes; read these first, they show what mattered to the user), Claude's notes (summary, action items with ids), tags, people and calendar event. No transcript: use get_transcript for that."
     },
     {
       "name": "search_meetings",
@@ -46,7 +46,7 @@
     },
     {
       "name": "save_notes",
-      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced. Tags are your own suggestions: call list_tags first and reuse existing tags (any spelling of a tag or its aliases matches it); create a new tag only for a genuinely new topic, at most 3 per call. Replacing tags never removes tags the user added, and tags the user removed from this meeting are skipped. Write summaries in the format pending_summaries returns."
+      "description": "Save a meeting's summary, action items and/or tags. Only the fields you give are replaced. Tags are your own suggestions: call list_tags first and reuse existing tags (any spelling of a tag or its aliases matches it); create a new tag only for a genuinely new topic, at most 3 per call. Replacing tags never removes tags the user added, and tags the user removed from this meeting are skipped. Write summaries in the format pending_summaries returns. Action items the user completed, edited, added or deleted are kept; the rest are replaced by the list you give."
     },
     {
       "name": "tag_meetings",
@@ -59,6 +59,22 @@
     {
       "name": "pending_summaries",
       "description": "Meetings waiting for a summary (new ones from the last 7 days, plus any the user asked to summarise or redo), with the summary format to use. To catch up older meetings when the user asks (e.g. 'summarise everything from August'), pass from/to: unsummarised meetings in that range come back oldest first; call again until none are left. For each: read the whole transcript with get_transcript, then save the summary, action items and tags with save_notes."
+    },
+    {
+      "name": "list_action_items",
+      "description": "List action items across meetings (open ones by default), soonest due first. Each has an id, task, owner (mine is true when it is the user's), priority, due date (due_source user means the user set it), notes, tags (the item's and its meeting's) and its meeting. Filter by mine, owner, tag, meeting_id, due_from/due_to, overdue or query (words in the task, notes, owner or meeting title). Pass next_offset as offset for more."
+    },
+    {
+      "name": "create_action_item",
+      "description": "Add an action item because the user asked you to, optionally linked to a meeting. due is YYYY-MM-DD. Items you add or change are kept when the meeting is summarised again."
+    },
+    {
+      "name": "update_action_item",
+      "description": "Change an action item because the user asked you to: mark it done (status done) or open, edit task, owner, priority or notes, set due (YYYY-MM-DD; empty text means no date), reset_due to go back to the date from the summary, or replace its own tags. Only the fields you give change."
+    },
+    {
+      "name": "delete_action_item",
+      "description": "Delete an action item because the user asked you to (it stays out of future summaries of that meeting). undo true restores it."
     }
   ],
   "compatibility": {

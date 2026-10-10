@@ -196,9 +196,7 @@ Fix:
   the current recording.
 - **Search.** Parked notes are not searchable until saved, the same as drafts
   today.
-- **Backup/export.** `parked_notes` is transient like `note_draft`. Backup
-  coverage tests must say so explicitly, in the same way they treat
-  `note_draft`.
+- **Backup/export.** `parked_notes` is user data, like `note_draft`, which the backup tests already treat as master data: backups copy it, and it is added to `MASTER` in `tests/test_library_backup.py`.
 
 ### 4. UI surfaces
 
@@ -208,7 +206,7 @@ Fix:
 | Menu Start Meeting (`menubar.py:340-346`) | Enabled when the state is `READY` or `MEETING_PROCESSING`. |
 | Menu status line | While recording with jobs pending, the usual recording text plus " · processing 1 meeting" (or "N meetings"). The processing-only state keeps today's progress text. |
 | `PillMachine` | `on_saved` is ignored while the phase is `recording`. A job finishing during a recording must not replace the recording pill. When a recording stops while another job runs, the pill shows `processing` as today. The progress text is for the running job. |
-| Pill Discard | Unchanged call. By D4 it cancels the running job. When that job is not the one just stopped, the confirm text reads "Discard the meeting being processed?" |
+| Pill Discard | Unchanged call; by D4 it cancels the running job. The confirm keeps "Discard meeting?" and, when more jobs are queued, adds the detail "{pending − 1} more will still be saved". After a saved toast expires with jobs still queued, the pill returns to processing. |
 | Record banner (`record_prompt.py`) | `calendar_tick` and `call_observed` treat `PROCESSING` like `READY` for offers. `engine_state(PROCESSING)` no longer closes an open Offer; only `RECORDING` does. |
 | Record banner controller | `_engine_ready` returns true for `ready` and `meeting_processing`. `_PROBED_STATES` adds `meeting_processing`. |
 | `meetings_window.recording_info` | Adds `pendingProcessing: int`. `processing` stays `state == meeting_processing`. |

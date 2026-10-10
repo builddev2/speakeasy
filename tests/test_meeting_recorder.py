@@ -524,3 +524,18 @@ def test_gap_just_over_the_threshold_is_filled(spool_dir, fake_stream):
     path = rec.stop()
     assert rec.gap_fills == 1
     path.unlink()
+
+
+def test_spool_names_unique_within_one_second(monkeypatch):
+    from datetime import datetime as real_datetime
+    from speakeasy import meeting_recorder
+
+    class Frozen(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 10, 10, 9, 0, 0)
+
+    monkeypatch.setattr(meeting_recorder, "datetime", Frozen)
+    stamps = {meeting_recorder._spool_stamp() for _ in range(50)}
+    assert len(stamps) == 50
+    assert all(s.startswith("20261010-090000-") for s in stamps)

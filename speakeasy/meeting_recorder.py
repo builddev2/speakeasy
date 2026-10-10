@@ -18,6 +18,7 @@ spool, so a crash or force-quit mid-meeting never leaves audio behind.
 """
 
 import atexit
+import itertools
 import math
 import queue
 import threading
@@ -55,6 +56,15 @@ _GAP_FILL_PIECE_FRAMES = config.SAMPLE_RATE
 
 _active_spools: set[Path] = set()
 _active_lock = threading.Lock()
+
+_spool_counter = itertools.count(1)
+
+
+def _spool_stamp() -> str:
+    # A new recording may start while the previous one's spools are still
+    # queued for processing; a per-second stamp alone would let the new
+    # writer truncate them.
+    return f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{next(_spool_counter)}"
 
 
 @dataclass(frozen=True)
@@ -288,7 +298,7 @@ class MeetingRecorder:
             # would deadlock against it and freeze the control thread, so refuse
             # before anything is allocated (no spool file, no writer thread).
             raise RecorderBusy()
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = _spool_stamp()
         self._path = settings.spool_dir() / f"meeting-{stamp}-mic.wav"
         with _active_lock:
             _active_spools.add(self._path)
@@ -601,8 +611,14 @@ class MeetingCaptureRecorder:
             "selected" if system_audio_pid is not None else "global"
         )
         self.mic.start()
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        system_path = settings.spool_dir() / f"meeting-{stamp}-system.wav"
+        mic_path = getattr(self.mic, "_path", None)
+        if isinstance(mic_path, Path) and mic_path.name.endswith("-mic.wav"):
+            # Same stamp as the mic spool so the pair stays recognisable.
+            system_path = mic_path.with_name(
+                mic_path.name.replace("-mic.wav", "-system.wav")
+            )
+        else:
+            system_path = settings.spool_dir() / f"meeting-{_spool_stamp()}-system.wav"
         self._system_path = system_path
         with _active_lock:
             _active_spools.add(system_path)

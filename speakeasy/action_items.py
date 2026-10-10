@@ -219,7 +219,7 @@ def clean_identity(name, aliases) -> dict:
     return {"name": name, "aliases": kept}
 
 
-SELF_WORDS = frozenset({"you", "me", "myself"})
+SELF_WORDS = frozenset({"you", "me", "myself", "mine"})
 
 
 def is_mine(owner: str, identity: dict | None) -> bool:
@@ -237,6 +237,41 @@ def is_mine(owner: str, identity: dict | None) -> bool:
             if part == c or part.split()[0] == c.split()[0]:
                 return True
     return False
+
+
+_OWNER_SPLIT_KEEP = re.compile(r"(\s*(?:,|&|/|\band\b)\s*)", re.IGNORECASE)
+
+
+def normalize_owner(owner: str, identity: dict | None) -> str:
+    """Replace self words (you/me/myself/mine) with the user's name, dropping
+    a duplicate when the name is already listed. No name set: unchanged."""
+    name = _squash((identity or {}).get("name") or "")
+    if not name or not owner:
+        return owner
+    pieces = _OWNER_SPLIT_KEEP.split(owner)  # parts at even indexes, separators at odd
+    parts, seps = pieces[0::2], pieces[1::2]
+    is_self = [_squash(p).casefold() in SELF_WORDS for p in parts]
+    if not any(is_self):
+        return owner
+    seen = {_squash(p).casefold() for p, s in zip(parts, is_self) if not s}
+    keep = []
+    for part, selfish in zip(parts, is_self):
+        if not selfish:
+            keep.append(part)
+        elif name.casefold() in seen:
+            keep.append(None)
+        else:
+            seen.add(name.casefold())
+            keep.append(name)
+    out = ""
+    for i, part in enumerate(keep):
+        if part is not None:
+            out += (seps[i - 1] if out and i > 0 else "") + part
+    try:
+        result = clean_owner(out)
+    except ValueError:
+        return owner
+    return result if result else owner
 
 
 def effective_due(due_date, due_override, due_cleared):

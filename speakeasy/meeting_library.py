@@ -7,6 +7,7 @@ Times cross this boundary as UTC ISO strings ending in 'Z' plus the local
 UTC offset captured at recording start.
 """
 
+import dataclasses
 import json
 import math
 import re
@@ -467,9 +468,15 @@ def meeting_filters(from_date=None, to_date=None, tag=None, person=None, title=N
     return (" AND ".join(clauses) or "1"), params
 
 
+def _default_identity() -> dict:
+    from . import settings  # lazy: settings imports this module's neighbours
+    return settings.get_identity()
+
+
 class MeetingLibrary:
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, identity=None) -> None:
         self._path = path
+        self._identity = identity or _default_identity
 
     @contextmanager
     def _transaction(self):
@@ -898,7 +905,9 @@ class MeetingLibrary:
             raw_items = [a for a in action_items if not (isinstance(a, str) and not a.strip())]
             if len(raw_items) > ai.MAX_ITEMS_PER_SAVE:
                 raise ValueError(f"At most {ai.MAX_ITEMS_PER_SAVE} action items.")
-            inputs = [ai.validate_input(a) for a in raw_items]
+            identity = self._identity()
+            inputs = [dataclasses.replace(i, owner=ai.normalize_owner(i.owner, identity))
+                      for i in (ai.validate_input(a) for a in raw_items)]
         if tags is not None:
             tags = clean_tag_names(tags)
             if len(tags) > MAX_TAGS_PER_MEETING:
@@ -1134,7 +1143,8 @@ class MeetingLibrary:
 
     def create_action_item(self, *, task, owner="", meeting_id=None, due=None, priority="normal",
                            notes="", tags=(), updated_by="user") -> ActionItem:
-        inp = ai.ItemInput(ai.check_task(task), ai.clean_owner(owner), None, "",
+        inp = ai.ItemInput(ai.check_task(task),
+                           ai.normalize_owner(ai.clean_owner(owner), self._identity()), None, "",
                            ai.check_priority(priority), tuple(ai.check_tags(_as_list(tags))))
         _check_actor(updated_by)
         due_override, notes = ai.check_date(due, "due"), ai.check_notes(notes or "")
@@ -1161,7 +1171,7 @@ class MeetingLibrary:
         if task is not ai.UNSET:
             sets["task"] = ai.check_task(task)
         if owner is not ai.UNSET:
-            sets["owner"] = ai.clean_owner(owner)
+            sets["owner"] = ai.normalize_owner(ai.clean_owner(owner), self._identity())
         if priority is not ai.UNSET:
             sets["priority"] = ai.check_priority(priority)
         if status is not ai.UNSET:
@@ -1180,6 +1190,28 @@ class MeetingLibrary:
             if names is not None:
                 self._drop_orphan_tags(conn)
             return action_item_store.get_item(conn, item_id)
+
+    def normalize_self_owners(self) -> int:
+        """Rewrite stored owners that use self words (you/me/mine...) to the
+        user's name. A data clean-up, not an edit: user_touched, updated_by and
+        updated_at stay as they were. Returns the number of rows changed."""
+        identity = self._identity()
+        if not (identity.get("name") or "").strip():
+            return 0
+        changed = 0
+        with self._transaction() as conn:
+            meetings = set()
+            for row in conn.execute("SELECT id, owner, meeting_id FROM action_items").fetchall():
+                new = ai.normalize_owner(row["owner"], identity)
+                if new == row["owner"]:
+                    continue
+                conn.execute("UPDATE action_items SET owner = ? WHERE id = ?", (new, row["id"]))
+                changed += 1
+                if row["meeting_id"]:
+                    meetings.add(row["meeting_id"])
+            for meeting_id in meetings:
+                action_item_store.sync_mirror(conn, meeting_id)
+        return changed
 
     def delete_action_item(self, item_id, *, updated_by) -> None:
         _check_actor(updated_by)

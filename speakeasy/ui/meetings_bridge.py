@@ -8,6 +8,7 @@ original task brief's literal test expectations and why.
 """
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -80,6 +81,7 @@ class MeetingsBridge:
                  recording_info=None, login_status=None, set_login=None,
                  retry_microphone=None):
         self.library = library or MeetingLibrary()
+        self._owners_normalised = False
         # Opens a file/folder in its default app; AppKit-backed in the real
         # window, a no-op here so this module stays pure-Python.
         self._open_path = open_path or (lambda path: None)
@@ -288,6 +290,7 @@ class MeetingsBridge:
                 raise ValueError(str(err)) from err
         if params.get("userName") is not None or params.get("userAliases") is not None:
             settings.set_identity(name=params.get("userName"), aliases=params.get("userAliases"))
+            self.library.normalize_self_owners()
         settings.set_meeting_settings(
             offer_to_record=params.get("offerToRecord"),
             detect_calls=params.get("detectCalls"),
@@ -391,6 +394,12 @@ class MeetingsBridge:
         }
 
     def actions_list_payload(self, params) -> dict:
+        if not self._owners_normalised:
+            self._owners_normalised = True
+            try:
+                self.library.normalize_self_owners()
+            except Exception:
+                logging.getLogger(__name__).exception("owner clean-up failed")
         identity = settings.get_identity()
         return {"items": [self._action_payload(i, identity) for i in self.library.list_action_items()],
                 "identitySet": bool(identity["name"]),

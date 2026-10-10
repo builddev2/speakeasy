@@ -137,3 +137,27 @@ def test_similar_is_zero_when_either_side_is_only_filler():
     assert ai.similar("the", "to") == 0.0
     assert ai.similar("the", "Send budget") == 0.0
     assert ai.similar("", "") == 0.0
+
+
+@pytest.mark.parametrize("owner, expected", [
+    ("me", "Jason"), ("You", "Jason"), ("MINE", "Jason"), ("myself", "Jason"),
+    ("Jason & me", "Jason"), ("me & Jason", "Jason"), ("Refayet & me", "Refayet & Jason"),
+    ("me, Bala", "Jason, Bala"), ("Bala and you", "Bala and Jason"), ("me & myself", "Jason"),
+    ("Jason Li", "Jason Li"), ("Young", "Young"), ("Priya", "Priya"), ("", ""),
+])
+def test_normalize_owner(owner, expected):
+    assert ai.normalize_owner(owner, {"name": "Jason", "aliases": []}) == expected
+
+
+@pytest.mark.parametrize("identity", [None, {"name": "", "aliases": []}])
+def test_normalize_owner_without_name_is_unchanged(identity):
+    assert ai.normalize_owner("Refayet & me", identity) == "Refayet & me"
+
+
+def test_normalize_owner_too_long_returns_original():
+    name = "J" * 80
+    assert ai.normalize_owner("Bala & me", {"name": name, "aliases": []}) == "Bala & me"
+
+
+def test_mine_is_a_self_word():
+    assert ai.is_mine("Mine", None) is True

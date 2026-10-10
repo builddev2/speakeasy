@@ -161,3 +161,9 @@ def test_normalize_owner_too_long_returns_original():
 
 def test_mine_is_a_self_word():
     assert ai.is_mine("Mine", None) is True
+
+
+def test_normalize_owner_dedupes_against_aliases():
+    identity = {"name": "Jason", "aliases": ["Jase"]}
+    assert ai.normalize_owner("Jase & me", identity) == "Jase"
+    assert ai.normalize_owner("me, JASE, Bala", identity) == "JASE, Bala"

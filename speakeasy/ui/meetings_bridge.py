@@ -290,7 +290,10 @@ class MeetingsBridge:
                 raise ValueError(str(err)) from err
         if params.get("userName") is not None or params.get("userAliases") is not None:
             settings.set_identity(name=params.get("userName"), aliases=params.get("userAliases"))
-            self.library.normalize_self_owners()
+            try:
+                self.library.normalize_self_owners()
+            except Exception:
+                logging.getLogger(__name__).exception("owner clean-up failed")
         settings.set_meeting_settings(
             offer_to_record=params.get("offerToRecord"),
             detect_calls=params.get("detectCalls"),

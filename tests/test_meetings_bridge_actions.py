@@ -128,3 +128,12 @@ def test_actions_list_survives_cleanup_failure(env, monkeypatch):
     lib.create_action_item(task="t")
     monkeypatch.setattr(lib, "normalize_self_owners", lambda: 1 / 0)
     assert len(bridge.actions_list_payload({})["items"]) == 1
+
+
+def test_settings_save_survives_owner_cleanup_failure(env, monkeypatch):
+    lib, bridge = env
+    monkeypatch.setattr(lib, "normalize_self_owners", lambda: 1 / 0)
+    before = bridge.settings_get_payload({})["detectCalls"]
+    out = bridge.settings_set_payload({"userName": "Jason", "detectCalls": not before})
+    assert out["detectCalls"] is (not before)
+    assert settings.get_identity()["name"] == "Jason"

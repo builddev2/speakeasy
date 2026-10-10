@@ -254,11 +254,12 @@ def normalize_owner(owner: str, identity: dict | None) -> str:
     if not any(is_self):
         return owner
     seen = {_squash(p).casefold() for p, s in zip(parts, is_self) if not s}
+    mine = {name.casefold(), *(_squash(a).casefold() for a in (identity or {}).get("aliases", []))}
     keep = []
     for part, selfish in zip(parts, is_self):
         if not selfish:
             keep.append(part)
-        elif name.casefold() in seen:
+        elif seen & mine:
             keep.append(None)
         else:
             seen.add(name.casefold())

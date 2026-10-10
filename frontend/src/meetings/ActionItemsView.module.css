@@ -170,3 +170,14 @@
 .list { margin: 0; padding: 0; list-style: none; }
 
 .empty { padding: 40px 0; text-align: center; font: 400 13px/1.5 var(--sans); color: var(--text-lo); }
+
+.errorText { font: 400 12px/1.4 var(--sans); color: var(--danger-text); }
+.errorNote {
+  margin: 4px 24px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--danger-border);
+  border-radius: 10px;
+  background: var(--danger-bg);
+  font: 400 12.5px/1.4 var(--sans);
+  color: var(--danger-text);
+}

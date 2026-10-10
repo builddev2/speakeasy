@@ -184,6 +184,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [actionsToday, setActionsToday] = useState(() => localIsoDate(isMock ? MOCK_NOW_MS : Date.now()));
   const [userName, setUserName] = useState(isMock ? MOCK_MEETING_SETTINGS.userName : '');
   const [pendingUndo, setPendingUndo] = useState<{ id: number; task: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [actionsLoadFailed, setActionsLoadFailed] = useState(false);
   const [bulkDeleteIds, setBulkDeleteIds] = useState<number[] | null>(null);
   const [tick, setTick] = useState(0);
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
@@ -498,6 +500,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     return actionItemsApi
       .list()
       .then((r) => {
+        setActionsLoadFailed(false);
         setActionItems(r.items);
         setIdentitySet(r.identitySet);
         setActionsToday(r.today);
@@ -508,7 +511,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           return next;
         });
       })
-      .catch((err) => console.error('actions.list failed', err));
+      .catch((err) => { console.error('actions.list failed', err); setActionsLoadFailed(true); });
   }, []);
   useEffect(() => {
     if (!embedded) return;
@@ -516,9 +519,16 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     void bridge
       .call<MeetingSettings>('settings.meetings.get')
       .then((m) => setUserName(m.userName))
+      // Deliberately silent: without a name the view falls back to no identity (everyone's items).
       .catch((err) => console.error('settings.meetings.get failed', err));
     return bridge.on('meetings.changed', () => void loadActions());
   }, [embedded, loadActions]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const id = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [notice]);
 
   // The undo toast clears itself after six seconds.
   useEffect(() => {
@@ -1149,7 +1159,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         dropItems([id]);
         setPendingUndo({ id, task: item.task });
       })
-      .catch((err) => console.error('actions.delete failed', err));
+      .catch((err) => { console.error('actions.delete failed', err); setNotice('Couldn’t delete the item — try again.'); });
   }
 
   function onUndoDelete() {
@@ -1159,7 +1169,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     actionItemsApi
       .restore(id)
       .then(putItem)
-      .catch((err) => console.error('actions.restore failed', err));
+      .catch((err) => { console.error('actions.restore failed', err); setNotice('Couldn’t restore the item.'); });
   }
 
   function runBulk(ids: number[], change: { status?: 'open' | 'done'; addTags?: string[]; delete?: boolean }): Promise<void> {
@@ -1284,6 +1294,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               onBulk={onBulkItems}
               onOpenMeeting={onOpenMeeting}
               onOpenSettings={() => setSettingsOpen(true)}
+              loadError={actionsLoadFailed}
             />
           ) : today ? (
             <TodayView
@@ -1422,6 +1433,12 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             />
           )}
 
+          {notice && !pendingUndo && (
+            <div className={styles.toast} role="status">
+              <span>{notice}</span>
+            </div>
+          )}
+
           {pendingUndo && (
             <div className={styles.toast} role="status">
               <span>Deleted “{pendingUndo.task}” —</span>
@@ -1438,7 +1455,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               onConfirm={() => {
                 const ids = bulkDeleteIds;
                 setBulkDeleteIds(null);
-                runBulk(ids, { delete: true }).catch((err) => console.error('actions.bulk failed', err));
+                runBulk(ids, { delete: true }).catch((err) => { console.error('actions.bulk failed', err); setNotice('Couldn’t delete the items — try again.'); });
               }}
             />
           )}

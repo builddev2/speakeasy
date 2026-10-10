@@ -18,6 +18,7 @@ interface Props {
   onBulk: (ids: number[], change: { status?: 'open' | 'done'; addTags?: string[]; delete?: boolean }) => Promise<void>;
   onOpenMeeting: (meetingId: string) => void;
   onOpenSettings: () => void;
+  loadError?: boolean;
 }
 
 const ownerValue = (o: OwnerFilter) => (o.kind === 'person' ? `person:${o.name}` : o.kind);
@@ -39,6 +40,8 @@ export function ActionItemsView(props: Props) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ task: '', owner: userName, due: '', priority: 'normal' as Priority });
+  const [formError, setFormError] = useState('');
+  const [bulkError, setBulkError] = useState('');
   const [addingTag, setAddingTag] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
   useEffect(() => writeView(view), [view]);
@@ -63,15 +66,17 @@ export function ActionItemsView(props: Props) {
   const submitAdd = () => {
     const task = draft.task.trim();
     if (!task) return;
+    setFormError('');
     props.onCreate({ task, owner: draft.owner.trim(), due: draft.due || null, priority: draft.priority })
       .then(() => { setDraft({ task: '', owner: userName, due: '', priority: 'normal' }); setAdding(false); })
-      .catch((err) => console.error('create action item failed', err));
+      .catch((err) => { console.error('create action item failed', err); setFormError('Couldn’t add the item — try again.'); });
   };
   const bulk = (change: Parameters<Props['onBulk']>[1]) => {
     const ids = [...selected];
+    setBulkError('');
     props.onBulk(ids, change)
       .then(() => { setSelected(new Set()); setAddingTag(false); setTagDraft(''); })
-      .catch((err) => console.error('bulk action failed', err));
+      .catch((err) => { console.error('bulk action failed', err); setBulkError('Couldn’t update the selected items — try again.'); });
   };
   const submitTag = () => {
     const tag = tagDraft.trim();
@@ -139,6 +144,8 @@ export function ActionItemsView(props: Props) {
         )}
       </div>
 
+      {props.loadError && <div className={styles.errorNote} role="status">Couldn’t load action items. They’ll refresh on the next change.</div>}
+
       {view.owner.kind === 'mine' && !identitySet && (
         <div className={styles.banner} role="status">
           <span>Set your name in Settings to see your items. <span className={styles.muted}>Showing everyone’s.</span></span>
@@ -161,6 +168,7 @@ export function ActionItemsView(props: Props) {
           </select>
           <button type="button" className={styles.button} onClick={submitAdd}>Add</button>
           <button type="button" className={styles.button} onClick={() => setAdding(false)}>Cancel</button>
+          {formError && <span className={styles.errorText} role="status">{formError}</span>}
         </div>
       )}
 
@@ -177,6 +185,7 @@ export function ActionItemsView(props: Props) {
             <button type="button" className={styles.button} onClick={() => setAddingTag(true)}>Add tag…</button>
           )}
           <button type="button" className={`${styles.button} ${styles.danger}`} onClick={() => bulk({ delete: true })}>Delete</button>
+          {bulkError && <span className={styles.errorText} role="status">{bulkError}</span>}
         </div>
       )}
 

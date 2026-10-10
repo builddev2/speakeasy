@@ -28,6 +28,9 @@ export function ActionItemRow({ item, onChange, onDelete, onOpenMeeting, showMee
   const open = expanded ?? ownOpen;
   const toggleOpen = () => (onToggleExpanded ? onToggleExpanded() : setOwnOpen(!ownOpen));
   const [error, setError] = useState(false);
+  // Typed dates form valid values mid-keystroke, so the date commits on blur or Enter only.
+  const [dueDraft, setDueDraft] = useState(item.due ?? '');
+  useEffect(() => setDueDraft(item.due ?? ''), [item.due]);
   const [draft, setDraft] = useState({ task: item.task, owner: item.owner, notes: item.notes, tags: item.tags.join(', ') });
   // A refresh (e.g. Claude edited via MCP) updates fields the user isn't editing.
   useEffect(() => {
@@ -42,6 +45,9 @@ export function ActionItemRow({ item, onChange, onDelete, onOpenMeeting, showMee
     const value = field === 'notes' ? draft.notes : draft[field].trim();
     if (field === 'task' && !value) { setDraft({ ...draft, task: item.task }); return; }
     if (value !== item[field]) save({ [field]: value });
+  };
+  const commitDue = () => {
+    if (dueDraft !== (item.due ?? '')) save({ due: dueDraft || null });
   };
   const commitTags = () => {
     const tags = draft.tags.split(',').map((t) => t.trim()).filter(Boolean);
@@ -94,7 +100,8 @@ export function ActionItemRow({ item, onChange, onDelete, onOpenMeeting, showMee
           <label>Priority<select value={item.priority} onChange={(e) => save({ priority: e.target.value as Priority })}>
             <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
           </select></label>
-          <label>Due<input type="date" value={item.due ?? ''} onChange={(e) => save({ due: e.target.value || null })} /></label>
+          <label>Due<input type="date" value={dueDraft}
+            onChange={(e) => setDueDraft(e.target.value)} onBlur={commitDue} onKeyDown={enter(commitDue)} /></label>
           <div className={styles.dueActions}>
             <button type="button" onClick={() => save({ due: null })} disabled={item.due === null}>No date</button>
             {item.claudeDue !== null || item.dueSource === 'user' ? (

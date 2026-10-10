@@ -1475,6 +1475,7 @@ def test_runner_receives_path_and_meeting_options(meetings_dir, spool_dir):
 
     def recording_runner(wav_path, **kwargs):
         seen["path_exists"] = wav_path.exists()
+        seen["job_cancel"] = engine._jobs[0].cancel
         seen.update(kwargs)
         kwargs["on_phase"]("voice_identification")
         return [(0.0, 1.0, 0)]
@@ -1489,7 +1490,8 @@ def test_runner_receives_path_and_meeting_options(meetings_dir, spool_dir):
     assert seen["expected_count"] == 3
     assert tuple(seen["voice_profile_names"]) == ("Alice",)
     assert isinstance(seen["cancel"], threading.Event)
-    assert seen["cancel"] is not getattr(engine, "_meeting_cancel", None)
+    assert seen["cancel"] is seen["job_cancel"]
+    assert not hasattr(engine, "_meeting_cancel")
     engine.shutdown()
 
 
@@ -1637,18 +1639,29 @@ class GatedSpyRunner:
 
 
 def test_job_uses_its_own_options_and_event(meetings_dir, spool_dir):
-    _seed_events([("ev-a", 3, "Alpha", 1)])
+    _seed_events([("ev-a", 3, "Alpha", 1), ("ev-b", 1, "Beta", 1)])
     engine = _engine(spool_dir)
     runner = GatedSpyRunner()
     runner.gate.set()
     engine.diarization_runner = runner
-    saved = _record(engine, MeetingOptions(calendar_event_key="ev-a", expected_speaker_count=3))
+    saved = _record(engine, MeetingOptions(
+        calendar_event_key="ev-a", expected_speaker_count=3,
+        expected_voice_profile_names=("Alice",)))
+    assert _wait_for(lambda: engine.meeting_event is not None)
+    # Hold the worker so the job is queued, then change the engine's values.
+    hold = threading.Event()
+    engine.worker.submit(hold.wait, 5)
     engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 1)
+    engine._meeting_options = MeetingOptions(
+        expected_speaker_count=7, expected_voice_profile_names=("Zed",))
+    engine.meeting_event = MeetingLibrary().calendar_event("ev-b")
+    hold.set()
     assert _wait_for(lambda: saved)
-    # Changing the engine's current values after stop must not affect the job.
     assert runner.calls[0]["expected_count"] == 3
+    assert runner.calls[0]["voices"] == ("Alice",)
     assert MeetingLibrary().get_meeting(saved[0]).title == "Alpha"
-    assert engine.pending_meeting_jobs == 0
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
     engine.shutdown()
 
 
@@ -1664,3 +1677,85 @@ def test_job_snapshot_is_independent_of_engine_fields(meetings_dir, spool_dir):
     assert job.event.title == "Alpha"
     assert job.cancel is not engine._new_job(MeetingRecording(mic_path=None)).cancel
     engine.shutdown()
+
+
+class CancelRecordingTranscriber:
+    """Records the cancel event each transcription path receives."""
+
+    def __init__(self, with_wav):
+        self.cancels = []
+        if with_wav:
+            self.transcribe_long_wav = self._wav
+
+    def _result(self):
+        result = type("Result", (), {})()
+        result.sentences = [Sentence(0.0, 1.0, "hello")]
+        return result
+
+    def _wav(self, path, *, progress, cancel=None):
+        self.cancels.append(cancel)
+        progress(1.0)
+        return self._result()
+
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        self.cancels.append(cancel)
+        progress(1.0)
+        return self._result()
+
+
+@pytest.mark.parametrize("with_wav", [True, False])
+def test_transcription_receives_the_jobs_cancel_event(meetings_dir, spool_dir, with_wav):
+    engine = _engine(spool_dir)
+    transcriber = CancelRecordingTranscriber(with_wav)
+    engine.transcriber = transcriber
+    seen = {}
+
+    def runner(wav_path, *, progress, cancel, **kwargs):
+        seen["job_cancel"] = engine._jobs[0].cancel
+        return [(0.0, 1.0, 0)]
+
+    engine.diarization_runner = runner
+    saved = _record(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: saved)
+    assert transcriber.cancels and all(c is seen["job_cancel"] for c in transcriber.cancels)
+    engine.shutdown()
+
+
+def test_processing_error_survives_next_recording_and_clears_on_next_job(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+
+    class Failing(FakeTranscriber):
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            raise RuntimeError("boom")
+
+    engine.transcriber = Failing()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert engine.meeting_processing_error == "processing_failed"
+
+    engine.transcriber = FakeTranscriber()
+    saved = _record(engine)
+    assert engine.meeting_processing_error == "processing_failed"  # not cleared by begin
+    engine.end_meeting()
+    assert _wait_for(lambda: saved and engine.state is State.READY)
+    assert engine.meeting_processing_error is None
+    engine.shutdown()
+
+
+def test_shutdown_cancels_a_running_job(meetings_dir, spool_dir):
+    engine = _engine(spool_dir)
+    runner = GatedSpyRunner()
+    engine.diarization_runner = runner
+    _record(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    job = engine._jobs[0]
+    assert not job.cancel.is_set()
+    engine.shutdown()
+    assert job.cancel.is_set()
+    runner.gate.set()

@@ -2961,7 +2961,13 @@ Take one screenshot for the report. Stop the dev server.
 
 - Fixed after the final review (`89682a6`): deleting a meeting now refreshes
   the action-items list straight away (`loadActions()` in `onConfirmDelete`).
-- User hand check of the real window (above).
+- User hand check of the real window: all 7 checks passed (2026-10-09).
+- Follow-up fixes from that check (branch `fix/action-items-owner-and-settings`):
+  the user's own items under "Jason", "You" and "Mine" now merge into one owner
+  (owner words you/me/myself count as the user; the row, person list, filter,
+  owner groups and the MCP owner filter use one label); settings sheet spacing
+  (8 px between the name fields and between the library buttons). Opus-reviewed
+  with mutation checks; 1,420 Python and 69 frontend tests pass.
 - Deferred minors judged "can wait" by the final review: `similar` edge cases
   now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null
   handling in `update_action_item`, empty Open/Completed export headings,

@@ -2933,12 +2933,78 @@ Take one screenshot for the report. Stop the dev server.
 - Pre-flight scan done; rulings F1–F21 in "Pre-flight rulings" above.
 - Tasks 1–8 complete, each Opus-reviewed with mutation checks and one fix
   round (commits 8c885ae..fd30fee). Full Python suite 1,391 passed after Task 8.
-- Task 9 implemented (`3de6841`, 64 frontend tests, build ok); **its review is
-  still pending**. Task 10 and Task 11 not started.
-- Controller rulings beyond pre-flight: `ai.check_status` added in Task 1;
+- Tasks 9–10 complete (Task 10 needed two fix rounds: typed dates now commit
+  on blur/Enter, failed writes show visible errors, toast shadow uses a token).
+- Task 11 (2026-10-09): full suites at 0b200f0 — 1,395 Python passed, 64
+  frontend passed, build OK. Opus whole-branch review: all five Review Focus
+  rules mutation-verified; spec §1–§7 and §9 met; manifest mirror exact; no
+  network calls or new dependencies. Its fix wave (0b200f0) fixed the phrase
+  without a date (row and export), single-item Select delete now has undo,
+  plus `deleted_at IS NULL` and empty-`similar()` guards.
+- Real-app check: built `dist/Speakeasy.app` (not installed). Launched it
+  under a temp HOME with a seeded **v6** library holding 3 meetings with
+  legacy strings: it migrated to v7 and imported all 6 items (3 with
+  phrases). MCP over stdio: 15 tools; `list_action_items`,
+  `update_action_item` (float id `1.0` accepted, `True` rejected) and
+  `delete_action_item` all worked. The real App Support folder listing was
+  unchanged and the real library stayed at schema 5.
+  **Not done:** the on-screen UI checklist in the real window (Task 10 Step 7
+  list: tick saves, due override saves, notes save, etc.). Screen access was
+  declined, so this is the user's hand check. The mock-browser checklist passed
+  14/14 in Task 10.
+- Rulings made during execution: `ai.check_status` added in Task 1;
   legacy import positions count non-blank entries; `updated_by` validated as
   ValueError; get_meeting shows items only under `notes` (spec §6); export
   omits an empty owner (spec §9).
-- Ledger with deferred minors for the final review:
-  `.superpowers/sdd/2026-10-09-action-items/progress.md` (git-ignored).
+
+### TODO / open items
+
+- **Parked (Important):** deleting a meeting in the app doesn't refresh the
+  action-items list until the 10 s poll. One-line fix: `void loadActions();`
+  after the `meetings.filters` refetch in `onConfirmDelete`
+  (`frontend/src/meetings/App.tsx` ~1057). The fix wave put it in
+  `onLinkEvent` instead (harmless there).
+- User hand check of the real window (above).
+- Deferred minors judged "can wait" by the final review: `similar` edge cases
+  now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null
+  handling in `update_action_item`, empty Open/Completed export headings,
+  mock-data mismatches, a TZ-pinned dueBucket test, and add-row/bulk error
+  text not cleared on Cancel.
+- Installing this build migrates the real library 5 → 6 → 7 on first open
+  (the v6 export/recovery work comes with it).
+- The full list of rulings and deferred minors is in the appendix below (copied from the SDD ledger).
 - Pre-existing flake seen twice: `test_meeting_recorder.py::test_gap_fill_queue_full_is_retried_on_the_next_block` (passes on rerun).
+
+### Appendix: rulings and deferred minors (from the SDD ledger)
+
+- Ruling: accept all F1–F21 proposed fixes, written into plan "Pre-flight rulings" — each follows spec or fixes a breaking existing test — cost if wrong: small rework per task.
+- Ruling: F16 follow spec §8 wording + show phrase whenever present (plan deviated from spec) — spec is binding — cost: UI copy tweak.
+- Ruling: add ai.check_status(value) to action_items.py in Task 1 fix round (F10 referenced it but no task defined it) — keeps the helper with the other pure checkers — cost if wrong: trivial move.
+- Task 1: minor (deferred): similar("","") returns 1.0 when both texts are only filler words — guard `if not na or not nb: return 0.0`.
+- Task 1: minor (deferred): missing tests — validate_input legacy string path, year 2000/2100/2101 limits, "UNASSIGNED" upper case; no-op `["t"]*0+` in tags case.
+- Task 1: minor (deferred): due_bucket raises on malformed due — store must validate dates first.
+- Ruling: legacy import position counts non-blank entries only (spec says "list index") — same ordering, contiguous positions, brief's test requires it — cost if wrong: none visible.
+- Task 2: minor (deferred): import str(raw) turns non-string legacy entries (null/dict) into "None"/repr — skip non-str.
+- Task 2: minor (deferred): no test for import skipping malformed/non-list action_items_json.
+- Task 3: minor (deferred): _names loads all tag rows per list/get call (brief design).
+- Task 3: minor (deferred): status='open' clause in delete_untouched_for_meeting redundant.
+- Task 3: minor (deferred): bulk two-pass "validate first" comment overstates — transaction already gives atomicity.
+- Task 4: minor (deferred): add `AND deleted_at IS NULL` to delete_untouched_for_meeting (suppression relies on soft-delete always setting user_touched=1).
+- Ruling: add the over-limit stored-identity assertion — adds coverage only, no plan conflict — cost if wrong: none.
+- Task 5: minor (deferred): one bad stored alias discards whole identity incl. valid name (brief's code).
+- Task 5: minor (deferred): due-date rule tested by 3 keywords, not verbatim; 80-char/alias limits tested only in Task 1.
+- Ruling: get_meeting shows items only inside notes (manual items on unsummarised meeting reachable via list_action_items meeting_id) — spec §6 says get_meeting.notes.action_items — cost if wrong: Claude misses manual items on unsummarised meetings via get_meeting.
+- Task 6: minor (deferred): explicit null inconsistent in update_action_item (due/owner/tags clear, priority resets, task/notes/status error); spec undefined.
+- Task 6: minor (deferred): MCP-layer tests missing for sort=meeting/created and owner/meeting_id/due_from/due_to filters; meeting_id not validated.
+- Task 7: minor (deferred): settings.meetings.set applies appearance/login before set_identity — bad name leaves partial save (existing pattern).
+- Task 7: minor (deferred): no action-item test sends ValueError through _wrap (generic test covers branch); bridge check_id duplicates library's (defence in depth).
+- Ruling: export omits empty owner rather than printing "Unassigned" — spec §9 and brief say omit; the specific export rule beats the general display constraint — cost if wrong: one-line format change.
+- Task 8: minor (deferred): empty "## Open"/"## Completed" headings still printed when a group is empty; From line skipped untested when meeting title/start missing.
+- Task 9: minor (deferred): local-vs-UTC weekday mutation only caught west of UTC — pin with a fixed TZ test.
+- Task 9: minor (deferred): mock items moved between meetings/owners (Retro→Sprint Planning, Priya→Jason) — mock summaries no longer match items.
+- Task 9: minor (deferred): mock create takes title/tags from an existing item (null for item-less meeting); MOCK_TODAY duplicates MOCK_NOW_MS day.
+- Task 10: minor (deferred): opening multi-delete confirm clears selection, cancel loses it (ids correct); single-item bulk delete has no confirm/undo (per brief); add-row owner draft stale after name change, Cancel doesn't reset; loadActions rewrites every cached detail per meetings.changed.
+- Task 10: minor (deferred): after a due edit regroups a row the input loses focus (mostly addressed by blur-commit fix).
+- Task 10: minor (deferred): formError/bulkError not cleared by Cancel; failure notice can reappear after undo toast; No date/Reset while draft unsaved = two ordered writes; list-load note not browser-checked.
+- Final: parked — meeting delete doesn't refresh action items until 10 s poll — Ruling: no second fix wave per process; self-heals within 10 s; one-line fix `void loadActions();` after meetings.filters refetch in onConfirmDelete (App.tsx ~1057) — cost if wrong: stale items/dead links visible up to 10 s after deleting a meeting.
+- Task 11: Step 2 done (final review: With fixes → fixed except parked item 4)

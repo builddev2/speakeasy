@@ -2987,10 +2987,9 @@ Take one screenshot for the report. Stop the dev server.
   should I do today" / "most important". Real library: 22 items got dates
   (backup first). MCP create/update/done tested on a copy: owner "me" stored
   as Jason, priority/due/notes saved. 1,501 Python and 72 frontend tests pass.
-- NOT done: re-deriving action items for the 29 meetings of the last 14 days
-  (structured dates and urgent-only priority via save_notes action_items) —
-  blocked by the permission check as a bulk change to real data; awaiting the
-  user's decision. Helper script was in the session scratchpad.
+- Re-derived action items for the 29 meetings of the last 14 days (user-approved,
+  backup first) via save_notes action_items only: 179 items kept, dated items
+  22 → 43, 2 marked high, the 5 user-touched items unchanged; summaries untouched.
 - Deferred minors judged "can wait" by the final review: `similar` edge cases
   now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null
   handling in `update_action_item`, empty Open/Completed export headings,

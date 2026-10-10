@@ -2959,11 +2959,8 @@ Take one screenshot for the report. Stop the dev server.
 
 ### TODO / open items
 
-- **Parked (Important):** deleting a meeting in the app doesn't refresh the
-  action-items list until the 10 s poll. One-line fix: `void loadActions();`
-  after the `meetings.filters` refetch in `onConfirmDelete`
-  (`frontend/src/meetings/App.tsx` ~1057). The fix wave put it in
-  `onLinkEvent` instead (harmless there).
+- Fixed after the final review (`89682a6`): deleting a meeting now refreshes
+  the action-items list straight away (`loadActions()` in `onConfirmDelete`).
 - User hand check of the real window (above).
 - Deferred minors judged "can wait" by the final review: `similar` edge cases
   now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null

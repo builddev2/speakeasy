@@ -1397,6 +1397,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
               onLinkEvent={isMock || filters.features.calendar ? onLinkEvent : undefined}
               onUpdateItem={onUpdateItem}
               onDeleteItem={onDeleteItem}
+              userName={userName}
             />
           )}
 

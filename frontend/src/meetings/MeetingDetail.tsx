@@ -46,6 +46,7 @@ interface MeetingDetailProps {
   onLinkEvent?: (key: string | null) => void;
   onUpdateItem: (id: number, change: ItemChange) => Promise<void>;
   onDeleteItem: (id: number) => void;
+  userName: string;
 }
 
 interface FindMatch {
@@ -138,6 +139,7 @@ export function MeetingDetail({
   onLinkEvent,
   onUpdateItem,
   onDeleteItem,
+  userName,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>('summary');
   const [renaming, setRenaming] = useState(false);
@@ -667,7 +669,7 @@ export function MeetingDetail({
                     <div className={styles.actionItemsHeading}>Action items</div>
                     <ul className={styles.actionItems}>
                       {detail.actionItems.map((item) => (
-                        <ActionItemRow key={item.id} item={item} showMeeting={false}
+                        <ActionItemRow key={item.id} item={item} userName={userName} showMeeting={false}
                           onChange={(c) => onUpdateItem(item.id, c)} onDelete={() => onDeleteItem(item.id)} />
                       ))}
                     </ul>

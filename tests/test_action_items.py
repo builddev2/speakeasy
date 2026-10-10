@@ -76,6 +76,15 @@ def test_is_mine(owner, expected):
     assert ai.is_mine(owner, identity) is expected
 
 
+@pytest.mark.parametrize("identity", [None, {"name": "", "aliases": []}, {"name": "Jason Chiu", "aliases": ["JC"]}])
+@pytest.mark.parametrize("owner, expected", [
+    ("You", True), ("me", True), ("Myself", True), ("Siam & you", True),
+    ("Young", False), ("Yousef", False), ("Mention", False), ("", False),
+])
+def test_is_mine_self_words(owner, expected, identity):
+    assert ai.is_mine(owner, identity) is expected
+
+
 def test_is_mine_without_name_is_false():
     assert ai.is_mine("Jason", {"name": "", "aliases": ["Jason"]}) is False
 

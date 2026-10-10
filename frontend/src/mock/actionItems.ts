@@ -13,7 +13,7 @@ const NO_MEETING = { meetingId: null, meetingTitle: null, meetingDate: null, mee
 
 function make(id: number, p: Partial<ActionItem> & Pick<ActionItem, 'task' | 'owner'>): ActionItem {
   return {
-    id, meetingId: null, meetingTitle: null, meetingDate: null, mine: p.owner === 'Jason', priority: 'normal',
+    id, meetingId: null, meetingTitle: null, meetingDate: null, mine: p.owner === 'Jason' || p.owner === 'You', priority: 'normal',
     status: 'open', completedAt: null, due: null, dueSource: null, duePhrase: '', claudeDue: null, notes: '',
     tags: [], meetingTags: [], source: 'summary',
     createdAt: `2026-09-2${id % 10}T09:00:00Z`, updatedAt: `2026-09-2${id % 10}T09:00:00Z`, ...p,
@@ -34,7 +34,7 @@ export const MOCK_ACTION_ITEMS: ActionItem[] = [
   make(4, { ...CALL, task: 'Send Fenwick the calendar integration timeline', owner: 'Morgan',
     due: '2026-10-20', dueSource: 'user', claudeDue: '2026-10-06', duePhrase: 'next week', notes: 'Include the offline caveat.' }),
   // no date
-  make(5, { ...CALL, task: 'Schedule follow-up demo', owner: 'Jason', priority: 'low' }),
+  make(5, { ...CALL, task: 'Schedule follow-up demo', owner: 'You', priority: 'low' }),
   make(6, { ...SPRINT, task: 'Move offline sync fix to top of backlog', owner: 'Alex', priority: 'high', tags: ['Mobile'] }),
   // manual, no meeting
   make(7, { ...NO_MEETING, task: 'Renew the team domain', owner: 'Jason', source: 'manual',

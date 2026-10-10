@@ -219,16 +219,20 @@ def clean_identity(name, aliases) -> dict:
     return {"name": name, "aliases": kept}
 
 
+SELF_WORDS = frozenset({"you", "me", "myself"})
+
+
 def is_mine(owner: str, identity: dict | None) -> bool:
     identity = identity or {}
     name = (identity.get("name") or "").strip()
-    if not name:
-        return False
-    candidates = [_squash(c).casefold() for c in [name, *identity.get("aliases", [])] if c.strip()]
+    candidates = ([_squash(c).casefold() for c in [name, *identity.get("aliases", [])] if c.strip()]
+                  if name else [])
     for part in _OWNER_SPLIT.split(owner or ""):
         part = _squash(part).casefold()
         if not part:
             continue
+        if part in SELF_WORDS:
+            return True
         for c in candidates:
             if part == c or part.split()[0] == c.split()[0]:
                 return True

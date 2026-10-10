@@ -48,10 +48,10 @@ export function ActionItemsView(props: Props) {
   useEffect(() => setSelected((s) => new Set([...s].filter((id) => items.some((i) => i.id === id)))), [items]);
 
   const update = (patch: Partial<ViewState>) => setView((v) => ({ ...v, ...patch }));
-  const visible = useMemo(() => filterItems(items, view, identitySet), [items, view, identitySet]);
-  const groups = useMemo(() => groupItems(visible, view, today), [visible, view, today]);
+  const visible = useMemo(() => filterItems(items, view, identitySet, userName), [items, view, identitySet, userName]);
+  const groups = useMemo(() => groupItems(visible, view, today, userName), [visible, view, today, userName]);
   const allTags = useMemo(() => [...new Set(items.flatMap(effectiveTags))].sort((a, b) => a.localeCompare(b)), [items]);
-  const owners = useMemo(() => ownersOf(items), [items]);
+  const owners = useMemo(() => ownersOf(items, userName), [items, userName]);
 
   const isCollapsed = (key: string) => (key === 'done' && view.status === 'all') !== toggled.has(key);
   const toggleGroup = (key: string) => setToggled((t) => { const n = new Set(t); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -206,7 +206,7 @@ export function ActionItemsView(props: Props) {
               {!collapsed && (
                 <ul className={styles.list}>
                   {g.items.map((item) => (
-                    <ActionItemRow key={item.id} item={item}
+                    <ActionItemRow key={item.id} userName={userName} item={item}
                       onChange={(c) => props.onUpdate(item.id, c)}
                       onDelete={() => props.onDelete(item.id)}
                       onOpenMeeting={props.onOpenMeeting}

@@ -2968,6 +2968,14 @@ Take one screenshot for the report. Stop the dev server.
   owner groups and the MCP owner filter use one label); settings sheet spacing
   (8 px between the name fields and between the library buttons). Opus-reviewed
   with mutation checks; 1,420 Python and 69 frontend tests pass.
+- Stored-owner normalisation (same branch): with a profile name set, owners
+  "me", "mine", "myself" and "you" are stored as the user's name on every write
+  (save_notes merge, create, update); old rows are rewritten when the name is
+  saved and on the first `actions.list` after launch (user_touched/updated_*
+  left alone, mirror re-synced). Real library: profile name set to "Jason",
+  1 row rewritten ("You" → "Jason"); backup taken first. 1,449 Python and 69
+  frontend tests pass. A later rename (e.g. Jason → Jay) does not rewrite
+  owners already stored as "Jason".
 - Deferred minors judged "can wait" by the final review: `similar` edge cases
   now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null
   handling in `update_action_item`, empty Open/Completed export headings,

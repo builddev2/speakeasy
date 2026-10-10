@@ -1225,7 +1225,7 @@ class MeetingLibrary:
                 "SELECT a.id, a.due_phrase, a.meeting_id, m.started_at, m.tz_offset_minutes"
                 " FROM action_items a JOIN meetings m ON m.id = a.meeting_id"
                 " WHERE a.due_date IS NULL AND a.due_phrase <> '' AND a.source = 'summary'"
-                " AND a.user_touched = 0 AND a.due_override IS NULL AND a.due_cleared = 0"
+                " AND a.user_touched = 0 AND a.deleted_at IS NULL AND a.due_override IS NULL AND a.due_cleared = 0"
             ).fetchall()
             for row in rows:
                 day = ai.resolve_due_phrase(

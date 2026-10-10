@@ -326,42 +326,51 @@ def resolve_due_phrase(phrase: str, meeting_day: date) -> date | None:
 
     if not isinstance(phrase, str):
         return None
-    text = re.sub(r"[^\w\s-]", " ", phrase.casefold())
-    words = [w for w in text.split() if w not in _FILLER]
-    text = " ".join(words)
+    iso = re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", phrase)
+    text = re.sub(r"[^\w\s-]", " ", phrase.casefold()).replace("-", " ")
+    text = " ".join(w for w in text.split() if w not in _FILLER)
+    if iso and text.replace(" ", "") == iso.group().replace("-", ""):
+        try:
+            return date.fromisoformat(iso.group())
+        except ValueError:
+            return None
     if not text:
         return None
     if text in ("today", "eod", "end of day"):
         return meeting_day
     if text == "tomorrow":
         return meeting_day + timedelta(days=1)
+    words = text.split()
+    if len(words) == 2 and words[0] in ("this", "next") and words[1] in _WEEKDAYS:
+        weekday = _WEEKDAYS[words[1]]
+        if words[0] == "next":
+            monday = meeting_day - timedelta(days=meeting_day.weekday()) + timedelta(days=7)
+            return monday + timedelta(days=weekday)
+        text = words[1]
     if text in _WEEKDAYS:
         ahead = (_WEEKDAYS[text] - meeting_day.weekday()) % 7 or 7
         return meeting_day + timedelta(days=ahead)
     if text in ("this week", "end of week", "eow"):
         friday = _friday_of_week(meeting_day)
         return friday if friday >= meeting_day else friday + timedelta(days=7)
-    if text == "next week":
+    if text in ("next week", "end of next week"):
         return _friday_of_week(meeting_day) + timedelta(days=7)
     if text in ("this month", "end of month", "eom"):
         return _month_end(meeting_day.year, meeting_day.month)
     if text == "next month":
         year, month = meeting_day.year + meeting_day.month // 12, meeting_day.month % 12 + 1
         return _month_end(year, month)
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-        try:
-            return date.fromisoformat(text)
-        except ValueError:
-            return None
-    # "Oct 15", "15 Oct", "October 15th": a bare date and nothing else.
+    # "Oct 15", "15 Oct", "October 15th": a bare month-and-day date, nothing else.
+    if not re.search(r"\d", text):
+        return None
     found, rest = parse_date_phrase(text, meeting_day)
     if found is None or rest.strip():
         return None
-    month, day_of_month = found.month, found.day
-    for year in (meeting_day.year, meeting_day.year + 1, meeting_day.year + 2, meeting_day.year + 3,
-                 meeting_day.year + 4):
+    if re.search(r"(?<!\d)(?:19|2\d)\d\d(?!\d)", text):
+        return found
+    for year in range(meeting_day.year, meeting_day.year + 5):
         try:
-            candidate = date(year, month, day_of_month)
+            candidate = date(year, found.month, found.day)
         except ValueError:
             continue
         if candidate >= meeting_day:

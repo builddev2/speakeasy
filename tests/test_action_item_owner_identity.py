@@ -72,7 +72,7 @@ def test_no_identity_name_changes_nothing(library_path):
 
 def test_backfill_due_dates(library_path, monkeypatch):
     lib = MeetingLibrary(library_path)
-    mid = _meeting(lib, "Sync")  # Wednesday 2026-09-30
+    mid = _meeting(lib, "Sync")  # started midnight UTC, offset 0: Wednesday 2026-09-30
     lib.save_notes(mid, summary="s", action_items=[
         {"task": "A", "due_phrase": "by Friday"}, {"task": "B", "due_phrase": "whenever"},
         {"task": "C", "due_phrase": "Fri", "due_date": "2026-10-09"}])
@@ -100,3 +100,25 @@ def test_backfill_due_dates(library_path, monkeypatch):
     assert (after["A"].updated_by, after["A"].updated_at, after["A"].user_touched) == \
         (before["A"].updated_by, before["A"].updated_at, before["A"].user_touched)
     assert lib.backfill_due_dates() == 0
+
+
+def test_backfill_uses_local_day_and_skips_deleted(library_path):
+    from datetime import datetime, timezone
+    from speakeasy.meetings import MeetingSegment
+    from speakeasy.meeting_library import NewMeeting
+    lib = MeetingLibrary(library_path)
+    mid = lib.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 1, 2, "words")], duration_seconds=100,
+        started_at=datetime(2026, 10, 2, 3, tzinfo=timezone.utc), title="Late"))
+    conn = sqlite3.connect(library_path)
+    conn.execute("UPDATE meetings SET tz_offset_minutes = -420 WHERE id = ?", (mid,))
+    conn.commit()
+    conn.close()
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "A", "due_phrase": "Friday"}, {"task": "D", "due_phrase": "Friday"}])
+    gone = {i.task: i for i in lib.list_action_items()}["D"]
+    lib.delete_action_item(gone.id, updated_by="user")
+    assert lib.backfill_due_dates() == 1
+    items = {i.task: i for i in lib.list_action_items(include_deleted=True)}
+    assert items["A"].due_date == "2026-10-02"
+    assert items["D"].due_date is None

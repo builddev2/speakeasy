@@ -491,6 +491,7 @@ def build_tools(library) -> dict[str, Tool]:
         rows = _sorted([i for i in items if keep(i)], sort)
         page = rows[offset:offset + limit]
         return {"items": [_item_json(i, identity) for i in page],
+                "today": today.isoformat(),
                 "identity_set": bool(identity["name"]),
                 "offset": offset,
                 "next_offset": offset + limit if len(rows) > offset + limit else None}
@@ -639,7 +640,11 @@ def build_tools(library) -> dict[str, Tool]:
          "due date (due_source user means the user set it), notes, tags (the item's and "
          "its meeting's) and its meeting. Filter by mine, owner, tag, meeting_id, "
          "due_from/due_to, overdue or query (words in the task, notes, owner or meeting "
-         "title). Pass next_offset as offset for more.",
+         "title). Pass next_offset as offset for more. "
+         'To answer "what should I do today", call with mine true and use overdue '
+         "items, items due on or before today, and high-priority items; to answer "
+         '"what is most important", call with mine true and sort priority, then weigh '
+         "due dates. An item with a due_phrase but no due date had no exact date given.",
          {"status": {"type": "string", "enum": ["open", "done", "all"], "default": "open"},
           "mine": {"type": "boolean"}, "owner": {"type": "string"}, "tag": {"type": "string"},
           "meeting_id": {"type": "string"}, "due_from": _FILTERS["from"], "due_to": _FILTERS["to"],

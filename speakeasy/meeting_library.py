@@ -1213,6 +1213,33 @@ class MeetingLibrary:
                 action_item_store.sync_mirror(conn, meeting_id)
         return changed
 
+    def backfill_due_dates(self) -> int:
+        """Give imported summary items a due date from their spoken phrase
+        ("by Friday"), counted from the meeting's local start day. A data
+        clean-up, not an edit: user_touched, updated_by and updated_at stay as
+        they were. Returns the number of rows changed."""
+        changed = 0
+        with self._transaction() as conn:
+            meetings = set()
+            rows = conn.execute(
+                "SELECT a.id, a.due_phrase, a.meeting_id, m.started_at, m.tz_offset_minutes"
+                " FROM action_items a JOIN meetings m ON m.id = a.meeting_id"
+                " WHERE a.due_date IS NULL AND a.due_phrase <> '' AND a.source = 'summary'"
+                " AND a.user_touched = 0 AND a.due_override IS NULL AND a.due_cleared = 0"
+            ).fetchall()
+            for row in rows:
+                day = ai.resolve_due_phrase(
+                    row["due_phrase"], local_start(row["started_at"], row["tz_offset_minutes"]).date())
+                if day is None:
+                    continue
+                conn.execute("UPDATE action_items SET due_date = ? WHERE id = ?",
+                             (day.isoformat(), row["id"]))
+                changed += 1
+                meetings.add(row["meeting_id"])
+            for meeting_id in meetings:
+                action_item_store.sync_mirror(conn, meeting_id)
+        return changed
+
     def delete_action_item(self, item_id, *, updated_by) -> None:
         _check_actor(updated_by)
         with self._transaction() as conn:

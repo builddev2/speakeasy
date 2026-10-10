@@ -137,3 +137,18 @@ def test_settings_save_survives_owner_cleanup_failure(env, monkeypatch):
     out = bridge.settings_set_payload({"userName": "Jason", "detectCalls": not before})
     assert out["detectCalls"] is (not before)
     assert settings.get_identity()["name"] == "Jason"
+
+
+def test_first_actions_list_backfills_due_dates(env):
+    lib, bridge = env
+    mid = _meeting(lib, "Sync")
+    lib.save_notes(mid, summary="s", action_items=[{"task": "A", "due_phrase": "by Friday"}])
+    out = bridge.actions_list_payload({})
+    assert out["items"][0]["due"] == "2026-10-02"
+
+
+def test_actions_list_survives_backfill_failure(env, monkeypatch):
+    lib, bridge = env
+    lib.create_action_item(task="t")
+    monkeypatch.setattr(lib, "backfill_due_dates", lambda: 1 / 0)
+    assert len(bridge.actions_list_payload({})["items"]) == 1

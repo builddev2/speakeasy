@@ -301,3 +301,69 @@ def format_mirror(owner: str, task: str, due_phrase: str, due: str | None) -> st
     text = f"{owner} — {task}" if owner else task
     when = due_phrase or due
     return f"{text} ({when})" if when else text
+
+
+# ---- due phrases -> dates ----------------------------------------------------
+
+_WEEKDAYS = {"monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1, "wednesday": 2,
+             "wed": 2, "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "friday": 4,
+             "fri": 4, "saturday": 5, "sat": 5, "sunday": 6, "sun": 6}
+_FILLER = {"by", "before", "on", "until", "the"}
+
+
+def _month_end(year: int, month: int) -> date:
+    return date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
+
+
+def _friday_of_week(day: date) -> date:
+    return day - timedelta(days=day.weekday()) + timedelta(days=4)
+
+
+def resolve_due_phrase(phrase: str, meeting_day: date) -> date | None:
+    """Turn a spoken due phrase into a date, counting from the meeting's local
+    start day (the summary rule). None when the phrase is not understood."""
+    from .search_dates import parse_date_phrase
+
+    if not isinstance(phrase, str):
+        return None
+    text = re.sub(r"[^\w\s-]", " ", phrase.casefold())
+    words = [w for w in text.split() if w not in _FILLER]
+    text = " ".join(words)
+    if not text:
+        return None
+    if text in ("today", "eod", "end of day"):
+        return meeting_day
+    if text == "tomorrow":
+        return meeting_day + timedelta(days=1)
+    if text in _WEEKDAYS:
+        ahead = (_WEEKDAYS[text] - meeting_day.weekday()) % 7 or 7
+        return meeting_day + timedelta(days=ahead)
+    if text in ("this week", "end of week", "eow"):
+        friday = _friday_of_week(meeting_day)
+        return friday if friday >= meeting_day else friday + timedelta(days=7)
+    if text == "next week":
+        return _friday_of_week(meeting_day) + timedelta(days=7)
+    if text in ("this month", "end of month", "eom"):
+        return _month_end(meeting_day.year, meeting_day.month)
+    if text == "next month":
+        year, month = meeting_day.year + meeting_day.month // 12, meeting_day.month % 12 + 1
+        return _month_end(year, month)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            return None
+    # "Oct 15", "15 Oct", "October 15th": a bare date and nothing else.
+    found, rest = parse_date_phrase(text, meeting_day)
+    if found is None or rest.strip():
+        return None
+    month, day_of_month = found.month, found.day
+    for year in (meeting_day.year, meeting_day.year + 1, meeting_day.year + 2, meeting_day.year + 3,
+                 meeting_day.year + 4):
+        try:
+            candidate = date(year, month, day_of_month)
+        except ValueError:
+            continue
+        if candidate >= meeting_day:
+            return candidate
+    return None

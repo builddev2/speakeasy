@@ -401,6 +401,7 @@ class MeetingsBridge:
             self._owners_normalised = True
             try:
                 self.library.normalize_self_owners()
+                self.library.backfill_due_dates()
             except Exception:
                 logging.getLogger(__name__).exception("owner clean-up failed")
         identity = settings.get_identity()

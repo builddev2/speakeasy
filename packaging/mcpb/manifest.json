@@ -62,7 +62,7 @@
     },
     {
       "name": "list_action_items",
-      "description": "List action items across meetings (open ones by default), soonest due first. Each has an id, task, owner (mine is true when it is the user's), priority, due date (due_source user means the user set it), notes, tags (the item's and its meeting's) and its meeting. Filter by mine, owner, tag, meeting_id, due_from/due_to, overdue or query (words in the task, notes, owner or meeting title). Pass next_offset as offset for more."
+      "description": "List action items across meetings (open ones by default), soonest due first. Each has an id, task, owner (mine is true when it is the user's), priority, due date (due_source user means the user set it), notes, tags (the item's and its meeting's) and its meeting. Filter by mine, owner, tag, meeting_id, due_from/due_to, overdue or query (words in the task, notes, owner or meeting title). Pass next_offset as offset for more. To answer \"what should I do today\", call with mine true and use overdue items, items due on or before today, and high-priority items; to answer \"what is most important\", call with mine true and sort priority, then weigh due dates. An item with a due_phrase but no due date had no exact date given."
     },
     {
       "name": "create_action_item",

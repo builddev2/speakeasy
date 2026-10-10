@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from speakeasy import action_item_store
 from speakeasy.meeting_library import MeetingLibrary
 from tests.test_library_backup import _meeting
 
@@ -67,3 +68,35 @@ def test_no_identity_name_changes_nothing(library_path):
     item = lib.create_action_item(task="t", owner="me")
     assert item.owner == "me"
     assert lib.normalize_self_owners() == 0
+
+
+def test_backfill_due_dates(library_path, monkeypatch):
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "Sync")  # Wednesday 2026-09-30
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "A", "due_phrase": "by Friday"}, {"task": "B", "due_phrase": "whenever"},
+        {"task": "C", "due_phrase": "Fri", "due_date": "2026-10-09"}])
+    manual = lib.create_action_item(task="M", meeting_id=mid)
+    conn = sqlite3.connect(library_path)
+    conn.execute("UPDATE action_items SET due_phrase = 'by Friday' WHERE id = ?", (manual.id,))
+    conn.commit()
+    conn.close()
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "A", "due_phrase": "by Friday"}, {"task": "B", "due_phrase": "whenever"},
+        {"task": "C", "due_phrase": "Fri", "due_date": "2026-10-09"},
+        {"task": "T", "due_phrase": "by Friday"}])
+    t = {i.task: i for i in lib.list_action_items()}["T"]
+    lib.update_action_item(t.id, updated_by="user", status="done")
+    before = {i.task: i for i in lib.list_action_items()}
+    synced = []
+    real = action_item_store.sync_mirror
+    monkeypatch.setattr(action_item_store, "sync_mirror", lambda conn, m: (synced.append(m), real(conn, m)))
+    assert lib.backfill_due_dates() == 1
+    assert synced == [mid]
+    after = {i.task: i for i in lib.list_action_items()}
+    assert after["A"].due_date == "2026-10-02"
+    assert after["B"].due_date is None and after["M"].due_date is None
+    assert after["C"].due_date == "2026-10-09" and after["T"].due_date is None
+    assert (after["A"].updated_by, after["A"].updated_at, after["A"].user_touched) == \
+        (before["A"].updated_by, before["A"].updated_at, before["A"].user_touched)
+    assert lib.backfill_due_dates() == 0

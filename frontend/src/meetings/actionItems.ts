@@ -60,12 +60,18 @@ export function ownerDisplay(item: ActionItem, userName: string): string {
   return item.owner || UNASSIGNED;
 }
 
+/** Owner entry an item belongs to: every mine item (shared ones too) is the user's. */
+export function ownerKey(item: ActionItem, userName: string): string {
+  if (item.mine) return userName.trim() || 'Me';
+  return item.owner || UNASSIGNED;
+}
+
 export function filterItems(items: ActionItem[], view: ViewState, identitySet: boolean, userName: string): ActionItem[] {
   const tags = view.tags.map((t) => t.toLowerCase());
   const q = view.query.trim().toLowerCase();
   return items.filter((i) => {
     if (view.owner.kind === 'mine' && identitySet && !i.mine) return false;
-    if (view.owner.kind === 'person' && ownerDisplay(i, userName).toLowerCase() !== view.owner.name.toLowerCase()) return false;
+    if (view.owner.kind === 'person' && ownerKey(i, userName).toLowerCase() !== view.owner.name.toLowerCase()) return false;
     if (tags.length && !effectiveTags(i).some((t) => tags.includes(t.toLowerCase()))) return false;
     if (view.priorities.length && !view.priorities.includes(i.priority)) return false;
     if (view.status !== 'all' && i.status !== view.status) return false;
@@ -125,7 +131,7 @@ export function groupItems(items: ActionItem[], view: ViewState, today: string, 
   }
   const keyOf: (i: ActionItem) => string[] =
     view.groupBy === 'meeting' ? (i) => [i.meetingId ?? '']
-    : view.groupBy === 'owner' ? (i) => [ownerDisplay(i, userName)]
+    : view.groupBy === 'owner' ? (i) => [ownerKey(i, userName)]
     : (i) => (effectiveTags(i).length ? effectiveTags(i) : ['']);
   const map = keyed(items, keyOf);
   const sample = (k: string) => map.get(k)![0];
@@ -162,18 +168,19 @@ export function ownersOf(items: ActionItem[], userName: string): string[] {
   const me = userName.trim() || 'Me';
   const seen = new Map<string, string>();
   for (const i of items) {
-    const label = ownerDisplay(i, userName);
+    const label = ownerKey(i, userName);
     if (label !== UNASSIGNED && !seen.has(label.toLowerCase())) seen.set(label.toLowerCase(), label);
   }
   const names = [...seen.values()].sort((a, b) => ownerRank(a, me) - ownerRank(b, me) || alpha(a, b));
-  return items.some((i) => ownerDisplay(i, userName) === UNASSIGNED) ? [...names, UNASSIGNED] : names;
+  return items.some((i) => ownerKey(i, userName) === UNASSIGNED) ? [...names, UNASSIGNED] : names;
 }
 
 const SELF_LABELS = new Set(['you', 'me', 'myself']);
 
 /** A saved person filter that no longer matches an owner entry maps to the user's current label. */
-export function resolveOwnerName(name: string, owners: string[], userName: string): string {
+export function resolveOwnerName(name: string, owners: string[], userName: string, items: ActionItem[] = []): string {
   if (owners.includes(name)) return name;
+  if (items.some((i) => i.mine && i.owner === name)) return userName.trim() || 'Me';
   const key = name.trim().toLowerCase();
   if (SELF_LABELS.has(key) || key === userName.trim().toLowerCase()) return userName.trim() || 'Me';
   return name;

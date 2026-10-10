@@ -51,8 +51,8 @@ export function ActionItemsView(props: Props) {
   const allTags = useMemo(() => [...new Set(items.flatMap(effectiveTags))].sort((a, b) => a.localeCompare(b)), [items]);
   const owners = useMemo(() => ownersOf(items, userName), [items, userName]);
   const effView = useMemo<ViewState>(() => view.owner.kind === 'person'
-    ? { ...view, owner: { kind: 'person', name: resolveOwnerName(view.owner.name, owners, userName) } } : view,
-  [view, owners, userName]);
+    ? { ...view, owner: { kind: 'person', name: resolveOwnerName(view.owner.name, owners, userName, items) } } : view,
+  [view, owners, userName, items]);
   const visible = useMemo(() => filterItems(items, effView, identitySet, userName), [items, effView, identitySet, userName]);
   const groups = useMemo(() => groupItems(visible, view, today, userName), [visible, view, today, userName]);
 

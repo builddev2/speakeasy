@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_VIEW, addDays, dueBucket, effectiveTags, filterItems, formatDue, groupItems,
-  ownerDisplay, ownersOf, resolveOwnerName, parseViewState, sidebarCounts, sortItems,
+  ownerDisplay, ownerKey, ownersOf, resolveOwnerName, parseViewState, sidebarCounts, sortItems,
 } from '../src/meetings/actionItems.ts';
 import type { ActionItem, ViewState } from '../src/meetings/actionItems.ts';
 
@@ -115,7 +115,8 @@ test('parseViewState falls back on junk and keeps valid fields', () => {
 });
 
 const mixed = () => [item({ owner: 'Jason', mine: true }), item({ owner: 'You', mine: true }),
-  item({ owner: 'Priya' }), item({ owner: 'Alex' }), item({ owner: '' })];
+  item({ owner: 'Priya' }), item({ owner: 'Alex' }), item({ owner: '' }),
+  item({ owner: 'Refayet & Jason', mine: true })];
 
 test('ownersOf collapses the user\'s items into one entry, first', () => {
   assert.deepEqual(ownersOf(mixed(), 'Jason'), ['Jason', 'Alex', 'Priya', 'Unassigned']);
@@ -131,13 +132,34 @@ test('ownerDisplay leaves multi-owner items alone', () => {
 test('person filter on the user\'s entry shows both spellings', () => {
   const all = mixed();
   const v = view({ status: 'all', owner: { kind: 'person', name: 'Jason' } });
-  assert.deepEqual(filterItems(all, v, true, 'Jason'), [all[0], all[1]]);
+  assert.deepEqual(filterItems(all, v, true, 'Jason'), [all[0], all[1], all[5]]);
+});
+
+test('person filter on the user\'s entry equals the Mine filter', () => {
+  const all = mixed();
+  const person = filterItems(all, view({ status: 'all', owner: { kind: 'person', name: 'Jason' } }), true, 'Jason');
+  const mine = filterItems(all, view({ status: 'all', owner: { kind: 'mine' } }), true, 'Jason');
+  assert.deepEqual(person.map((i) => i.id), mine.map((i) => i.id));
+});
+
+test('ownerKey folds shared mine items into the user, ownerDisplay keeps the row text', () => {
+  const shared = item({ owner: 'Refayet & Jason', mine: true });
+  assert.equal(ownerKey(shared, ' Jason '), 'Jason');
+  assert.equal(ownerKey(shared, ''), 'Me');
+  assert.equal(ownerKey(item({ owner: 'Priya' }), 'Jason'), 'Priya');
+  assert.equal(ownerKey(item({ owner: '' }), 'Jason'), 'Unassigned');
+  assert.equal(ownerDisplay(shared, 'Jason'), 'Refayet & Jason');
+});
+
+test('ownersOf has no entry for shared mine owners', () => {
+  assert.ok(!ownersOf(mixed(), 'Jason').includes('Refayet & Jason'));
 });
 
 test('group by owner merges the user\'s items, first', () => {
   const groups = groupItems(mixed(), view({ groupBy: 'owner', status: 'all' }), MON, 'Jason');
   assert.deepEqual(groups.map((g) => g.label), ['Jason', 'Alex', 'Priya', 'Unassigned']);
-  assert.equal(groups[0].items.length, 2);
+  assert.equal(groups[0].items.length, 3);
+  assert.ok(groups[0].items.some((i) => i.owner === 'Refayet & Jason'));
 });
 
 test('resolveOwnerName maps stale self filters to the current label', () => {
@@ -148,4 +170,6 @@ test('resolveOwnerName maps stale self filters to the current label', () => {
   assert.equal(resolveOwnerName('jason', ['Me', 'Priya'], 'Jason'), 'Jason');
   assert.equal(resolveOwnerName('Priya', owners, 'Jason'), 'Priya');
   assert.equal(resolveOwnerName('Gone', owners, 'Jason'), 'Gone');
+  assert.equal(resolveOwnerName('Refayet & Jason', owners, 'Jason', mixed()), 'Jason');
+  assert.equal(resolveOwnerName('Priya', owners, 'Jason', mixed()), 'Priya');
 });

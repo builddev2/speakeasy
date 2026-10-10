@@ -911,7 +911,7 @@ def test_cleanup_failure_does_not_skip_other_track_or_rearm(meetings_dir, spool_
         return original(path, *args, **kwargs)
     monkeypatch.setattr(Path, 'unlink', unlink)
     try:
-        engine._process_meeting(MeetingRecording(mic_path=mic, system_path=system))
+        engine._process_meeting(engine._new_job(MeetingRecording(mic_path=mic, system_path=system)))
         assert engine.meeting_processing_error == 'cleanup_failed'
         assert not system.exists()
         assert not engine._meeting_active
@@ -994,7 +994,7 @@ def test_process_meeting_uses_recordings_started_at(meetings_dir, spool_dir):
         w.writeframes(np.ones(config.SAMPLE_RATE, dtype=np.int16).tobytes())
     started_at = datetime(2026, 9, 24, 13, 17, 23, tzinfo=timezone(timedelta(hours=-4)))
     try:
-        engine._process_meeting(MeetingRecording(mic_path=mic, started_at=started_at))
+        engine._process_meeting(engine._new_job(MeetingRecording(mic_path=mic, started_at=started_at)))
         assert saved, "on_meeting_saved never fired"
         stored = MeetingLibrary().get_meeting(saved[0])
         assert stored.started_at == "2026-09-24T17:17:23Z"
@@ -1488,7 +1488,8 @@ def test_runner_receives_path_and_meeting_options(meetings_dir, spool_dir):
     assert seen["path_exists"] is True
     assert seen["expected_count"] == 3
     assert tuple(seen["voice_profile_names"]) == ("Alice",)
-    assert seen["cancel"] is engine._meeting_cancel
+    assert isinstance(seen["cancel"], threading.Event)
+    assert seen["cancel"] is not getattr(engine, "_meeting_cancel", None)
     engine.shutdown()
 
 
@@ -1612,4 +1613,54 @@ def test_dual_track_splits_remote_speech_where_you_reply(meetings_dir, spool_dir
         ("You", 1.35),
         ("Speaker 1", 1.7),
     ]
+    engine.shutdown()
+
+
+class GatedSpyRunner:
+    """Records each call's options and cancel event; blocks until released."""
+
+    def __init__(self):
+        self.calls = []
+        self.gate = threading.Event()
+        self.entered = threading.Event()
+
+    def __call__(self, wav_path, *, expected_count, max_speakers, voice_profile_names,
+                 progress, cancel, on_phase=lambda phase: None):
+        self.calls.append({"path": wav_path, "expected_count": expected_count,
+                           "voices": tuple(voice_profile_names), "cancel": cancel})
+        self.entered.set()
+        self.gate.wait(timeout=5.0)
+        if cancel.is_set():
+            raise MeetingCancelled
+        progress(1.0)
+        return [(0.0, 1.0, 0)]
+
+
+def test_job_uses_its_own_options_and_event(meetings_dir, spool_dir):
+    _seed_events([("ev-a", 3, "Alpha", 1)])
+    engine = _engine(spool_dir)
+    runner = GatedSpyRunner()
+    runner.gate.set()
+    engine.diarization_runner = runner
+    saved = _record(engine, MeetingOptions(calendar_event_key="ev-a", expected_speaker_count=3))
+    engine.end_meeting()
+    assert _wait_for(lambda: saved)
+    # Changing the engine's current values after stop must not affect the job.
+    assert runner.calls[0]["expected_count"] == 3
+    assert MeetingLibrary().get_meeting(saved[0]).title == "Alpha"
+    assert engine.pending_meeting_jobs == 0
+    engine.shutdown()
+
+
+def test_job_snapshot_is_independent_of_engine_fields(meetings_dir, spool_dir):
+    _seed_events([("ev-a", 3, "Alpha", 1), ("ev-b", 1, "Beta", 1)])
+    engine = _engine(spool_dir)
+    engine._meeting_options = MeetingOptions(expected_speaker_count=4)
+    engine.meeting_event = MeetingLibrary().calendar_event("ev-a")
+    job = engine._new_job(MeetingRecording(mic_path=None))
+    engine._meeting_options = MeetingOptions(expected_speaker_count=2)
+    engine.meeting_event = MeetingLibrary().calendar_event("ev-b")
+    assert job.options.expected_speaker_count == 4
+    assert job.event.title == "Alpha"
+    assert job.cancel is not engine._new_job(MeetingRecording(mic_path=None)).cancel
     engine.shutdown()

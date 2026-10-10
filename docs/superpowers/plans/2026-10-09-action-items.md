@@ -2976,6 +2976,9 @@ Take one screenshot for the report. Stop the dev server.
   1 row rewritten ("You" → "Jason"); backup taken first. 1,449 Python and 69
   frontend tests pass. A later rename (e.g. Jason → Jay) does not rewrite
   owners already stored as "Jason".
+- The user's person entry now counts exactly the same items as Mine,
+  including shared owners ("Refayet & Jason"); shared rows still show the
+  stored owner. 72 frontend tests pass.
 - Deferred minors judged "can wait" by the final review: `similar` edge cases
   now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null
   handling in `update_action_item`, empty Open/Completed export headings,

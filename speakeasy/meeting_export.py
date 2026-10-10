@@ -71,6 +71,8 @@ def format_item_md(item) -> list[str]:
     if item.effective_due:
         due = f"due {_due_text(item.effective_due)}"
         extras.append(f'{due} ("{item.due_phrase}")' if item.due_phrase else due)
+    elif item.due_phrase:
+        extras.append(f'"{item.due_phrase}"')
     if item.priority != "normal":
         extras.append(item.priority)
     lines = [" · ".join([head, *extras])]

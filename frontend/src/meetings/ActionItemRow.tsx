@@ -78,6 +78,9 @@ export function ActionItemRow({ item, onChange, onDelete, onOpenMeeting, showMee
                 {item.dueSource === 'user' && <span className={styles.edited}> edited</span>}
               </span>
             )}
+            {!item.due && item.duePhrase && (
+              <span className={styles.due}><span className={styles.phrase}>“{item.duePhrase}”</span></span>
+            )}
             {item.meetingTags.map((t) => <span key={`m-${t}`} className={styles.tagMuted}>{t}</span>)}
             {item.tags.map((t) => <span key={`o-${t}`} className={styles.tag}>{t}</span>)}
             {item.notes && <span className={styles.hasNotes} aria-label="Has notes">✎</span>}

@@ -643,6 +643,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             .call<Filters>('meetings.filters')
             .then(setFilters)
             .catch((err) => console.error('meetings.filters failed', err));
+          void loadActions();
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);
@@ -1180,6 +1181,10 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   function onBulkItems(ids: number[], change: { status?: 'open' | 'done'; addTags?: string[]; delete?: boolean }): Promise<void> {
+    if (change.delete && ids.length === 1) {
+      onDeleteItem(ids[0]);
+      return Promise.resolve();
+    }
     if (change.delete && ids.length > 1) {
       setBulkDeleteIds(ids);
       return Promise.resolve();

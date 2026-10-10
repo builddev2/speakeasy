@@ -122,3 +122,9 @@ def test_check_status():
     for bad in ("closed", "", None, "Open"):
         with pytest.raises(ValueError, match="status must be open or done."):
             ai.check_status(bad)
+
+
+def test_similar_is_zero_when_either_side_is_only_filler():
+    assert ai.similar("the", "to") == 0.0
+    assert ai.similar("the", "Send budget") == 0.0
+    assert ai.similar("", "") == 0.0

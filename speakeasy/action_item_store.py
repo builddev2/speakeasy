@@ -157,7 +157,7 @@ def sync_mirror(conn, meeting_id: str) -> None:
 
 def delete_untouched_for_meeting(conn, meeting_id: str) -> None:
     conn.execute("DELETE FROM action_items WHERE meeting_id = ? AND source = 'summary'"
-                 " AND user_touched = 0 AND status = 'open'", (meeting_id,))
+                 " AND user_touched = 0 AND status = 'open' AND deleted_at IS NULL", (meeting_id,))
 
 
 def merge_summary_items(conn, meeting_id: str, inputs, resolve, *, updated_by) -> None:

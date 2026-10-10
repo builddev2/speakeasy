@@ -192,7 +192,10 @@ def norm(text: str) -> str:
 
 
 def similar(a: str, b: str) -> float:
-    return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio()
+    na, nb = norm(a), norm(b)
+    if not na or not nb:
+        return 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
 
 
 def clean_identity(name, aliases) -> dict:

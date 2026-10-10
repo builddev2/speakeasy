@@ -329,3 +329,14 @@ def test_per_meeting_section_formats_status_due_and_notes(library_path):
     md = render_export_md(lib.get_meeting(mid))
     assert ('## Action items\n\n- [x] Send draft — Jason · due Fri 16 Oct 2026 '
             '("by Friday") · high\n  Notes: a\n  b\n') in md
+
+
+def test_export_keeps_due_phrase_when_there_is_no_date(library_path):
+    from speakeasy.meeting_export import format_item_md
+    from tests.test_library_backup import _meeting
+    lib = MeetingLibrary(library_path)
+    mid = _meeting(lib, "M")
+    lib.save_notes(mid, summary="s", action_items=[
+        {"task": "send draft", "owner": "Jason", "due_phrase": "by Friday"}])
+    (item,) = lib.list_action_items(meeting_id=mid)
+    assert format_item_md(item) == ['- [ ] send draft — Jason · "by Friday"']

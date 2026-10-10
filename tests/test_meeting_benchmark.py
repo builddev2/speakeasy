@@ -51,3 +51,23 @@ def test_older_records_remain_readable(tmp_path):
     path = tmp_path / 'old.jsonl'
     path.write_text(json.dumps(record) + '\n')
     assert benchmark.read_records(path)[0]['backlog_ms'] is None
+
+
+def test_concurrent_recording_field_round_trips_and_old_rows_default_false(tmp_path):
+    from speakeasy import meeting_benchmark as mb
+    path = tmp_path / "t.jsonl"
+    timing = mb.MeetingTiming(capture_mode="mic_only")
+    timing.concurrent_recording = True
+    timing.mark("pipeline_finished")
+    timing.emit("success", path=path)
+    old = {k: None for k in mb.FIELDS if k.endswith("_ms")}
+    old.update(build_commit="x", status="success", capture_mode="mic_only",
+               mic_frames=1, system_frames=0)
+    with path.open("a") as f:
+        f.write(json.dumps(old) + "\n")
+    records = mb.read_records(path)
+    assert [r["concurrent_recording"] for r in records] == [True, False]
+    bad = dict(old, concurrent_recording="yes")
+    with path.open("a") as f:
+        f.write(json.dumps(bad) + "\n")
+    assert len(mb.read_records(path)) == 2

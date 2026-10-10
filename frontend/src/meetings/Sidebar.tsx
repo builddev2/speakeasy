@@ -13,6 +13,10 @@ interface SidebarProps {
   filters: Filters;
   activeFilter: SidebarFilter;
   activeToday: boolean;
+  activeActions: boolean;
+  /** Open items that are mine (everyone's when no name is set) and how many are overdue. */
+  actionCounts: { open: number; overdue: number };
+  onSelectActions: () => void;
   /** Undefined (no count shown) when Calendar isn't connected. */
   todayCount?: number;
   onSelectFilter: (filter: SidebarFilter) => void;
@@ -75,6 +79,9 @@ export function Sidebar({
   filters,
   activeFilter,
   activeToday,
+  activeActions,
+  actionCounts,
+  onSelectActions,
   todayCount,
   onSelectFilter,
   onSelectToday,
@@ -171,7 +178,7 @@ export function Sidebar({
   }
 
   function rowClass(filter: SidebarFilter): string {
-    return !activeToday && !activeRecording && sameFilter(activeFilter, filter) ? `${styles.row} ${styles.rowActive}` : styles.row;
+    return !activeToday && !activeActions && !activeRecording && sameFilter(activeFilter, filter) ? `${styles.row} ${styles.rowActive}` : styles.row;
   }
 
   return (
@@ -239,6 +246,11 @@ export function Sidebar({
             {todayCount !== undefined && <span className={styles.count}>{todayCount}</span>}
           </button>
         )}
+        <button className={activeActions ? `${styles.row} ${styles.rowActive}` : styles.row} onClick={onSelectActions}>
+          <span className={styles.rowLabel}>Action items</span>
+          {actionCounts.overdue > 0 && <span className={styles.overdueBadge} aria-label={`${actionCounts.overdue} overdue`}>{actionCounts.overdue}</span>}
+          <span className={styles.count}>{actionCounts.open}</span>
+        </button>
         <button className={rowClass({ type: 'all' })} onClick={() => onSelectFilter({ type: 'all' })}>
           <span className={styles.rowLabel}>All meetings</span>
           <span className={styles.count}>{filters.total}</span>

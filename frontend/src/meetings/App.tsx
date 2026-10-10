@@ -1055,6 +1055,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             .call<Filters>('meetings.filters')
             .then(setFilters)
             .catch((err) => console.error('meetings.filters failed', err));
+          void loadActions();
         })
         .catch((err) => {
           if (isNotFoundError(err)) recoverFromNotFound(id);

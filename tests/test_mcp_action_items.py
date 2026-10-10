@@ -58,6 +58,18 @@ def test_list_filters(env):
     assert item["tags"] == ["Budget"] and item["due_source"] == "claude"
 
 
+def test_owner_filter_for_the_user_matches_every_spelling(env):
+    lib, tools = env
+    settings.set_identity(name="Jason", aliases=[])
+    lib.create_action_item(task="A", owner="Jason")
+    lib.create_action_item(task="B", owner="You")
+    lib.create_action_item(task="C", owner="Siam")
+    for who in ("Jason", "you", "Me"):
+        got = run(tools, "list_action_items", owner=who)["items"]
+        assert {i["task"] for i in got} == {"A", "B"}, who
+    assert [i["task"] for i in run(tools, "list_action_items", owner="siam")["items"]] == ["C"]
+
+
 def test_create_update_delete_round_trip(env):
     lib, tools = env
     created = run(tools, "create_action_item", task="Call bank", due="2026-10-20", tags=["Money"])

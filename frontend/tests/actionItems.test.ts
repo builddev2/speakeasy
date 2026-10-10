@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_VIEW, addDays, dueBucket, effectiveTags, filterItems, formatDue, groupItems,
-  ownerDisplay, ownersOf, parseViewState, sidebarCounts, sortItems,
+  ownerDisplay, ownersOf, resolveOwnerName, parseViewState, sidebarCounts, sortItems,
 } from '../src/meetings/actionItems.ts';
 import type { ActionItem, ViewState } from '../src/meetings/actionItems.ts';
 
@@ -115,11 +115,11 @@ test('parseViewState falls back on junk and keeps valid fields', () => {
 });
 
 const mixed = () => [item({ owner: 'Jason', mine: true }), item({ owner: 'You', mine: true }),
-  item({ owner: 'Priya' }), item({ owner: '' })];
+  item({ owner: 'Priya' }), item({ owner: 'Alex' }), item({ owner: '' })];
 
 test('ownersOf collapses the user\'s items into one entry, first', () => {
-  assert.deepEqual(ownersOf(mixed(), 'Jason'), ['Jason', 'Priya', 'Unassigned']);
-  assert.deepEqual(ownersOf(mixed(), ''), ['Me', 'Priya', 'Unassigned']);
+  assert.deepEqual(ownersOf(mixed(), 'Jason'), ['Jason', 'Alex', 'Priya', 'Unassigned']);
+  assert.deepEqual(ownersOf(mixed(), ''), ['Me', 'Alex', 'Priya', 'Unassigned']);
 });
 
 test('ownerDisplay leaves multi-owner items alone', () => {
@@ -136,6 +136,16 @@ test('person filter on the user\'s entry shows both spellings', () => {
 
 test('group by owner merges the user\'s items, first', () => {
   const groups = groupItems(mixed(), view({ groupBy: 'owner', status: 'all' }), MON, 'Jason');
-  assert.deepEqual(groups.map((g) => g.label), ['Jason', 'Priya', 'Unassigned']);
+  assert.deepEqual(groups.map((g) => g.label), ['Jason', 'Alex', 'Priya', 'Unassigned']);
   assert.equal(groups[0].items.length, 2);
+});
+
+test('resolveOwnerName maps stale self filters to the current label', () => {
+  const owners = ['Jason', 'Priya'];
+  assert.equal(resolveOwnerName('You', owners, 'Jason'), 'Jason');
+  assert.equal(resolveOwnerName('me', ['Me', 'Priya'], ''), 'Me');
+  assert.equal(resolveOwnerName('Me', owners, 'Jason'), 'Jason');
+  assert.equal(resolveOwnerName('jason', ['Me', 'Priya'], 'Jason'), 'Jason');
+  assert.equal(resolveOwnerName('Priya', owners, 'Jason'), 'Priya');
+  assert.equal(resolveOwnerName('Gone', owners, 'Jason'), 'Gone');
 });

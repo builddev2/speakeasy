@@ -169,6 +169,16 @@ export function ownersOf(items: ActionItem[], userName: string): string[] {
   return items.some((i) => ownerDisplay(i, userName) === UNASSIGNED) ? [...names, UNASSIGNED] : names;
 }
 
+const SELF_LABELS = new Set(['you', 'me', 'myself']);
+
+/** A saved person filter that no longer matches an owner entry maps to the user's current label. */
+export function resolveOwnerName(name: string, owners: string[], userName: string): string {
+  if (owners.includes(name)) return name;
+  const key = name.trim().toLowerCase();
+  if (SELF_LABELS.has(key) || key === userName.trim().toLowerCase()) return userName.trim() || 'Me';
+  return name;
+}
+
 export function parseViewState(raw: string | null): ViewState {
   let v: Partial<Record<keyof ViewState, unknown>>;
   try { v = raw ? JSON.parse(raw) : {}; } catch { return DEFAULT_VIEW; }

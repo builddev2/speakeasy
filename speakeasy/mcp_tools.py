@@ -458,13 +458,19 @@ def build_tools(library) -> dict[str, Tool]:
         query, meeting_id = _text(args, "query", max_len=200), args.get("meeting_id")
         mine, overdue = _bool(args, "mine"), _bool(args, "overdue")
         items = library.list_action_items()
+        # Asking for the user (a self word, their name or an alias) matches every spelling of them.
+        owner_is_me = True if owner and (owner.strip().casefold() in ai.SELF_WORDS
+                                         or ai.is_mine(owner, identity)) else None
 
         def keep(i):
             if status != "all" and i.status != status:
                 return False
             if mine and not ai.is_mine(i.owner, identity):
                 return False
-            if owner and (i.owner or "Unassigned").casefold() != owner.casefold():
+            if owner_is_me is not None:
+                if owner_is_me != ai.is_mine(i.owner, identity):
+                    return False
+            elif owner and (i.owner or "Unassigned").casefold() != owner.casefold():
                 return False
             if tag and tag_slug(tag) not in {tag_slug(t) for t in [*i.tags, *i.meeting_tags]}:
                 return False

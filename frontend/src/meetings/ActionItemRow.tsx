@@ -71,7 +71,10 @@ export function ActionItemRow({ item, userName, onChange, onDelete, onOpenMeetin
           <span className={styles.task}>{item.task}</span>
           <span className={styles.meta}>
             {item.priority !== 'normal' && <span className={`${styles.priority} ${styles[item.priority]}`}>{item.priority}</span>}
-            <span className={styles.owner}>{ownerDisplay(item, userName)}</span>
+            <span className={styles.owner}
+              title={item.owner && item.owner !== ownerDisplay(item, userName) ? item.owner : undefined}>
+              {ownerDisplay(item, userName)}
+            </span>
             {item.due && (
               <span className={styles.due}>
                 {formatDue(item.due)}

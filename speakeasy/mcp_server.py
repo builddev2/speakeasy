@@ -33,7 +33,9 @@ INSTRUCTIONS = (
     "user's local days, YYYY-MM-DD. save_notes stores a summary, action items "
     "or tags the user can see in Speakeasy; list_action_items, "
     "create_action_item, update_action_item and delete_action_item manage the "
-    "user's action items."
+    "user's action items. When the user asks about their own action items, pass "
+    "mine true. Create or update items with create_action_item / "
+    "update_action_item when the user asks (owner \"me\" is stored as the user's name)."
 )
 _BUSY = "The meeting library is busy. Try again in a moment."
 

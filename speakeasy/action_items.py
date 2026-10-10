@@ -219,20 +219,60 @@ def clean_identity(name, aliases) -> dict:
     return {"name": name, "aliases": kept}
 
 
+SELF_WORDS = frozenset({"you", "me", "myself", "mine"})
+
+
 def is_mine(owner: str, identity: dict | None) -> bool:
     identity = identity or {}
     name = (identity.get("name") or "").strip()
-    if not name:
-        return False
-    candidates = [_squash(c).casefold() for c in [name, *identity.get("aliases", [])] if c.strip()]
+    candidates = ([_squash(c).casefold() for c in [name, *identity.get("aliases", [])] if c.strip()]
+                  if name else [])
     for part in _OWNER_SPLIT.split(owner or ""):
         part = _squash(part).casefold()
         if not part:
             continue
+        if part in SELF_WORDS:
+            return True
         for c in candidates:
             if part == c or part.split()[0] == c.split()[0]:
                 return True
     return False
+
+
+_OWNER_SPLIT_KEEP = re.compile(r"(\s*(?:,|&|/|\band\b)\s*)", re.IGNORECASE)
+
+
+def normalize_owner(owner: str, identity: dict | None) -> str:
+    """Replace self words (you/me/myself/mine) with the user's name, dropping
+    a duplicate when the name is already listed. No name set: unchanged."""
+    name = _squash((identity or {}).get("name") or "")
+    if not name or not owner:
+        return owner
+    pieces = _OWNER_SPLIT_KEEP.split(owner)  # parts at even indexes, separators at odd
+    parts, seps = pieces[0::2], pieces[1::2]
+    is_self = [_squash(p).casefold() in SELF_WORDS for p in parts]
+    if not any(is_self):
+        return owner
+    seen = {_squash(p).casefold() for p, s in zip(parts, is_self) if not s}
+    mine = {name.casefold(), *(_squash(a).casefold() for a in (identity or {}).get("aliases", []))}
+    keep = []
+    for part, selfish in zip(parts, is_self):
+        if not selfish:
+            keep.append(part)
+        elif seen & mine:
+            keep.append(None)
+        else:
+            seen.add(name.casefold())
+            keep.append(name)
+    out = ""
+    for i, part in enumerate(keep):
+        if part is not None:
+            out += (seps[i - 1] if out and i > 0 else "") + part
+    try:
+        result = clean_owner(out)
+    except ValueError:
+        return owner
+    return result if result else owner
 
 
 def effective_due(due_date, due_override, due_cleared):
@@ -261,3 +301,78 @@ def format_mirror(owner: str, task: str, due_phrase: str, due: str | None) -> st
     text = f"{owner} — {task}" if owner else task
     when = due_phrase or due
     return f"{text} ({when})" if when else text
+
+
+# ---- due phrases -> dates ----------------------------------------------------
+
+_WEEKDAYS = {"monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1, "wednesday": 2,
+             "wed": 2, "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "friday": 4,
+             "fri": 4, "saturday": 5, "sat": 5, "sunday": 6, "sun": 6}
+_FILLER = {"by", "before", "on", "until", "the"}
+
+
+def _month_end(year: int, month: int) -> date:
+    return date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
+
+
+def _friday_of_week(day: date) -> date:
+    return day - timedelta(days=day.weekday()) + timedelta(days=4)
+
+
+def resolve_due_phrase(phrase: str, meeting_day: date) -> date | None:
+    """Turn a spoken due phrase into a date, counting from the meeting's local
+    start day (the summary rule). None when the phrase is not understood."""
+    from .search_dates import parse_date_phrase
+
+    if not isinstance(phrase, str):
+        return None
+    iso = re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", phrase)
+    text = re.sub(r"[^\w\s-]", " ", phrase.casefold()).replace("-", " ")
+    text = " ".join(w for w in text.split() if w not in _FILLER)
+    if iso and text.replace(" ", "") == iso.group().replace("-", ""):
+        try:
+            return date.fromisoformat(iso.group())
+        except ValueError:
+            return None
+    if not text:
+        return None
+    if text in ("today", "eod", "end of day"):
+        return meeting_day
+    if text == "tomorrow":
+        return meeting_day + timedelta(days=1)
+    words = text.split()
+    if len(words) == 2 and words[0] in ("this", "next") and words[1] in _WEEKDAYS:
+        weekday = _WEEKDAYS[words[1]]
+        if words[0] == "next":
+            monday = meeting_day - timedelta(days=meeting_day.weekday()) + timedelta(days=7)
+            return monday + timedelta(days=weekday)
+        text = words[1]
+    if text in _WEEKDAYS:
+        ahead = (_WEEKDAYS[text] - meeting_day.weekday()) % 7 or 7
+        return meeting_day + timedelta(days=ahead)
+    if text in ("this week", "end of week", "eow"):
+        friday = _friday_of_week(meeting_day)
+        return friday if friday >= meeting_day else friday + timedelta(days=7)
+    if text in ("next week", "end of next week"):
+        return _friday_of_week(meeting_day) + timedelta(days=7)
+    if text in ("this month", "end of month", "eom"):
+        return _month_end(meeting_day.year, meeting_day.month)
+    if text == "next month":
+        year, month = meeting_day.year + meeting_day.month // 12, meeting_day.month % 12 + 1
+        return _month_end(year, month)
+    # "Oct 15", "15 Oct", "October 15th": a bare month-and-day date, nothing else.
+    if not re.search(r"\d", text):
+        return None
+    found, rest = parse_date_phrase(text, meeting_day)
+    if found is None or rest.strip():
+        return None
+    if re.search(r"(?<!\d)(?:19|2\d)\d\d(?!\d)", text):
+        return found
+    for year in range(meeting_day.year, meeting_day.year + 5):
+        try:
+            candidate = date(year, found.month, found.day)
+        except ValueError:
+            continue
+        if candidate >= meeting_day:
+            return candidate
+    return None

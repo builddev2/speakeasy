@@ -76,6 +76,15 @@ def test_is_mine(owner, expected):
     assert ai.is_mine(owner, identity) is expected
 
 
+@pytest.mark.parametrize("identity", [None, {"name": "", "aliases": []}, {"name": "Jason Chiu", "aliases": ["JC"]}])
+@pytest.mark.parametrize("owner, expected", [
+    ("You", True), ("me", True), ("Myself", True), ("Siam & you", True),
+    ("Young", False), ("Yousef", False), ("Mention", False), ("", False),
+])
+def test_is_mine_self_words(owner, expected, identity):
+    assert ai.is_mine(owner, identity) is expected
+
+
 def test_is_mine_without_name_is_false():
     assert ai.is_mine("Jason", {"name": "", "aliases": ["Jason"]}) is False
 
@@ -128,3 +137,65 @@ def test_similar_is_zero_when_either_side_is_only_filler():
     assert ai.similar("the", "to") == 0.0
     assert ai.similar("the", "Send budget") == 0.0
     assert ai.similar("", "") == 0.0
+
+
+@pytest.mark.parametrize("owner, expected", [
+    ("me", "Jason"), ("You", "Jason"), ("MINE", "Jason"), ("myself", "Jason"),
+    ("Jason & me", "Jason"), ("me & Jason", "Jason"), ("Refayet & me", "Refayet & Jason"),
+    ("me, Bala", "Jason, Bala"), ("Bala and you", "Bala and Jason"), ("me & myself", "Jason"),
+    ("Jason Li", "Jason Li"), ("Young", "Young"), ("Priya", "Priya"), ("", ""),
+])
+def test_normalize_owner(owner, expected):
+    assert ai.normalize_owner(owner, {"name": "Jason", "aliases": []}) == expected
+
+
+@pytest.mark.parametrize("identity", [None, {"name": "", "aliases": []}])
+def test_normalize_owner_without_name_is_unchanged(identity):
+    assert ai.normalize_owner("Refayet & me", identity) == "Refayet & me"
+
+
+def test_normalize_owner_too_long_returns_original():
+    name = "J" * 80
+    assert ai.normalize_owner("Bala & me", {"name": name, "aliases": []}) == "Bala & me"
+
+
+def test_mine_is_a_self_word():
+    assert ai.is_mine("Mine", None) is True
+
+
+def test_normalize_owner_dedupes_against_aliases():
+    identity = {"name": "Jason", "aliases": ["Jase"]}
+    assert ai.normalize_owner("Jase & me", identity) == "Jase"
+    assert ai.normalize_owner("me, JASE, Bala", identity) == "JASE, Bala"
+
+
+@pytest.mark.parametrize("phrase,meeting,expected", [
+    ("today", "2026-09-30", "2026-09-30"), ("EOD", "2026-09-30", "2026-09-30"),
+    ("end of day", "2026-09-30", "2026-09-30"), ("tomorrow", "2026-09-30", "2026-10-01"),
+    ("Friday", "2026-09-30", "2026-10-02"), ("by Fri", "2026-09-30", "2026-10-02"),
+    ("(Fri)", "2026-09-30", "2026-10-02"), ("on Tuesday", "2026-09-30", "2026-10-06"),
+    ("Friday", "2026-10-02", "2026-10-09"),
+    ("this week", "2026-09-30", "2026-10-02"), ("end of week", "2026-09-30", "2026-10-02"),
+    ("end of the week", "2026-09-30", "2026-10-02"), ("EOW", "2026-09-30", "2026-10-02"),
+    ("this week", "2026-10-03", "2026-10-09"), ("this week", "2026-10-04", "2026-10-09"),
+    ("next week", "2026-09-30", "2026-10-09"),
+    ("this month", "2026-09-15", "2026-09-30"), ("end of month", "2026-09-15", "2026-09-30"),
+    ("end of the month", "2026-09-15", "2026-09-30"), ("EOM", "2026-09-15", "2026-09-30"),
+    ("next month", "2026-09-15", "2026-10-31"), ("next month", "2026-12-10", "2027-01-31"),
+    ("end of month", "2028-02-10", "2028-02-29"), ("next month", "2028-01-10", "2028-02-29"),
+    ("2026-10-15", "2026-09-30", "2026-10-15"), ("Oct 15", "2026-09-30", "2026-10-15"),
+    ("15 Oct", "2026-09-30", "2026-10-15"), ("October 15th", "2026-09-30", "2026-10-15"),
+    ("Oct 15", "2026-11-01", "2027-10-15"), ("by the 15 Oct.", "2026-09-30", "2026-10-15"),
+    ("Oct 15, 2025", "2026-09-30", "2025-10-15"), ("Oct 15 2027", "2026-09-30", "2027-10-15"),
+    ("yesterday", "2026-09-30", None), ("Oct", "2026-09-30", None),
+    ("this Friday", "2026-09-30", "2026-10-02"), ("next Friday", "2026-09-30", "2026-10-09"),
+    ("next Monday", "2026-09-30", "2026-10-05"), ("next Wed", "2026-09-30", "2026-10-07"),
+    ("this Tuesday", "2026-09-30", "2026-10-06"), ("next Friday", "2026-10-04", "2026-10-09"),
+    ("end of next week", "2026-09-30", "2026-10-09"),
+    ("end-of-month", "2026-09-15", "2026-09-30"), ("end-of-week", "2026-09-30", "2026-10-02"),
+    ("soon", "2026-09-30", None), ("", "2026-09-30", None), ("Friday afternoon", "2026-09-30", None),
+])
+def test_resolve_due_phrase(phrase, meeting, expected):
+    from datetime import date
+    out = ai.resolve_due_phrase(phrase, date.fromisoformat(meeting))
+    assert out == (date.fromisoformat(expected) if expected else None)

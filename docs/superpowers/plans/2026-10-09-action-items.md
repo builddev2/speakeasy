@@ -2961,7 +2961,36 @@ Take one screenshot for the report. Stop the dev server.
 
 - Fixed after the final review (`89682a6`): deleting a meeting now refreshes
   the action-items list straight away (`loadActions()` in `onConfirmDelete`).
-- User hand check of the real window (above).
+- User hand check of the real window: all 7 checks passed (2026-10-09).
+- Follow-up fixes from that check (branch `fix/action-items-owner-and-settings`):
+  the user's own items under "Jason", "You" and "Mine" now merge into one owner
+  (owner words you/me/myself count as the user; the row, person list, filter,
+  owner groups and the MCP owner filter use one label); settings sheet spacing
+  (8 px between the name fields and between the library buttons). Opus-reviewed
+  with mutation checks; 1,420 Python and 69 frontend tests pass.
+- Stored-owner normalisation (same branch): with a profile name set, owners
+  "me", "mine", "myself" and "you" are stored as the user's name on every write
+  (save_notes merge, create, update); old rows are rewritten when the name is
+  saved and on the first `actions.list` after launch (user_touched/updated_*
+  left alone, mirror re-synced). Real library: profile name set to "Jason",
+  1 row rewritten ("You" → "Jason"); backup taken first. 1,449 Python and 69
+  frontend tests pass. A later rename (e.g. Jason → Jay) does not rewrite
+  owners already stored as "Jason".
+- The user's person entry now counts exactly the same items as Mine,
+  including shared owners ("Refayet & Jason"); shared rows still show the
+  stored owner. 72 frontend tests pass.
+- Due dates from phrases and MCP guidance (same branch): `resolve_due_phrase`
+  (weekday/this/next weekday, today/tomorrow, this/next week, end of month,
+  next month, explicit dates) and `backfill_due_dates` (untouched summary
+  items only, meeting's local day, idempotent; runs on the first actions.list).
+  `list_action_items` returns `today` and tells Claude how to answer "what
+  should I do today" / "most important". Real library: 22 items got dates
+  (backup first). MCP create/update/done tested on a copy: owner "me" stored
+  as Jason, priority/due/notes saved. 1,501 Python and 72 frontend tests pass.
+- NOT done: re-deriving action items for the 29 meetings of the last 14 days
+  (structured dates and urgent-only priority via save_notes action_items) —
+  blocked by the permission check as a bulk change to real data; awaiting the
+  user's decision. Helper script was in the session scratchpad.
 - Deferred minors judged "can wait" by the final review: `similar` edge cases
   now guarded; remaining ones are listed in the SDD ledger, e.g. explicit null
   handling in `update_action_item`, empty Open/Completed export headings,

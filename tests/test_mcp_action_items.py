@@ -58,6 +58,18 @@ def test_list_filters(env):
     assert item["tags"] == ["Budget"] and item["due_source"] == "claude"
 
 
+def test_owner_filter_for_the_user_matches_every_spelling(env):
+    lib, tools = env
+    settings.set_identity(name="Jason", aliases=[])
+    lib.create_action_item(task="A", owner="Jason")
+    lib.create_action_item(task="B", owner="You")
+    lib.create_action_item(task="C", owner="Siam")
+    for who in ("Jason", "you", "Me"):
+        got = run(tools, "list_action_items", owner=who)["items"]
+        assert {i["task"] for i in got} == {"A", "B"}, who
+    assert [i["task"] for i in run(tools, "list_action_items", owner="siam")["items"]] == ["C"]
+
+
 def test_create_update_delete_round_trip(env):
     lib, tools = env
     created = run(tools, "create_action_item", task="Call bank", due="2026-10-20", tags=["Money"])
@@ -92,3 +104,18 @@ def test_pending_summaries_instructions_name_the_user(env):
     _, tools = env
     settings.set_identity(name="Jason", aliases=[])
     assert 'owner "Jason"' in run(tools, "pending_summaries")["instructions"]
+
+
+def test_list_action_items_reports_today_and_guidance(env):
+    from datetime import datetime
+    _, tools = env
+    out = run(tools, "list_action_items")
+    assert out["today"] == datetime.now().astimezone().date().isoformat()
+    desc = tools["list_action_items"].description
+    assert 'To answer "what should I do today"' in desc
+    assert desc.endswith("An item with a due_phrase but no due date had no exact date given.")
+
+
+def test_server_instructions_mention_mine():
+    from speakeasy.mcp_server import INSTRUCTIONS
+    assert "pass mine true" in INSTRUCTIONS and "create_action_item / update_action_item" in INSTRUCTIONS

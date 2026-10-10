@@ -64,6 +64,7 @@
 
 .exportButton {
   margin-top: 18px;
+  margin-right: 8px;
   height: 30px;
   padding: 0 16px;
   border-radius: 8px;
@@ -106,6 +107,7 @@
 .segment:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .fieldRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 400 13px/1.4 var(--sans); color: var(--text-hi); }
+.fieldRow + .fieldRow { margin-top: 8px; }
 .textField {
   flex: 0 1 240px;
   min-width: 0;

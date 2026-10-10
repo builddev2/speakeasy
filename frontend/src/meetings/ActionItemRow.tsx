@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
-import { formatDue } from './actionItems';
+import { formatDue, ownerDisplay } from './actionItems';
 import type { ActionItem, Priority } from './actionItems';
 import styles from './ActionItemRow.module.css';
 
@@ -10,6 +10,7 @@ export type ItemChange = Partial<Pick<ActionItem, 'task' | 'owner' | 'priority' 
 
 interface Props {
   item: ActionItem;
+  userName: string;
   onChange: (change: ItemChange) => Promise<void>;
   onDelete: () => void;
   onOpenMeeting?: (meetingId: string) => void;
@@ -22,7 +23,7 @@ interface Props {
   onToggleExpanded?: () => void;
 }
 
-export function ActionItemRow({ item, onChange, onDelete, onOpenMeeting, showMeeting = true,
+export function ActionItemRow({ item, userName, onChange, onDelete, onOpenMeeting, showMeeting = true,
   selectable = false, selected = false, onSelect, expanded, onToggleExpanded }: Props) {
   const [ownOpen, setOwnOpen] = useState(false);
   const open = expanded ?? ownOpen;
@@ -70,7 +71,10 @@ export function ActionItemRow({ item, onChange, onDelete, onOpenMeeting, showMee
           <span className={styles.task}>{item.task}</span>
           <span className={styles.meta}>
             {item.priority !== 'normal' && <span className={`${styles.priority} ${styles[item.priority]}`}>{item.priority}</span>}
-            <span className={styles.owner}>{item.owner || 'Unassigned'}</span>
+            <span className={styles.owner}
+              title={item.owner && item.owner !== ownerDisplay(item, userName) ? item.owner : undefined}>
+              {ownerDisplay(item, userName)}
+            </span>
             {item.due && (
               <span className={styles.due}>
                 {formatDue(item.due)}

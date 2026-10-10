@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import { ActionItemRow } from './ActionItemRow';
 import type { ItemChange } from './ActionItemRow';
-import { DEFAULT_VIEW, effectiveTags, filterItems, groupItems, ownersOf, parseViewState } from './actionItems';
+import { DEFAULT_VIEW, effectiveTags, filterItems, groupItems, ownersOf, parseViewState, resolveOwnerName } from './actionItems';
 import type { ActionItem, GroupBy, OwnerFilter, Priority, SortBy, ViewState } from './actionItems';
 import styles from './ActionItemsView.module.css';
 
@@ -48,16 +48,19 @@ export function ActionItemsView(props: Props) {
   useEffect(() => setSelected((s) => new Set([...s].filter((id) => items.some((i) => i.id === id)))), [items]);
 
   const update = (patch: Partial<ViewState>) => setView((v) => ({ ...v, ...patch }));
-  const visible = useMemo(() => filterItems(items, view, identitySet), [items, view, identitySet]);
-  const groups = useMemo(() => groupItems(visible, view, today), [visible, view, today]);
   const allTags = useMemo(() => [...new Set(items.flatMap(effectiveTags))].sort((a, b) => a.localeCompare(b)), [items]);
-  const owners = useMemo(() => ownersOf(items), [items]);
+  const owners = useMemo(() => ownersOf(items, userName), [items, userName]);
+  const effView = useMemo<ViewState>(() => view.owner.kind === 'person'
+    ? { ...view, owner: { kind: 'person', name: resolveOwnerName(view.owner.name, owners, userName, items) } } : view,
+  [view, owners, userName, items]);
+  const visible = useMemo(() => filterItems(items, effView, identitySet, userName), [items, effView, identitySet, userName]);
+  const groups = useMemo(() => groupItems(visible, view, today, userName), [visible, view, today, userName]);
 
   const isCollapsed = (key: string) => (key === 'done' && view.status === 'all') !== toggled.has(key);
   const toggleGroup = (key: string) => setToggled((t) => { const n = new Set(t); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const filtersActive = view.owner.kind !== 'mine' || view.tags.length > 0 || view.priorities.length > 0
     || view.status !== 'open' || view.query !== '';
-  const ownerName = view.owner.kind === 'person' ? view.owner.name : null;
+  const ownerName = effView.owner.kind === 'person' ? effView.owner.name : null;
   const ownerOptions = ownerName && !owners.includes(ownerName) ? [...owners, ownerName] : owners;
   const toggleTag = (t: string) => update({ tags: view.tags.includes(t) ? view.tags.filter((x) => x !== t) : [...view.tags, t] });
   const togglePriority = (p: Priority) =>
@@ -95,7 +98,7 @@ export function ActionItemsView(props: Props) {
       </div>
 
       <div className={styles.toolbar}>
-        <select className={styles.control} aria-label="Owner" value={ownerValue(view.owner)}
+        <select className={styles.control} aria-label="Owner" value={ownerValue(effView.owner)}
           onChange={(e) => update({ owner: parseOwner(e.target.value) })}>
           <option value="mine">Mine</option>
           <option value="all">Everyone</option>
@@ -206,7 +209,7 @@ export function ActionItemsView(props: Props) {
               {!collapsed && (
                 <ul className={styles.list}>
                   {g.items.map((item) => (
-                    <ActionItemRow key={item.id} item={item}
+                    <ActionItemRow key={item.id} userName={userName} item={item}
                       onChange={(c) => props.onUpdate(item.id, c)}
                       onDelete={() => props.onDelete(item.id)}
                       onOpenMeeting={props.onOpenMeeting}

@@ -104,3 +104,51 @@ def test_bridge_mutations_are_attributed_to_user(env):
     lib.delete_action_item(created["id"], updated_by="claude")
     bridge.actions_restore_payload({"id": created["id"]})
     assert lib.get_action_item(created["id"]).updated_by == "user"
+
+
+def test_saving_user_name_rewrites_self_owners(env):
+    lib, bridge = env
+    item = lib.create_action_item(task="t", owner="You")
+    assert item.owner == "You"
+    bridge.settings_set_payload({"userName": "Jason"})
+    assert lib.get_action_item(item.id).owner == "Jason"
+
+
+def test_first_actions_list_rewrites_existing_self_owners(env):
+    lib, bridge = env
+    item = lib.create_action_item(task="t", owner="me")
+    settings.set_identity(name="Jason", aliases=[])
+    out = bridge.actions_list_payload({})
+    assert out["items"][0]["owner"] == "Jason"
+    assert lib.get_action_item(item.id).owner == "Jason"
+
+
+def test_actions_list_survives_cleanup_failure(env, monkeypatch):
+    lib, bridge = env
+    lib.create_action_item(task="t")
+    monkeypatch.setattr(lib, "normalize_self_owners", lambda: 1 / 0)
+    assert len(bridge.actions_list_payload({})["items"]) == 1
+
+
+def test_settings_save_survives_owner_cleanup_failure(env, monkeypatch):
+    lib, bridge = env
+    monkeypatch.setattr(lib, "normalize_self_owners", lambda: 1 / 0)
+    before = bridge.settings_get_payload({})["detectCalls"]
+    out = bridge.settings_set_payload({"userName": "Jason", "detectCalls": not before})
+    assert out["detectCalls"] is (not before)
+    assert settings.get_identity()["name"] == "Jason"
+
+
+def test_first_actions_list_backfills_due_dates(env):
+    lib, bridge = env
+    mid = _meeting(lib, "Sync")
+    lib.save_notes(mid, summary="s", action_items=[{"task": "A", "due_phrase": "by Friday"}])
+    out = bridge.actions_list_payload({})
+    assert out["items"][0]["due"] == "2026-10-02"
+
+
+def test_actions_list_survives_backfill_failure(env, monkeypatch):
+    lib, bridge = env
+    lib.create_action_item(task="t")
+    monkeypatch.setattr(lib, "backfill_due_dates", lambda: 1 / 0)
+    assert len(bridge.actions_list_payload({})["items"]) == 1

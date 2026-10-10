@@ -484,3 +484,15 @@ def test_track_timelines_and_mic_overflows_reach_capture_health(spool_dir):
     assert health["mic_arrival_timeline"] == {"error_ms": 251}
     assert health["system_timeline"] == {"error_ms": 0}
     assert health["system_sample_timeline"] == {"error_ms": 1}
+
+
+def test_system_spool_is_the_mic_spools_stamped_twin(spool_dir):
+    mic = FakeMic(spool_dir / "meeting-20261010-090000-7-mic.wav")
+    mic._path = mic.path
+    system = FakeSystem()
+    recorder = MeetingCaptureRecorder(mic=mic, system=system)
+
+    recorder.start()
+
+    assert system.path == spool_dir / "meeting-20261010-090000-7-system.wav"
+    recorder.stop()

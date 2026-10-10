@@ -539,3 +539,35 @@ def test_spool_names_unique_within_one_second(monkeypatch):
     stamps = {meeting_recorder._spool_stamp() for _ in range(50)}
     assert len(stamps) == 50
     assert all(s.startswith("20261010-090000-") for s in stamps)
+
+
+def test_back_to_back_starts_in_one_second_do_not_truncate_first_spool(
+    spool_dir, fake_stream, monkeypatch
+):
+    from datetime import datetime as real_datetime
+
+    class Frozen(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 10, 10, 9, 0, 0)
+
+    monkeypatch.setattr(meeting_recorder, "datetime", Frozen)
+
+    first = MeetingRecorder()
+    first.start()
+    for _ in range(3):
+        first._on_audio(_block(), 1600, None, None)
+    first_path = first.stop()
+
+    second = MeetingRecorder()
+    second.start()
+    for _ in range(2):
+        second._on_audio(_block(), 1600, None, None)
+    second_path = second.stop()
+
+    assert first_path != second_path
+    assert first_path.exists() and second_path.exists()
+    with wave.open(str(first_path)) as w:
+        assert w.getnframes() == 4800
+    with wave.open(str(second_path)) as w:
+        assert w.getnframes() == 3200

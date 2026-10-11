@@ -111,7 +111,20 @@ contexts are intentionally bounded and single-purpose:
   bounded writer-owned handoff. `_process_meeting` queues behind that job,
   reuses its result, finishes system-track ASR, then performs diarization,
   alignment, and save. A failed/overflowed handoff falls back to the complete
-  spool. Diarization (diarize → speaker merge → voice identification) runs
+  spool. Processing is a FIFO of `MeetingJob`s: each stopped meeting is a
+  snapshot (recording, options, event, timing, pretranscription, its own cancel
+  `Event`, `concurrent_recording`) and the helpers read the job, never engine
+  fields. A new recording may start in READY or MEETING_PROCESSING; live mic
+  pre-transcription is skipped while any job is pending (the mic spool is
+  transcribed after). State derives from `_recording_active` and the `_jobs`
+  deque (recording, else processing if jobs, else idle) and is published, with
+  the hotkey-listener resume decision, only in `_publish_meeting_state()` under
+  `_meeting_lock` (RLock); `_begin_meeting` sets `_recording_active` there
+  before stopping the listener and `_end_meeting` clears it in the block that
+  appends the job. Dictation resumes only when no recording is active and no
+  job is pending. Spool names are `YYYYmmdd-HHMMSS-N` (per-process counter) so
+  a new recording never truncates a queued meeting's audio.
+  `pending_meeting_jobs` is a lock-free read for the UI. Diarization (diarize → speaker merge → voice identification) runs
   in a spawned child process per meeting (`speakeasy/diarization_process.py`,
   `engine.diarization_runner`); the worker job blocks on it, so the pipeline
   stays sequential. The child reads the spool itself and exits, which returns
@@ -169,8 +182,9 @@ contexts are intentionally bounded and single-purpose:
   here (a listen-only tap avoids the TSM main-queue assertion that SIGTRAPs the
   process — this is why pynput was removed; do not reintroduce it). The tap is
   torn down entirely (`_listener.stop()`) for the duration of a meeting —
-  dictation and meeting recording never run concurrently — and rebuilt when
-  `_process_meeting` finishes, in its `finally`.
+  dictation and meeting recording never run concurrently — and rebuilt only
+  when no recording is active and the last pending job has finished (decided in
+  `_publish_meeting_state()`).
 - **`meeting-writer`** (1 thread per meeting, spawned by `MeetingRecorder`) —
   drains a bounded queue fed by the mic callback into the spool WAV. The
   audio callback itself must never touch disk or block; it only
@@ -192,8 +206,10 @@ contexts are intentionally bounded and single-purpose:
   serializes helper start/stop, and its stop is bounded/killed.
 - Meeting cancellation is a polled `threading.Event`
   (`engine._meeting_cancel`), not a thread — `cancel_meeting_processing()`
-  just sets it, and the worker checks it between transcription chunks and
-  pipeline phases. No extra executor needed.
+  just sets the running (head) job's own `cancel` event (as does the pill
+  Discard); queued jobs are untouched and `shutdown()` cancels all of them. The
+  worker checks it between transcription chunks and pipeline phases. No extra
+  executor needed.
 
 The MCP server (`--mcp`) is a separate process with its own short-lived SQLite
 connections. The Meetings window learns of its writes by polling
@@ -226,7 +242,11 @@ scripts/build_app.sh --install           # build AND update /Applications in pla
   recorder / helper / transcriber / diarizer (see `tests/test_recorder.py`,
   `tests/test_coreaudio_guard.py`, `tests/test_meeting_recorder.py`,
   `tests/test_system_audio.py`, `tests/test_engine_meeting.py`, and
-  `tests/test_webbridge.py`). `speakeasy/diarizer.py` imports
+  `tests/test_webbridge.py`). An autouse `silent_sounds` fixture in
+  `tests/conftest.py` disables `afplay`: looped engine tests once spawned
+  hundreds of `afplay` processes and hung the Mac. Never bypass it.
+  Meeting timing records carry `concurrent_recording` (true for jobs pending
+  when a recording began). `speakeasy/diarizer.py` imports
   `sherpa_onnx` lazily inside `__init__` specifically so the module (and
   anything importing it, like `engine.py`) stays importable in tests without
   the dependency installed.
@@ -313,7 +333,15 @@ rebuilds.
 - **Meeting notes (notepad).** Schema v5: `user_notes` (`id` PK, `meeting_id`
   UNIQUE, Markdown, FTS-indexed via `user_notes_fts`; `notes_fts` indexes
   Claude's summaries) and the single-row `note_draft` for the "Recording now"
-  notepad. `MeetingLibrary.save_meeting` adopts a draft whose start is within
+  notepad. Schema v8 adds `parked_notes`: at stop the draft is parked under the
+  recording's start (UTC whole seconds) so the next recording gets a fresh
+  notepad; `set_draft` for a parked start writes the parked row (late
+  autosave); `finish_draft` raises `DraftMismatch` (`draft_mismatch`) for
+  another recording's start. Jobs that end without saving (cancel/failure) and
+  pending jobs at shutdown unpark their notes back into `note_draft` if that
+  slot is empty. Parked notes are user data and are backed up.
+  `MeetingLibrary.save_meeting` adopts the exact-start parked row first, then a
+  draft whose start is within
   meeting start − 10 min .. start + duration, shifting any stamps it has (the
   UI no longer shows or creates note stamps; the data fields remain). Limit
   200,000 characters (`Notes are too long to save`); the editor autosaves

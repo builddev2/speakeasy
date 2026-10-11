@@ -22,9 +22,9 @@ def _v6_with_notes(path, items):
     return mid
 
 
-def test_fresh_library_is_v7_with_tables(library_path):
+def test_fresh_library_is_latest_with_tables(library_path):
     conn = meeting_store.connect(library_path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 7 == meeting_store.SCHEMA_VERSION
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == meeting_store.SCHEMA_VERSION
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"action_items", "action_item_tags"} <= names
 
@@ -52,7 +52,7 @@ def test_migration_is_idempotent_on_reopen(library_path):
     raw.close()
     conn = meeting_store.connect(library_path)
     assert conn.execute("SELECT COUNT(*) FROM action_items").fetchone()[0] == 1
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert conn.execute("PRAGMA user_version").fetchone()[0] >= 7
 
 
 def test_v6_backup_restores_and_imports_items(tmp_path, library_path):
@@ -74,7 +74,7 @@ def test_v6_backup_restores_and_imports_items(tmp_path, library_path):
     conn.close()
     library_backup.restore_library(backup, library_path)
     conn = meeting_store.connect(library_path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert conn.execute("PRAGMA user_version").fetchone()[0] >= 7
     row = conn.execute("SELECT task, owner, due_phrase FROM action_items WHERE meeting_id = ?",
                        (mid,)).fetchone()
     assert tuple(row) == ("Send budget", "Jason", "Fri")

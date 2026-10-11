@@ -13,7 +13,7 @@ from speakeasy.meetings import MeetingSegment
 MASTER = (
     "meetings", "segments", "notes", "user_notes", "note_draft", "tags",
     "meeting_tags", "tag_aliases", "tag_suppressions", "people",
-    "meeting_people", "summary_requests", "action_items", "action_item_tags",
+    "meeting_people", "summary_requests", "action_items", "action_item_tags", "parked_notes",
 )
 
 
@@ -41,6 +41,8 @@ def test_backup_restore_preserves_master_data_and_rebuilds_derived(tmp_path, lib
     source.save_notes(first, summary="Important recap", action_items=["Send it"], tags=["Work"])
     source.set_user_notes(first, "My private note", [])
     source.request_summary(second)
+    source.set_draft("Parked words", [], "2026-09-30T11:00:00Z")
+    assert source.park_draft(datetime(2026, 9, 30, 11, 0, tzinfo=timezone.utc))
     source.set_draft("Unfinished draft", [], "2026-09-30T12:00:00Z")
     conn = meeting_store.connect(library_path)
     try:

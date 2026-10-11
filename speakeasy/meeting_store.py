@@ -28,7 +28,7 @@ from pathlib import Path
 from . import library_lease, settings
 from .tag_names import tag_slug
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _TOKENIZE = "tokenize='porter unicode61 remove_diacritics 2'"
 
@@ -393,9 +393,24 @@ def _import_legacy_action_items(conn: sqlite3.Connection) -> None:
             position += 1
 
 
+# v8: notes parked at stop under their recording's start, so a recording
+# that starts while the previous meeting is still processing gets a clean
+# draft slot (spec 2026-10-10-back-to-back-meetings-design.md §3).
+_SCHEMA_V8 = """
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS parked_notes (
+    started_at TEXT PRIMARY KEY,
+    markdown TEXT NOT NULL,
+    stamps_json TEXT NOT NULL DEFAULT '[]',
+    parked_at TEXT NOT NULL
+);
+PRAGMA user_version = 8;
+COMMIT;
+"""
+
 _MIGRATIONS = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _migrate_v3),
                (4, _SCHEMA_V4), (5, _SCHEMA_V5), (6, _SCHEMA_V6),
-               (7, _migrate_v7)]
+               (7, _migrate_v7), (8, _SCHEMA_V8)]
 
 _WAL_RETRY_BUDGET_SECONDS = 5.0
 _WAL_RETRY_INTERVAL_SECONDS = 0.05

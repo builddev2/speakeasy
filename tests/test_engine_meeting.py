@@ -2136,3 +2136,17 @@ def test_job_finishing_inside_the_end_meeting_handoff_never_rearms_hotkey(
     assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
     assert State.READY not in states[:-1] and states[-1] is State.READY
     engine.shutdown()
+
+
+def test_end_meeting_parks_that_recordings_draft(meetings_dir, spool_dir):
+    from speakeasy.meeting_library import utc_iso
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.library.set_draft("A notes", [], utc_iso(engine._meeting_started_at))
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    assert engine.library.get_draft() is None
+    runner.gate.set()
+    assert _wait_for(lambda: saved)
+    assert MeetingLibrary().get_user_notes(saved[0]).markdown == "A notes"
+    engine.shutdown()

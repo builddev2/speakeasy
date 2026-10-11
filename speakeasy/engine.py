@@ -1058,6 +1058,13 @@ class DictationEngine:
             job = self._new_job(recording, timing, pretranscription)
             self._recording_active = False
         self._publish_meeting_state()
+        if recording.started_at is not None:
+            # Outside the lock: database I/O. Before submit: the job must not
+            # be able to save before its notes are parked.
+            try:
+                self.library.park_draft(recording.started_at)
+            except (sqlite3.Error, OSError):
+                print("  → notes_park_failed")
         timing.capture_mode = recording.capture_mode
         timing.start("backlog")
         self.on_meeting_progress("Finishing captured audio…")

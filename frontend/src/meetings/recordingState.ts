@@ -12,3 +12,23 @@ export function trackRecording(info: RecordingInfo, firstSeen: string | null, no
   const seen = firstSeen ?? nowIso;
   return { active: true, startedAt: info.startedAt ?? seen, firstSeen: seen };
 }
+
+/** A saved meeting takes the open recording notes only if they were typed for it. */
+export function shouldHandOverNotes(
+  recordingView: boolean, savedStartedAt: string | null | undefined, recordingStartedAt: string | null,
+): boolean {
+  if (!recordingView) return false;
+  if (!savedStartedAt || !recordingStartedAt) return true;
+  return Date.parse(savedStartedAt) === Date.parse(recordingStartedAt);
+}
+
+/** Earlier meetings may still be processing; only a live recording blocks a new one. */
+export function canStartRecording(info: RecordingInfo): boolean {
+  return !info.recording;
+}
+
+export function processingNote(info: RecordingInfo): string | null {
+  const n = info.pendingProcessing ?? 0;
+  if (!info.recording || n < 1) return null;
+  return n === 1 ? 'Processing 1 earlier meeting' : `Processing ${n} earlier meetings`;
+}

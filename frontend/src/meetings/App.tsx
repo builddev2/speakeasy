@@ -22,7 +22,7 @@ import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
 import { RecordingNotes } from './RecordingNotes';
 import { draftApi } from './draftApi';
-import { trackRecording } from './recordingState';
+import { shouldHandOverNotes, trackRecording } from './recordingState';
 import { localIsoDate } from './listSections';
 import { navigationAction } from './navigation';
 import type { Navigation } from './navigation';
@@ -76,6 +76,7 @@ type MockState =
   | 'today-denied'
   | 'today-unconnected'
   | 'today-recording'
+  | 'today-recording-processing'
   | 'today-micfailed'
   | 'connect-claude'
   | 'settings'
@@ -98,6 +99,7 @@ const KNOWN_STATES: MockState[] = [
   'today-denied',
   'today-unconnected',
   'today-recording',
+  'today-recording-processing',
   'today-micfailed',
   'connect-claude',
   'settings',
@@ -107,7 +109,7 @@ const KNOWN_STATES: MockState[] = [
   'actions',
 ];
 
-const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected', 'today-recording', 'today-micfailed'];
+const TODAY_STATES: MockState[] = ['today', 'today-denied', 'today-unconnected', 'today-recording', 'today-recording-processing', 'today-micfailed'];
 
 function readMockState(): MockState {
   const raw = new URLSearchParams(window.location.search).get('state');
@@ -158,11 +160,11 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(mockState === 'delete');
-  const mockRecording = isMock && (mockState === 'recording' || mockState === 'recording-leftover' || mockState === 'today-recording');
+  const mockRecording = isMock && (mockState === 'recording' || mockState === 'recording-leftover' || mockState === 'today-recording' || mockState === 'today-recording-processing');
   const [today, setToday] = useState(TODAY_STATES.includes(mockState));
   const [recording, setRecording] = useState<RecordingInfo>(() =>
     mockRecording
-      ? { recording: true, processing: false, startedAt: new Date(Date.now() - 12 * 60_000).toISOString(), title: mockState === 'today-recording' ? 'Design Sync' : null, mode: 'meeting_recording' }
+      ? { recording: true, processing: false, startedAt: new Date(Date.now() - 12 * 60_000).toISOString(), title: mockState.startsWith('today-recording') ? 'Design Sync' : null, mode: 'meeting_recording', pendingProcessing: mockState === 'today-recording-processing' ? 1 : 0 }
       : isMock && mockState === 'today-micfailed'
         ? { ...IDLE_RECORDING, mode: 'mic_failed', micFailure: 'device_unavailable' }
         : IDLE_RECORDING,
@@ -171,7 +173,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [recordingStartedAt, setRecordingStartedAt] = useState<string | null>(
     () => (mockRecording ? new Date(Date.now() - 12 * 60_000).toISOString() : null),
   );
-  const [recordingView, setRecordingView] = useState(mockRecording && mockState !== 'today-recording');
+  const [recordingView, setRecordingView] = useState(mockRecording && !mockState.startsWith('today-recording'));
   const [forcedNotesId, setForcedNotesId] = useState<string | null>(null);
   const [forcedSummaryId, setForcedSummaryId] = useState<string | null>(null);
   const [actionsView, setActionsView] = useState(mockState === 'actions');
@@ -209,7 +211,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   });
   // While the mock records, the Design Sync row is the one being recorded.
   const mockAgenda = useMemo(
-    () => (mockState === 'today-recording'
+    () => (mockState.startsWith('today-recording')
       ? MOCK_AGENDA.map((e) => (e.key === 'a3' ? { ...e, status: 'recording' as const } : e))
       : MOCK_AGENDA),
     [mockState],
@@ -301,8 +303,12 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }, [recordingView, recordingActive]);
 
   // A saved meeting while the draft is open: hand the notes over and open it on Notes.
-  function onMeetingSaved(id: string) {
-    if (!recordingViewRef.current) return; // save_meeting already adopted the draft
+  function onMeetingSaved(id: string, savedStartedAt?: string | null) {
+    if (!shouldHandOverNotes(recordingViewRef.current, savedStartedAt, recordingStartedAtRef.current)) {
+      if (embedded) void refreshList(filterParams(filterRef.current), true);
+      return; // another recording's notes are open, or save_meeting already adopted them
+    }
+    let mismatch = false;
     const startedAt = recordingStartedAtRef.current;
     const open = () => {
       setRecordingView(false);
@@ -318,16 +324,22 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         return draftApi.finish({ id, ...value, startedAt })
           .then(() => { if (!embedded) void onSaveNotes(id, value); });
       })
-      .catch((err) => console.error('notes.draft.finish failed', err))
-      .finally(open);
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'draft_mismatch') mismatch = true;
+        else console.error('notes.draft.finish failed', err);
+      })
+      .finally(() => {
+        if (mismatch) { if (embedded) void refreshList(filterParams(filterRef.current), true); return; }
+        open();
+      });
   }
   const onMeetingSavedRef = useRef(onMeetingSaved);
   onMeetingSavedRef.current = onMeetingSaved;
   useEffect(() => {
     if (!embedded) return;
     return bridge.on('meetings.saved', (payload) => {
-      const id = (payload as { id?: string } | null)?.id;
-      if (id) onMeetingSavedRef.current(id);
+      const p = payload as { id?: string; startedAt?: string | null } | null;
+      if (p?.id) onMeetingSavedRef.current(p.id, p.startedAt);
     });
   }, [embedded]);
 
@@ -1287,7 +1299,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           </Sidebar>
 
           {restoring ? <div /> : recordingView && recordingStartedAt ? (
-            <RecordingNotes info={recording} startedAt={recordingStartedAt} editorRef={editorRef} flushNotesRef={flushNotesRef} />
+            <RecordingNotes key={recordingStartedAt ?? ''} info={recording} startedAt={recordingStartedAt} editorRef={editorRef} flushNotesRef={flushNotesRef} />
           ) : actionsView ? (
             <ActionItemsView
               items={actionItems}

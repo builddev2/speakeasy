@@ -511,6 +511,7 @@ class MeetingLibrary:
         if parked is not None:
             stamps = [tuple(s) for s in json.loads(parked["stamps_json"])]
             self._write_user_notes(conn, meeting_id, parked["markdown"], stamps)
+            conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (key,))
             return
         row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
         if row is None:

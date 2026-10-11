@@ -99,7 +99,8 @@ class PillController(NSObject):
 
     def savedExpired_(self, timer):
         self._saved_timer = None
-        self.machine.expire_saved()
+        self.machine.expire_saved(
+            still_processing=self.engine.state.value == "meeting_processing")
         self._render()
 
     # -- buttons ---------------------------------------------------------
@@ -217,7 +218,8 @@ class PillController(NSObject):
         event = getattr(self.engine, "meeting_event", None)
         title = getattr(event, "title", None) if event else None
         view = pill_view(self.machine, title=title, elapsed=rec["elapsed"], health=health,
-                         capture_mode=rec["capture_mode"], progress=self._progress)
+                         capture_mode=rec["capture_mode"], progress=self._progress,
+                         pending=int(getattr(self.engine, "pending_meeting_jobs", 1) or 1))
         self.panel.render(view)
         if not self._shown:
             self.panel.show(self._origin())

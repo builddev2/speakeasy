@@ -112,6 +112,8 @@ class PillMachine:
                 self.phase = "hidden"
 
     def on_saved(self, meeting_id: str):
+        if self.phase == "recording":
+            return
         self.phase, self.saved_id = "saved", meeting_id
 
     def cancel(self):
@@ -126,9 +128,10 @@ class PillMachine:
         if self.phase == "confirm_discard":
             self.phase = "cancelling"
 
-    def expire_saved(self):
+    def expire_saved(self, still_processing=False):
         if self.phase == "saved":
-            self.phase, self.saved_id = "hidden", None
+            self.phase = "processing" if still_processing else "hidden"
+            self.saved_id = None
 
     def close(self):
         if self.phase in ("failed", "saved"):
@@ -140,13 +143,15 @@ _BUTTONS = {"recording": ("notes", "stop"), "processing": ("notes", "cancel"),
             "saved": ("open",), "failed": ("open_meetings", "close"), "hidden": ()}
 
 
-def pill_view(machine, *, title, elapsed, health, capture_mode, progress) -> PillView:
+def pill_view(machine, *, title, elapsed, health, capture_mode, progress,
+              pending=1) -> PillView:
     phase = machine.phase
     if phase == "recording":
         return PillView(phase, title or UNTITLED, format_timer(elapsed),
                         audio_indicator(health, capture_mode, elapsed), _BUTTONS[phase])
     texts = {"processing": ("Processing", progress or ""),
-             "confirm_discard": ("Discard meeting?", ""),
+             "confirm_discard": ("Discard meeting?",
+                                 f"{pending - 1} more will still be saved" if pending > 1 else ""),
              "cancelling": ("Cancelling…", ""),
              "saved": ("Saved", ""), "failed": ("Couldn't finish", ""), "hidden": ("", "")}
     head, detail = texts[phase]

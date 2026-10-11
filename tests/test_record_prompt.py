@@ -389,3 +389,18 @@ def test_calendar_disabled_drops_only_calendar_offers_and_marks_nothing():
     c.banner = Offer("call", (), T0)
     c.calendar_disabled()
     assert c.banner is not None
+
+
+def test_calendar_offer_shows_while_previous_meeting_processes():
+    c = coord("meeting_processing")
+    c.calendar_tick([ev("next", start=at(1))], at(0), offer_enabled=True)
+    assert isinstance(c.banner, rp.Offer)
+
+
+def test_processing_does_not_close_an_open_offer():
+    c = coord("ready")
+    c.calendar_tick([ev("next", start=at(1))], at(0), offer_enabled=True)
+    c.engine_state("meeting_processing")
+    assert isinstance(c.banner, rp.Offer)
+    c.engine_state("meeting_recording")
+    assert c.banner is None

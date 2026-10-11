@@ -176,3 +176,25 @@ def test_confirmed_discard_with_cleanup_failure_stays_hidden():
     machine = m(("on_state", "meeting_processing", None), ("cancel",), ("discard",),
                 ("on_state", "ready", "cleanup_failed"))
     assert machine.phase == "hidden"
+
+
+def test_saved_is_ignored_while_recording():
+    machine = m(("on_state", "meeting_recording", None), ("on_saved", "m-a"))
+    assert machine.phase == "recording" and machine.saved_id is None
+
+
+def test_saved_expiry_returns_to_processing_when_more_queued():
+    machine = m(("on_state", "meeting_processing", None), ("on_saved", "m-a"))
+    machine.expire_saved(still_processing=True)
+    assert machine.phase == "processing"
+    machine.on_saved("m-b")
+    machine.expire_saved(still_processing=False)
+    assert machine.phase == "hidden"
+
+
+def test_confirm_detail_mentions_queued_meetings():
+    machine = m(("on_state", "meeting_processing", None), ("cancel",))
+    view = pill_view(machine, title=None, elapsed=0, health=None, capture_mode="", progress=None, pending=3)
+    assert (view.title, view.detail) == ("Discard meeting?", "2 more will still be saved")
+    view1 = pill_view(machine, title=None, elapsed=0, health=None, capture_mode="", progress=None, pending=1)
+    assert view1.detail == ""

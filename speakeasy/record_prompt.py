@@ -93,7 +93,7 @@ class RecordPromptCoordinator:
             self._ended_dismissed = False
             if isinstance(self.banner, CallEnded):
                 self.banner = None
-        if state in (RECORDING, PROCESSING) and isinstance(self.banner, Offer):
+        if state == RECORDING and isinstance(self.banner, Offer):
             self._close_offer()   # started by hand (menu, pill, Today view)
         self._state = state
 
@@ -103,7 +103,7 @@ class RecordPromptCoordinator:
             if isinstance(self.banner, Offer) and self.banner.kind == "calendar":
                 self.banner = None
             return
-        if self._state != READY or self.banner is not None:
+        if self._state not in (READY, PROCESSING) or self.banner is not None:
             return
         candidates = _with_people(calendar_match.prompt_candidates(events, now, self.prompted))
         if candidates:
@@ -134,7 +134,7 @@ class RecordPromptCoordinator:
         if isinstance(self.banner, Offer) and self.banner.kind == "call" and call_over:
             self.banner = None   # the call ended before anyone answered
             return
-        if (self._state != READY or self.banner is not None or self._call_offered
+        if (self._state not in (READY, PROCESSING) or self.banner is not None or self._call_offered
                 or self._using_since is None or now - self._using_since < CALL_START):
             return
         self._call_offered = True

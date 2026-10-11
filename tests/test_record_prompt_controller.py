@@ -165,7 +165,7 @@ def test_probe_wanted_follows_setting_and_state(monkeypatch):
     c, _, _, _ = make(monkeypatch, engine)
     assert c.probe_wanted is True
     c.engineStateChanged_("meeting_processing")
-    assert c.probe_wanted is False
+    assert c.probe_wanted is True
     c.engineStateChanged_("meeting_recording")
     assert c.probe_wanted is True
     settings.set_meeting_settings(detect_calls=False)

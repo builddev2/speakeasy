@@ -18,6 +18,7 @@ class Engine:
         self.last_dictation_text = ""
         self.last_dictation_heard = ""
         self.can_train = False
+        self.pending_meeting_jobs = 0
         self.meeting_event = None
         self.last_insertion_outcome = None
         self.meeting_processing_error = None

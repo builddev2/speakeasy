@@ -20,7 +20,7 @@ TICK_SECONDS = 30.0
 # Wide enough for both prompt_candidates (start −2…+5 min) and pick_event
 # (start −10 min … end).
 _EVENT_WINDOW = timedelta(minutes=15)
-_PROBED_STATES = {"ready", "meeting_recording"}
+_PROBED_STATES = {"ready", "meeting_recording", "meeting_processing"}
 _OFF_TITLES = {"calendar": "Turn off calendar prompts", "call": "Turn off call prompts"}
 _OFF_NOTICES = {"calendar": "Calendar prompts are off", "call": "Call prompts are off"}
 NOTICE_HINT = "Turn back on in Meetings › Settings"
@@ -162,8 +162,8 @@ class RecordPromptController(NSObject):
 
     @objc.python_method
     def _engine_ready(self):
-        # begin_meeting does nothing unless READY; don't claim "Recording".
-        return self.engine.state.value == "ready"
+        # begin_meeting is refused while recording; don't claim "Recording".
+        return self.engine.state.value in ("ready", "meeting_processing")
 
     @objc.python_method
     def _record(self, index):

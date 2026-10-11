@@ -137,6 +137,7 @@ class DictationEngine:
         self._meeting_lock = threading.RLock()
         self.meeting_start_error = None
         self.meeting_processing_error = None
+        self._processing_error_unseen = False
         self._meeting_options = MeetingOptions()
         # The calendar event this recording belongs to (cached copy). UI
         # threads read it; it is only ever replaced whole, never mutated.
@@ -246,7 +247,11 @@ class DictationEngine:
                 self.meeting_event = None
                 if not self._user_paused and not self._shutting_down:
                     self._listener.resume()
-            self._set_state(self._meeting_state())
+            new_state = self._meeting_state()
+            self._set_state(new_state)
+            if new_state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING):
+                # Idle published: the UI has had its chance to show the error.
+                self._processing_error_unseen = False
 
     def resume(self) -> None:
         if self._library_maintenance:
@@ -304,6 +309,8 @@ class DictationEngine:
         target_future = getattr(self, "_target_future", None)
         if target_future is not None:
             target_future.cancel()
+        # wait=False still runs queued jobs; harmless: every job's cancel is
+        # set above and each job's finally deletes its spools.
         self.worker.shutdown(wait=False)
         self.control.shutdown(wait=False)
 
@@ -1218,7 +1225,9 @@ class DictationEngine:
         no matter how this exits — audio is never persisted."""
         recording, timing, pretranscription = job.recording, job.timing, job.pretranscription
         cancel = job.cancel
-        self.meeting_processing_error = None
+        # An earlier job's error stays until it was published in an idle state.
+        if not self._processing_error_unseen:
+            self.meeting_processing_error = None
 
         def report_progress(text):
             if cancel.is_set():
@@ -1479,6 +1488,7 @@ class DictationEngine:
                 )
             print(type(error).__name__, file=sys.stderr)
             self.meeting_processing_error = "processing_failed"
+            self._processing_error_unseen = True
         finally:
             if status != "success":
                 self._unpark_notes(job)
@@ -1487,6 +1497,7 @@ class DictationEngine:
                     path.unlink(missing_ok=True)
                 except OSError:
                     self.meeting_processing_error = "cleanup_failed"
+                    self._processing_error_unseen = True
                     status = "error"
                 finally:
                     meeting_recorder.release_spool(path)

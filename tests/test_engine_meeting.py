@@ -2232,3 +2232,31 @@ def test_park_failure_does_not_block_processing(meetings_dir, spool_dir):
     engine.end_meeting()
     assert _wait_for(lambda: saved)
     engine.shutdown()
+
+
+def test_earlier_jobs_error_survives_later_job_until_published_idle(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    runner.gate.set()
+    release_a = threading.Event()
+    calls = []
+
+    class FailFirst(FakeTranscriber):
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            calls.append(1)
+            if len(calls) == 1:
+                release_a.wait(timeout=5.0)
+                raise RuntimeError("boom")
+            return super().transcribe_long(audio, progress=progress, cancel=cancel)
+
+    engine.transcriber = FailFirst()
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(calls) == 1)             # A is transcribing
+    _start(engine)                                        # B records
+    release_a.set()                                       # A fails while B records
+    assert _wait_for(lambda: engine.meeting_processing_error == "processing_failed")
+    assert engine.state is State.MEETING_RECORDING
+    engine.end_meeting()                                  # B's job starts
+    assert _wait_for(lambda: len(saved) == 1 and engine.state is State.READY)
+    assert engine.meeting_processing_error == "processing_failed"
+    engine.shutdown()

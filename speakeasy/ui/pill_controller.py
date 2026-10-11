@@ -75,7 +75,8 @@ class PillController(NSObject):
     # -- engine callbacks (main thread) ----------------------------------
     def engineStateChanged_(self, value):
         was = self.machine.phase
-        self.machine.on_state(str(value), self.engine.meeting_processing_error)
+        self.machine.on_state(str(value), self.engine.meeting_processing_error,
+                              pending=getattr(self.engine, "pending_meeting_jobs", None))
         if self.machine.phase == "recording" and was != "recording":
             self._auto_opened = self._drawer_open = False
             self._progress = None
@@ -121,7 +122,7 @@ class PillController(NSObject):
         self._render()
 
     def pillDiscard_(self, sender):
-        self.machine.discard()
+        self.machine.discard(getattr(self.engine, "pending_meeting_jobs", None))
         self.engine.cancel_meeting_processing()
         self._render()
 

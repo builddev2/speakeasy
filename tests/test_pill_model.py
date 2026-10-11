@@ -198,3 +198,44 @@ def test_confirm_detail_mentions_queued_meetings():
     assert (view.title, view.detail) == ("Discard meeting?", "2 more will still be saved")
     view1 = pill_view(machine, title=None, elapsed=0, health=None, capture_mode="", progress=None, pending=1)
     assert view1.detail == ""
+
+
+def _cancelling(pending):
+    machine = m(("on_state", "meeting_processing", None), ("cancel",))
+    machine.discard(pending)
+    assert machine.phase == "cancelling"
+    return machine
+
+
+def test_cancelling_returns_to_processing_when_queued_job_starts():
+    machine = _cancelling(2)
+    machine.on_state("meeting_processing", None, pending=1)
+    assert machine.phase == "processing"
+    assert machine.cancel_pending is None
+
+
+def test_cancelling_persists_while_pending_unchanged():
+    machine = _cancelling(2)
+    machine.on_state("meeting_processing", None, pending=2)
+    assert machine.phase == "cancelling"
+    machine.on_state("meeting_processing", None)          # pending unknown
+    assert machine.phase == "cancelling"
+
+
+def test_queued_job_failure_after_discard_is_shown():
+    machine = _cancelling(2)
+    machine.on_state("meeting_processing", None, pending=1)
+    machine.on_state("ready", "processing_failed", pending=0)
+    assert machine.phase == "failed"
+
+
+def test_error_shown_when_discarded_job_was_not_the_one_that_failed():
+    machine = _cancelling(2)
+    machine.on_state("ready", "processing_failed", pending=0)   # no state between
+    assert machine.phase == "failed"
+
+
+def test_sole_discarded_job_still_hides():
+    machine = _cancelling(1)
+    machine.on_state("ready", None, pending=0)
+    assert machine.phase == "hidden"

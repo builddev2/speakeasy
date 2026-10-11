@@ -94,19 +94,29 @@ class PillMachine:
     def __init__(self):
         self.phase = "hidden"
         self.saved_id = None
+        self.cancel_pending = None
 
-    def on_state(self, state: str, processing_error):
+    def on_state(self, state: str, processing_error, pending: int | None = None):
         if state == "paused" and self.phase in ("recording", "processing", "confirm_discard", "cancelling"):
             return
         if state == "meeting_recording":
             self.phase, self.saved_id = "recording", None
         elif state == "meeting_processing":
-            if self.phase not in ("confirm_discard", "cancelling", "saved"):
+            if (self.phase == "cancelling" and pending is not None
+                    and self.cancel_pending is not None
+                    and pending < self.cancel_pending):
+                # The discarded job is gone; a queued job is now running.
+                self.phase, self.cancel_pending = "processing", None
+            elif self.phase not in ("confirm_discard", "cancelling", "saved"):
                 self.phase = "processing"
         elif self.phase in ("processing", "confirm_discard", "cancelling", "recording"):
             if self.saved_id is not None:
                 self.phase = "saved"
-            elif processing_error and self.phase != "cancelling":
+            elif processing_error and (
+                    self.phase != "cancelling"
+                    or (self.cancel_pending or 0) > 1):
+                # Cancelling with other jobs queued: the error is theirs (or
+                # an earlier job's), so show it rather than hide it.
                 self.phase = "failed"
             else:
                 self.phase = "hidden"
@@ -124,9 +134,9 @@ class PillMachine:
         if self.phase == "confirm_discard":
             self.phase = "processing"
 
-    def discard(self):
+    def discard(self, pending: int | None = None):
         if self.phase == "confirm_discard":
-            self.phase = "cancelling"
+            self.phase, self.cancel_pending = "cancelling", pending
 
     def expire_saved(self, still_processing=False):
         if self.phase == "saved":

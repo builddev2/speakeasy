@@ -581,7 +581,6 @@ class StatusItemController(NSObject):
         warning = quit_warning(self.engine.state is State.MEETING_RECORDING,
                                self.engine.pending_meeting_jobs)
         if warning is not None:
-            from AppKit import NSAlert, NSAlertFirstButtonReturn
             alert = NSAlert.alloc().init()
             alert.setMessageText_("Quit and discard unsaved meetings?")
             alert.setInformativeText_(warning)

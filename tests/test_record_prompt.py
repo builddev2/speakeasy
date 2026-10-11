@@ -404,3 +404,23 @@ def test_processing_does_not_close_an_open_offer():
     assert isinstance(c.banner, rp.Offer)
     c.engine_state("meeting_recording")
     assert c.banner is None
+
+
+def test_call_offer_shows_while_previous_meeting_processes():
+    c = coord("meeting_processing")
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    assert c.banner.kind == "call"
+
+
+def test_call_just_recorded_is_not_offered_again_after_stop():
+    c = coord("ready")
+    observe(c, True, at(0))
+    observe(c, True, at(0, 10))
+    assert c.banner.kind == "call"
+    c.record()
+    c.engine_state("meeting_recording")
+    observe(c, True, at(0, 30))
+    c.engine_state("meeting_processing")
+    observe(c, True, at(0, 40))
+    assert c.banner is None

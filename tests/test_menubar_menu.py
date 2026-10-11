@@ -137,3 +137,12 @@ def test_engine_callbacks_tolerate_missing_prompt():
     controller, pill = _Target(), _Target()
     menubar._engine_callbacks(controller, pill, None).on_state_changed(State.READY)
     assert controller.calls and pill.calls
+
+
+def test_start_meeting_enabled_while_processing(ctl):
+    c, engine = ctl
+    engine.state = State.MEETING_PROCESSING
+    engine.pending_meeting_jobs = 1
+    c.engineStateChanged_("meeting_processing")
+    assert c._meeting_item.title() == "Start Meeting"
+    assert c._meeting_item.isEnabled()

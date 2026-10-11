@@ -1780,10 +1780,24 @@ class UniqueSpoolRecorder(FakeMeetingRecorder):
             w.writeframes(np.ones(config.SAMPLE_RATE, dtype=np.int16).tobytes())
 
 
+_OVERLAP_CLEANUP = []
+
+
+@pytest.fixture(autouse=True)
+def _release_overlap_engines():
+    """A failing assertion must not leave gated jobs hanging the run."""
+    yield
+    while _OVERLAP_CLEANUP:
+        engine, runner = _OVERLAP_CLEANUP.pop()
+        runner.gate.set()
+        engine.shutdown()
+
+
 def _overlap_engine(spool_dir):
     engine = _engine(spool_dir)
     engine.meeting_recorder = UniqueSpoolRecorder(spool_dir)
     runner = GatedSpyRunner()
+    _OVERLAP_CLEANUP.append((engine, runner))
     engine.diarization_runner = runner
     saved = []
     engine.on_meeting_saved = saved.append
@@ -1843,10 +1857,14 @@ def test_hotkey_stays_off_until_queue_drains(meetings_dir, spool_dir):
     engine.end_meeting()                                 # A running, B queued
     assert _wait_for(lambda: engine.pending_meeting_jobs == 2)  # end_meeting is async on control
     runner.entered.clear()
+    seen = []
+    engine.on_state_changed = lambda s: seen.append((s, engine._listener.running))
     runner.gate.set()
     assert _wait_for(lambda: len(saved) == 2)
     assert _wait_for(lambda: engine.state is State.READY)
     assert engine._listener.running is True
+    assert all(not r for s, r in seen if s is not State.READY)
+    assert seen[-1] == (State.READY, True)
     engine.shutdown()
 
 
@@ -1857,6 +1875,7 @@ def test_cancel_hits_running_job_only(meetings_dir, spool_dir):
     assert runner.entered.wait(5.0)
     _start(engine)
     engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)   # B queued
     engine.cancel_meeting_processing()                   # cancels A only
     runner.gate.set()
     assert _wait_for(lambda: engine.state is State.READY)
@@ -1946,10 +1965,174 @@ def test_shutdown_with_queued_jobs_cancels_all(meetings_dir, spool_dir, capsys):
     assert runner.entered.wait(5.0)
     _start(engine)
     engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)
     with engine._meeting_lock:
         jobs = list(engine._jobs)
+    assert len(jobs) == 2
     engine.shutdown()
     assert all(job.cancel.is_set() for job in jobs)
     runner.gate.set()
     assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
     capsys.readouterr()
+
+
+def test_no_rearm_after_shutdown_when_queue_drains(meetings_dir, spool_dir, capsys):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    engine.shutdown()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert engine._listener.running is False
+    capsys.readouterr()
+
+
+class HookedListener(SpyListener):
+    def __init__(self):
+        super().__init__()
+        self.on_stop = None
+
+    def stop(self):
+        super().stop()
+        hook, self.on_stop = self.on_stop, None
+        if hook is not None:
+            hook()
+
+
+def _finish_head_job_now(engine, runner):
+    """Release the gated head job; block (on control) until its finally has
+    published. Only the queue-draining publish leaves _jobs empty."""
+    published = threading.Event()
+    original = engine._publish_meeting_state
+
+    def spy():
+        original()
+        with engine._meeting_lock:
+            if not engine._jobs:
+                published.set()
+
+    engine._publish_meeting_state = spy
+
+    def hook():
+        runner.gate.set()
+        assert published.wait(5.0)
+
+    return hook
+
+
+def test_job_finishing_while_recording_starts_never_rearms_hotkey(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    engine._listener = HookedListener()
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    assert _wait_for(lambda: engine.state is State.MEETING_PROCESSING)
+    states.clear()
+    engine._listener.on_stop = _finish_head_job_now(engine, runner)
+    _start(engine)                     # A's finally runs inside B's listener.stop()
+    assert len(saved) == 1
+    assert engine._listener.running is False
+    assert State.READY not in states
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert engine._listener.running is True
+    engine.shutdown()
+
+
+def test_job_finishing_while_recording_stops_never_rearms_hotkey(meetings_dir, spool_dir, monkeypatch):
+    from speakeasy import engine as engine_module
+    engine, runner, saved = _overlap_engine(spool_dir)
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    states.clear()
+    hook = _finish_head_job_now(engine, runner)
+    real_play = engine_module.play_sound
+
+    def play(sound):
+        if sound == config.SOUND_MEETING_END:
+            hook()                     # between B's stop and B's append
+        else:
+            real_play(sound)
+
+    monkeypatch.setattr(engine_module, "play_sound", play)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert State.READY not in states[:-1] and states[-1] is State.READY
+    engine.shutdown()
+
+
+def test_job_finishing_with_another_queued_keeps_recording_state(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)                               # A running
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)    # B queued
+    _start(engine)                                                # C recording
+    seen = []
+    engine.on_state_changed = lambda s: seen.append((s, engine._listener.running))
+    runner.gate.set()
+    assert _wait_for(lambda: len(saved) == 2)
+    time.sleep(0.05)
+    assert seen and all(s is State.MEETING_RECORDING and not r for s, r in seen)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 3 and engine.state is State.READY)
+    engine.shutdown()
+
+
+class _HookedLock:
+    """RLock proxy that runs a one-shot hook just before the next acquire."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.before_acquire = None
+
+    def __enter__(self):
+        hook, self.before_acquire = self.before_acquire, None
+        if hook is not None:
+            hook()
+        return self._inner.__enter__()
+
+    def __exit__(self, *exc):
+        return self._inner.__exit__(*exc)
+
+
+def test_job_finishing_inside_the_end_meeting_handoff_never_rearms_hotkey(
+        meetings_dir, spool_dir, monkeypatch):
+    """The recording->job hand-off must not expose an idle engine: a job
+    finishing right before control takes the lock for the hand-off must see
+    the recording still active (kills clearing _recording_active before the
+    hand-off's lock block)."""
+    from speakeasy import engine as engine_module
+    engine, runner, saved = _overlap_engine(spool_dir)
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    states.clear()
+    hook = _finish_head_job_now(engine, runner)
+    lock = _HookedLock(engine._meeting_lock)
+    engine._meeting_lock = lock
+    real_play = engine_module.play_sound
+
+    def play(sound):
+        if sound == config.SOUND_MEETING_END:
+            lock.before_acquire = hook   # next acquire is the hand-off block
+        else:
+            real_play(sound)
+
+    monkeypatch.setattr(engine_module, "play_sound", play)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert State.READY not in states[:-1] and states[-1] is State.READY
+    engine.shutdown()

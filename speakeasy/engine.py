@@ -1019,7 +1019,7 @@ class DictationEngine:
         if getattr(self.meeting_recorder, "capture_mode", "mic_only") != "mic_and_system":
             play_sound(config.SOUND_MEETING_START)
         self._meeting_started_at = datetime.now().astimezone()
-        self._set_state(State.MEETING_RECORDING)
+        self._publish_meeting_state()
         print("● meeting recording...")
         # Only after capture is running: a busy library can hold a read for
         # up to 5 s, and that must never delay the recording itself.

@@ -401,25 +401,23 @@ def test_gap_fill_queue_full_is_retried_on_the_next_block(spool_dir, fake_stream
     rec = MeetingRecorder()
     rec.start()
     real_queue = rec._queue
+    real_put_nowait = real_queue.put_nowait
+    failed = []
 
-    class FlakyQueue:
-        failed = False
+    # Shadow put_nowait on the real queue instead of swapping rec._queue: the
+    # writer thread re-reads rec._queue and calls get() on it, so a stand-in
+    # object without get() would crash the writer if it woke mid-test.
+    def flaky_put_nowait(item):
+        if isinstance(item, int) and not failed:
+            failed.append(item)
+            raise meeting_recorder.queue.Full
+        real_put_nowait(item)
 
-        def put_nowait(self, item):
-            if isinstance(item, int) and not self.failed:
-                self.failed = True
-                raise meeting_recorder.queue.Full
-            real_queue.put_nowait(item)
-
-        def qsize(self):
-            return real_queue.qsize()
-
-    flaky = FlakyQueue()
     rec._on_audio(_block(), 1600, _Timing(50.0), None)
-    rec._queue = flaky
+    real_queue.put_nowait = flaky_put_nowait
     # Fill hits Full; the block itself is queued normally.
     rec._on_audio(_block(), 1600, _Timing(50.358), None)
-    assert flaky.failed
+    assert failed
     assert rec.gap_fills == 0
     assert rec.gap_fill_ms == 0
     assert rec.elapsed_seconds == pytest.approx(0.2)
@@ -427,7 +425,7 @@ def test_gap_fill_queue_full_is_retried_on_the_next_block(spool_dir, fake_stream
     # frames did not move for the failed fill, so the same 258 ms gap is
     # still owed and is retried here.
     rec._on_audio(_block(), 1600, _Timing(50.458), None)
-    rec._queue = real_queue
+    del real_queue.put_nowait
     path = rec.stop()
 
     assert rec.gap_fills == 1

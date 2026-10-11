@@ -2150,3 +2150,54 @@ def test_end_meeting_parks_that_recordings_draft(meetings_dir, spool_dir):
     assert _wait_for(lambda: saved)
     assert MeetingLibrary().get_user_notes(saved[0]).markdown == "A notes"
     engine.shutdown()
+
+
+def _park_a_notes(engine):
+    from speakeasy.meeting_library import utc_iso
+    engine.library.set_draft("A notes", [], utc_iso(engine._meeting_started_at))
+
+
+def test_cancelled_job_returns_parked_notes_to_the_draft(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    _park_a_notes(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    assert engine.library.get_draft() is None
+    engine.cancel_meeting_processing()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert saved == []
+    assert engine.library.get_draft().markdown == "A notes"
+    engine.shutdown()
+
+
+def test_failed_job_returns_parked_notes_to_the_draft(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    runner.gate.set()
+
+    def boom(_new):
+        raise RuntimeError("disk")
+    engine.library.save_meeting = boom
+    _start(engine)
+    _park_a_notes(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.meeting_processing_error == "processing_failed")
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert engine.library.get_draft().markdown == "A notes"
+    engine.shutdown()
+
+
+def test_shutdown_returns_queued_jobs_parked_notes(meetings_dir, spool_dir):
+    from speakeasy.meeting_library import utc_iso
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)                   # A running
+    _start(engine)
+    engine.library.set_draft("B notes", [], utc_iso(engine._meeting_started_at))
+    engine.end_meeting()                              # B queued behind A, notes parked
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)
+    assert engine.library.get_draft() is None
+    engine.shutdown()
+    assert engine.library.get_draft().markdown == "B notes"

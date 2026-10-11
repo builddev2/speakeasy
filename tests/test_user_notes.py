@@ -216,3 +216,47 @@ def test_window_fallback_still_adopts_unparked_draft():
     lib.set_draft("typed", [], utc_iso(A + timedelta(minutes=5)))
     a_id = lib.save_meeting(_pn(A))
     assert lib.get_user_notes(a_id).markdown == "typed"
+
+
+def test_unpark_returns_notes_to_an_empty_slot():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [(0, 1.0)], utc_iso(A))
+    lib.park_draft(A)
+    assert lib.unpark_draft(A) is True
+    d = lib.get_draft()
+    assert (d.markdown, d.started_at, d.stamps) == ("A notes", utc_iso(A), [(0, 1.0)])
+    lib.set_draft("x", [], utc_iso(A))
+    assert lib.get_draft().markdown == "x"          # no parked row left
+    lib.discard_draft()
+    assert lib.unpark_draft(A) is False
+
+
+def test_unpark_leaves_everything_when_slot_is_occupied():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [], utc_iso(A))
+    lib.park_draft(A)
+    lib.set_draft("B notes", [], utc_iso(B))
+    assert lib.unpark_draft(A) is False
+    assert lib.get_draft().markdown == "B notes"
+    a_id = lib.save_meeting(_pn(A))                   # A is still parked
+    assert lib.get_user_notes(a_id).markdown == "A notes"
+
+
+def test_adopted_parked_row_is_deleted():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [], utc_iso(A))
+    lib.park_draft(A)
+    lib.save_meeting(_pn(A))
+    lib.set_draft("x", [], utc_iso(A))                # no parked row left to catch it
+    assert lib.get_draft().markdown == "x"
+
+
+def test_finish_draft_deletes_the_parked_row(library_path):
+    lib = MeetingLibrary()
+    a_id = lib.save_meeting(_pn(A))
+    lib.set_draft("A notes", [], utc_iso(A))
+    lib.park_draft(A)                                 # parked after the save: no adoption
+    lib.finish_draft(a_id, "final", [], utc_iso(A))
+    assert lib.get_user_notes(a_id).markdown == "final"
+    lib.set_draft("x", [], utc_iso(A))
+    assert lib.get_draft().markdown == "x"            # nothing parked for A any more

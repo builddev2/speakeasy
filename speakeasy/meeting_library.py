@@ -573,6 +573,24 @@ class MeetingLibrary:
             conn.execute("DELETE FROM note_draft WHERE id = 1")
             return True
 
+    def unpark_draft(self, started_at: datetime) -> bool:
+        """Return parked notes to the draft slot when their meeting ended
+        without saving, provided the slot is empty."""
+        key = utc_iso(started_at)
+        with self._transaction() as conn:
+            parked = conn.execute("SELECT * FROM parked_notes WHERE started_at = ?",
+                                  (key,)).fetchone()
+            if parked is None:
+                return False
+            if conn.execute("SELECT 1 FROM note_draft WHERE id = 1").fetchone() is not None:
+                return False
+            conn.execute(
+                "INSERT INTO note_draft (id, markdown, stamps_json, started_at, updated_at)"
+                " VALUES (1, ?, ?, ?, ?)",
+                (parked["markdown"], parked["stamps_json"], key, _now_iso()))
+            conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (key,))
+            return True
+
     def discard_draft(self) -> None:
         with self._transaction() as conn:
             conn.execute("DELETE FROM note_draft WHERE id = 1")
@@ -588,9 +606,7 @@ class MeetingLibrary:
                 raise MeetingNotFound(meeting_id)
             if utc_iso(datetime.fromisoformat(str(started_at))) != m["started_at"]:
                 raise DraftMismatch()
-            shifted = _adopt_stamps(_check_stamps(stamps),
-                                    datetime.fromisoformat(str(started_at)),
-                                    datetime.fromisoformat(m["started_at"]))
+            shifted = _check_stamps(stamps)
             self._touch(conn, meeting_id)
             notes = self._write_user_notes(conn, meeting_id, markdown, shifted)
             conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (m["started_at"],))

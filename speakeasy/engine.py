@@ -290,6 +290,8 @@ class DictationEngine:
             jobs = list(self._jobs)
         for job in jobs:
             job.cancel.set()
+        for job in jobs:
+            self._unpark_notes(job)
         terminate = getattr(self.diarization_runner, "terminate_active", None)
         if terminate is not None:
             terminate()
@@ -1198,6 +1200,17 @@ class DictationEngine:
                         "diarization_failure": failure.reason}
         return turns, {"diarization_status": "ok"}
 
+    def _unpark_notes(self, job: MeetingJob) -> None:
+        """A job that ends without saving returns its notes to the draft slot
+        (if free) so the next notepad offers them. Never logs content."""
+        started_at = job.recording.started_at
+        if started_at is None:
+            return
+        try:
+            self.library.unpark_draft(started_at)
+        except (sqlite3.Error, OSError):
+            print("  → notes_unpark_failed")
+
     def _process_meeting(self, job: MeetingJob) -> None:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
@@ -1466,6 +1479,8 @@ class DictationEngine:
             print(type(error).__name__, file=sys.stderr)
             self.meeting_processing_error = "processing_failed"
         finally:
+            if status != "success":
+                self._unpark_notes(job)
             for path in recording.paths:
                 try:
                     path.unlink(missing_ok=True)

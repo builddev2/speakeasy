@@ -1632,15 +1632,36 @@ def test_progress_during_recording_is_not_status_text(setup):
 
 ## Progress
 
-- [ ] Task 0 — baseline counts: _
-- [ ] Task 1 — spool names
-- [ ] Task 2 — MeetingJob
-- [ ] Task 3 — overlap (Opus-flagged)
-- [ ] Task 4 — parked notes v8
-- [ ] Task 5 — bridge payloads
-- [ ] Task 6 — frontend
-- [ ] Task 7 — menu/pill/banner/quit
-- [ ] Task 8 — docs, review, live eval: _
+- [x] Task 0 — worktree `.worktrees/back-to-back-meetings` (branch `back-to-back-meetings`); baseline 1501 Python / 72 frontend passed
+- [x] Task 1 — spool names (5cc789f..31659ed)
+- [x] Task 2 — MeetingJob (31659ed..3422f9c)
+- [x] Task 3 — overlap (3422f9c..089c58b; + 783193d `silent_sounds` test fixture)
+- [x] Task 4 — parked notes v8, incl. unpark on no-save/shutdown (783193d..55fe382)
+- [x] Task 5 — bridge payloads (55fe382..bf98e9a)
+- [x] Task 6 — frontend (bf98e9a..d44ce59); mock state previewed dark + light
+- [x] Task 7 — menu/pill/banner/quit (d44ce59..42e755b)
+- [ ] Task 8 — Step 1 AGENTS.md (7870f4d) done; Step 2 full suite 1567 passed / frontend 75 done; Step 3 whole-branch review + fix wave (3406cf8) done, re-review clean; Step 4 built and installed (bundle commit 4698539); Step 5 live overlap eval PASSED on 10 Oct 21:17–21:33. Scripted real pipeline in a temp HOME (real mic, system-audio helper on afplay, MLX transcriber, diarization child): A 600 s, then B started 0.55 s after A stopped and ran 300 s. A saved 59.7 s after its stop while B was recording. State stayed MEETING_RECORDING and the hotkey stayed off during B, and re-armed after both saved. Notes: A = its late-autosaved text, B = its own. B capture health: 0 dropped frames (mic and system), 0 overflows, 0 gap fills, no writer lag; both mic_and_system captured, diarization ok. Timing rows: concurrent_recording A=True, B=False (diarization 46.5 s / 22.5 s). Not covered by the script, only by unit tests: the installed app's menu, pill and Meetings page UI (live-eval checklist items 1–7). Step 6 finish branch: pending the user's merge decision.
+
+### Controller rulings made during execution (full list in the final session message)
+
+- `concurrent_recording` is true for every job pending (queued or running) when a recording begins.
+- `_end_meeting` keeps `_recording_active` True through the recorder stop and clears it in the same locked block that appends the job.
+- Parked notes of a job that saves nothing (cancel/failure) or never runs (shutdown) are unparked back into `note_draft` when that slot is empty; park/unpark catch `Exception` (best effort, logged as `notes_park_failed` / `notes_unpark_failed`).
+- `pending_meeting_jobs` is a lock-free read for main-thread UI.
+- `meeting_processing_error` is kept until it has been published in an idle state (refines R3).
+- The pill returns from "Cancelling…" to processing when the pending count drops after a discard.
+- Tests: autouse `silent_sounds` fixture in `tests/conftest.py`. Looped engine tests spawned hundreds of `afplay` processes and hung the Mac twice on 10 Oct.
+
+### Live-eval checklist (Task 8 Step 5, in addition to the plan's pass criteria)
+
+1. Menu status while B records with A queued reads "<recording text> · processing 1 meeting" and is never replaced by A's percentage. When A saves during B, the pill stays on recording and the hotkey stays off.
+2. Pill → Notes within ~1 s of starting B while A processes: the notes land on B.
+3. With B's notepad open, A saves: the page stays on B, and A has only its own notes.
+4. "Cancel Processing" while recording B discards A only.
+5. Pill Discard with 2 jobs shows "1 more will still be saved", and the pill returns to processing for the next job.
+6. Calendar or call banner during processing: Record starts B.
+7. Quit alert copy for: recording only; recording + 1 job; processing only. Cancel keeps the app running.
+8. `Speakeasy-meeting-latency.jsonl`: `concurrent_recording` is true for A and false for B. B's capture health shows 0 dropped frames.
 
 ### TODO / open items
 
@@ -1649,3 +1670,8 @@ def test_progress_during_recording_is_not_status_text(setup):
   this feature.
 - Dictation during background processing stays off by decision D2. Revisit
   only if the user asks.
+- Ask the user: should Dock Quit and logout also show the quit alert (`applicationShouldTerminate_`)? Today they bypass it, which is pre-existing, but with a queue they can discard more.
+- Ask the user: should "Cancel Processing" be retitled, or confirm, while a recording is active? It cancels the earlier meeting, not the recording.
+- Parked notes can get stuck when the draft slot is occupied, and after a crash (no launch-time reaper). The rows are kept in the DB and backups; they are not lost.
+- Pre-existing flaky test `test_gap_fill_queue_full_is_retried_on_the_next_block` (test swaps the queue while the writer runs). Spun off as a separate task.
+- Deferred minors from per-task reviews: see the session's final message. All were triaged "OK to defer" by the whole-branch review.

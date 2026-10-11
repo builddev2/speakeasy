@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgendaEvent, CalendarAccess, RecordingInfo, UpcomingDay } from '../mock/meetings';
 import { ActionButton } from '../components/ActionButton';
+import { canStartRecording, processingNote } from './recordingState';
 import { engineBanner, heroWhen, splitAgenda } from './agendaSplit';
 import { EmptyState } from './EmptyState';
 import { formatTimeRange } from './timeRange';
@@ -82,8 +83,9 @@ export function TodayView({
   onOpenPrivacySettings,
 }: TodayViewProps) {
   const recordingActive = recording.recording || recording.processing;
-  const split = useMemo(() => splitAgenda(agenda, nowMs, recordingActive), [agenda, nowMs, recordingActive]);
+  const split = useMemo(() => splitAgenda(agenda, nowMs, recording.recording), [agenda, nowMs, recording.recording]);
   const banner = engineBanner(recording);
+  const note = processingNote(recording);
   const bannerNode = banner && (
     <div className={styles.banner} role="status">
       <span className={styles.bannerText}>{banner.text}</span>
@@ -97,7 +99,7 @@ export function TodayView({
   const header = (
     <div className={styles.header}>
       <h1 className={styles.title}>Today</h1>
-      {!recordingActive && (
+      {canStartRecording(recording) && (
         <ActionButton variant="strong" onClick={onStartMeeting}>
           Start Meeting
         </ActionButton>
@@ -192,11 +194,12 @@ export function TodayView({
                 <>Processing · {recording.title ?? 'Untitled meeting'}</>
               )}
             </div>
+            {note && <div className={styles.heroNote}>{note}</div>}
           </div>
           <ActionButton onClick={onOpenNotes}>Open notes</ActionButton>
         </div>
       )}
-      {!recordingActive && split.hero && (
+      {!recording.recording && split.hero && (
         <div className={styles.hero}>
           <div className={styles.heroBody}>
             <div className={styles.heroTitle}>{split.hero.title}</div>
@@ -212,8 +215,8 @@ export function TodayView({
           </span>
         </div>
       )}
-      {!recordingActive && !split.hero && nothingToday && <EmptyState title="Nothing on your calendar today." />}
-      {!recordingActive && !split.hero && !nothingToday && <div className={styles.quiet}>Nothing else today</div>}
+      {!recording.recording && !split.hero && nothingToday && <EmptyState title="Nothing on your calendar today." />}
+      {!recording.recording && !split.hero && !nothingToday && <div className={styles.quiet}>Nothing else today</div>}
 
       {(split.next.length > 0 || (showAll && split.more.length > 0)) && (
         <div className={styles.agenda} role="list" aria-label="Today's agenda">

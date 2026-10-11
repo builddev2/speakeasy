@@ -49,7 +49,7 @@ from ..engine import DictationEngine, State
 from ..meeting_options import default_options
 from ..profiles import Profile, list_profiles, load_profiles
 from . import permissions
-from .menu_model import menu_flags
+from .menu_model import menu_flags, processing_suffix, quit_warning, start_enabled
 from .next_up import next_up
 from .next_up_view import NextUpView
 
@@ -288,7 +288,9 @@ class StatusItemController(NSObject):
             h, m = divmod(m, 60)
             clock = f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
             self._meeting_item.setTitle_(f"End Meeting ({clock})")
-            self._status_line.setTitle_(_meeting_status_text(recorder))
+            self._status_line.setTitle_(
+                _meeting_status_text(recorder)
+                + processing_suffix(self.engine.pending_meeting_jobs))
 
     # -- engine state (arrives via performSelectorOnMainThread) ----------
 
@@ -317,7 +319,8 @@ class StatusItemController(NSObject):
             elif self.engine.recorder.state == "device_unavailable":
                 text = "Connect a microphone or select an input, then try again"
         elif state is State.MEETING_RECORDING:
-            text = _meeting_status_text(self.engine.meeting_recorder)
+            text = (_meeting_status_text(self.engine.meeting_recorder)
+                    + processing_suffix(self.engine.pending_meeting_jobs))
         self._status_line.setTitle_(text)
         symbol = _STATE_SYMBOL.get(state)
         self._item.button().setImage_(
@@ -330,7 +333,7 @@ class StatusItemController(NSObject):
             and state is State.READY
         )
         self._sync_meeting_items(state)
-        self._apply_flags(menu_flags(state.value))
+        self._apply_flags(menu_flags(state.value, self.engine.pending_meeting_jobs))
 
     @objc.python_method
     def _sync_meeting_items(self, state):
@@ -343,10 +346,13 @@ class StatusItemController(NSObject):
             self._meeting_item.setEnabled_(True)
         else:
             self._meeting_item.setTitle_("Start Meeting")
-            self._meeting_item.setEnabled_(state is State.READY)
+            self._meeting_item.setEnabled_(start_enabled(state.value))
 
     def meetingProgress_(self, text):
-        # Live "Transcribing meeting… 42%" line from the worker thread.
+        # Live "Transcribing meeting… 42%" line from the worker thread. A
+        # queued job's progress must not replace the live recording status.
+        if self.engine.state is State.MEETING_RECORDING:
+            return
         self._status_line.setTitle_(str(text))
 
     def meetingSaved_(self, meeting_id):
@@ -478,7 +484,7 @@ class StatusItemController(NSObject):
     def menuWillOpen_(self, menu):
         # Must never raise: a library or calendar failure just hides the card.
         try:
-            flags = menu_flags(self.engine.state.value)
+            flags = menu_flags(self.engine.state.value, self.engine.pending_meeting_jobs)
             self._apply_flags(flags)
             card = None
             if flags["next_up"]:
@@ -572,6 +578,17 @@ class StatusItemController(NSObject):
         alert.runModal()
 
     def quitApp_(self, sender):
+        warning = quit_warning(self.engine.state is State.MEETING_RECORDING,
+                               self.engine.pending_meeting_jobs)
+        if warning is not None:
+            alert = NSAlert.alloc().init()
+            alert.setMessageText_("Quit and discard unsaved meetings?")
+            alert.setInformativeText_(warning)
+            alert.addButtonWithTitle_("Quit")
+            alert.addButtonWithTitle_("Cancel")
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            if alert.runModal() != NSAlertFirstButtonReturn:
+                return
         print("\nShutting down.")
         self.engine.shutdown()
         NSApplication.sharedApplication().terminate_(None)

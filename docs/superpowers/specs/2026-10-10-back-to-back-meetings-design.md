@@ -144,9 +144,10 @@ Existing invariants that must hold:
 - Spool deletion and `release_spool` stay in each job's `finally`.
 - The cancel-check points stay the same.
 - The failed-diarization fallback stays the same.
-- If quit happens with queued jobs, `worker.shutdown(wait=False)` never runs
-  them. Their spools are removed by the `atexit` hook (still listed in
-  `_active_spools`) and, failing that, by the launch sweep.
+- If quit happens with queued jobs, `worker.shutdown(wait=False)` still runs
+  them, harmlessly: every job's cancel is set and each job's `finally` deletes
+  its spools. The `atexit` hook (spools still listed in `_active_spools`) and,
+  failing that, the launch sweep are the backstops.
 
 ### 2. Live pre-transcription (D3)
 

@@ -85,6 +85,13 @@ def nonspace_len(text: str) -> int:
     return len(re.sub(r"\s", "", text))
 
 
+class DraftMismatch(ValueError):
+    """The editor's notes belong to a different recording than this meeting."""
+
+    def __init__(self):
+        super().__init__("draft_mismatch")
+
+
 def utc_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -498,6 +505,14 @@ class MeetingLibrary:
     def _adopt_draft(self, conn, meeting_id: str, new: NewMeeting) -> None:
         """Attach the notes typed during this recording (engine.py stays untouched:
         the library is the one place every saved recording passes through)."""
+        key = utc_iso(new.started_at)
+        parked = conn.execute("SELECT * FROM parked_notes WHERE started_at = ?",
+                              (key,)).fetchone()
+        if parked is not None:
+            stamps = [tuple(s) for s in json.loads(parked["stamps_json"])]
+            self._write_user_notes(conn, meeting_id, parked["markdown"], stamps)
+            conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (key,))
+            return
         row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
         if row is None:
             return
@@ -526,6 +541,13 @@ class MeetingLibrary:
         drafted = utc_iso(datetime.fromisoformat(str(started_at)))
         now = _now_iso()
         with self._transaction() as conn:
+            parked = conn.execute("SELECT 1 FROM parked_notes WHERE started_at = ?",
+                                  (drafted,)).fetchone()
+            if parked is not None:
+                conn.execute(
+                    "UPDATE parked_notes SET markdown = ?, stamps_json = ? WHERE started_at = ?",
+                    (markdown, json.dumps([list(s) for s in checked]), drafted))
+                return NoteDraft(markdown, checked, drafted, now)
             conn.execute(
                 "INSERT INTO note_draft (id, markdown, stamps_json, started_at, updated_at)"
                 " VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET"
@@ -533,6 +555,41 @@ class MeetingLibrary:
                 " started_at = excluded.started_at, updated_at = excluded.updated_at",
                 (markdown, json.dumps([list(s) for s in checked]), drafted, now))
         return NoteDraft(markdown, checked, drafted, now)
+
+    def park_draft(self, started_at: datetime) -> bool:
+        """Move the draft typed during the recording that started at
+        `started_at` aside, so the next recording starts with an empty slot."""
+        key = utc_iso(started_at)
+        with self._transaction() as conn:
+            row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
+            if row is None or row["started_at"] != key:
+                return False
+            conn.execute(
+                "INSERT INTO parked_notes (started_at, markdown, stamps_json, parked_at)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT(started_at) DO UPDATE SET"
+                " markdown = excluded.markdown, stamps_json = excluded.stamps_json,"
+                " parked_at = excluded.parked_at",
+                (key, row["markdown"], row["stamps_json"], _now_iso()))
+            conn.execute("DELETE FROM note_draft WHERE id = 1")
+            return True
+
+    def unpark_draft(self, started_at: datetime) -> bool:
+        """Return parked notes to the draft slot when their meeting ended
+        without saving, provided the slot is empty."""
+        key = utc_iso(started_at)
+        with self._transaction() as conn:
+            parked = conn.execute("SELECT * FROM parked_notes WHERE started_at = ?",
+                                  (key,)).fetchone()
+            if parked is None:
+                return False
+            if conn.execute("SELECT 1 FROM note_draft WHERE id = 1").fetchone() is not None:
+                return False
+            conn.execute(
+                "INSERT INTO note_draft (id, markdown, stamps_json, started_at, updated_at)"
+                " VALUES (1, ?, ?, ?, ?)",
+                (parked["markdown"], parked["stamps_json"], key, _now_iso()))
+            conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (key,))
+            return True
 
     def discard_draft(self) -> None:
         with self._transaction() as conn:
@@ -547,11 +604,12 @@ class MeetingLibrary:
                              (meeting_id,)).fetchone()
             if m is None:
                 raise MeetingNotFound(meeting_id)
-            shifted = _adopt_stamps(_check_stamps(stamps),
-                                    datetime.fromisoformat(str(started_at)),
-                                    datetime.fromisoformat(m["started_at"]))
+            if utc_iso(datetime.fromisoformat(str(started_at))) != m["started_at"]:
+                raise DraftMismatch()
+            checked = _check_stamps(stamps)
             self._touch(conn, meeting_id)
-            notes = self._write_user_notes(conn, meeting_id, markdown, shifted)
+            notes = self._write_user_notes(conn, meeting_id, markdown, checked)
+            conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (m["started_at"],))
             conn.execute("DELETE FROM note_draft WHERE id = 1")
             return notes
 

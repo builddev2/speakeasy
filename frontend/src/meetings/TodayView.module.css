@@ -287,6 +287,12 @@ button.row:hover {
   color: var(--text-hi);
 }
 
+.heroNote {
+  margin-top: 2px;
+  font: 400 13px/1.4 var(--sans);
+  color: var(--text-lo);
+}
+
 .heroMeta {
   margin-top: 2px;
   font: 400 13px/1.4 var(--sans);

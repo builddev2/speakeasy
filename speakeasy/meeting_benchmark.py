@@ -25,6 +25,7 @@ FIELDS = (
     "alignment_ms",
     "save_ms",
     "stop_to_final_ms",
+    "concurrent_recording",
 )
 _STATUSES = {"success", "cancelled", "error", "no_audio"}
 _CAPTURE_MODES = {"mic_only", "mic_and_system"}
@@ -53,6 +54,7 @@ class MeetingTiming:
     mic_frames: int = 0
     system_frames: int = 0
     events: dict[str, int] = field(default_factory=dict)
+    concurrent_recording: bool = False
     _emitted: bool = False
 
     def mark(self, event: str) -> None:
@@ -91,6 +93,7 @@ class MeetingTiming:
             "system_frames": self.system_frames,
             **{f"{phase}_ms": self._duration(phase) for phase in _PHASES},
             "stop_to_final_ms": stop_to_final,
+            "concurrent_recording": self.concurrent_recording,
         }
         return {name: values[name] for name in FIELDS}
 
@@ -110,6 +113,8 @@ class MeetingTiming:
 
 
 def _valid(value: object) -> dict | None:
+    if isinstance(value, dict) and "concurrent_recording" not in value:
+        value = dict(value, concurrent_recording=False)
     if isinstance(value, dict) and set(value) == set(FIELDS) - {"backlog_ms"}:
         value = dict(value, backlog_ms=None)
     if not isinstance(value, dict) or set(value) != set(FIELDS):
@@ -126,7 +131,9 @@ def _valid(value: object) -> dict | None:
             or value[name] < 0
         ):
             return None
-    for name in FIELDS[5:]:
+    if not isinstance(value["concurrent_recording"], bool):
+        return None
+    for name in [n for n in FIELDS if n.endswith("_ms")]:
         item = value[name]
         if item is not None and (
             not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item) or item < 0

@@ -75,7 +75,8 @@ class PillController(NSObject):
     # -- engine callbacks (main thread) ----------------------------------
     def engineStateChanged_(self, value):
         was = self.machine.phase
-        self.machine.on_state(str(value), self.engine.meeting_processing_error)
+        self.machine.on_state(str(value), self.engine.meeting_processing_error,
+                              pending=getattr(self.engine, "pending_meeting_jobs", None))
         if self.machine.phase == "recording" and was != "recording":
             self._auto_opened = self._drawer_open = False
             self._progress = None
@@ -99,7 +100,8 @@ class PillController(NSObject):
 
     def savedExpired_(self, timer):
         self._saved_timer = None
-        self.machine.expire_saved()
+        self.machine.expire_saved(
+            still_processing=self.engine.state.value == "meeting_processing")
         self._render()
 
     # -- buttons ---------------------------------------------------------
@@ -120,7 +122,7 @@ class PillController(NSObject):
         self._render()
 
     def pillDiscard_(self, sender):
-        self.machine.discard()
+        self.machine.discard(getattr(self.engine, "pending_meeting_jobs", None))
         self.engine.cancel_meeting_processing()
         self._render()
 
@@ -217,7 +219,8 @@ class PillController(NSObject):
         event = getattr(self.engine, "meeting_event", None)
         title = getattr(event, "title", None) if event else None
         view = pill_view(self.machine, title=title, elapsed=rec["elapsed"], health=health,
-                         capture_mode=rec["capture_mode"], progress=self._progress)
+                         capture_mode=rec["capture_mode"], progress=self._progress,
+                         pending=int(getattr(self.engine, "pending_meeting_jobs", 1) or 1))
         self.panel.render(view)
         if not self._shown:
             self.panel.show(self._origin())

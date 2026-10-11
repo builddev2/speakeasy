@@ -911,7 +911,7 @@ def test_cleanup_failure_does_not_skip_other_track_or_rearm(meetings_dir, spool_
         return original(path, *args, **kwargs)
     monkeypatch.setattr(Path, 'unlink', unlink)
     try:
-        engine._process_meeting(MeetingRecording(mic_path=mic, system_path=system))
+        engine._process_meeting(engine._new_job(MeetingRecording(mic_path=mic, system_path=system)))
         assert engine.meeting_processing_error == 'cleanup_failed'
         assert not system.exists()
         assert not engine._meeting_active
@@ -994,7 +994,7 @@ def test_process_meeting_uses_recordings_started_at(meetings_dir, spool_dir):
         w.writeframes(np.ones(config.SAMPLE_RATE, dtype=np.int16).tobytes())
     started_at = datetime(2026, 9, 24, 13, 17, 23, tzinfo=timezone(timedelta(hours=-4)))
     try:
-        engine._process_meeting(MeetingRecording(mic_path=mic, started_at=started_at))
+        engine._process_meeting(engine._new_job(MeetingRecording(mic_path=mic, started_at=started_at)))
         assert saved, "on_meeting_saved never fired"
         stored = MeetingLibrary().get_meeting(saved[0])
         assert stored.started_at == "2026-09-24T17:17:23Z"
@@ -1475,6 +1475,7 @@ def test_runner_receives_path_and_meeting_options(meetings_dir, spool_dir):
 
     def recording_runner(wav_path, **kwargs):
         seen["path_exists"] = wav_path.exists()
+        seen["job_cancel"] = engine._jobs[0].cancel
         seen.update(kwargs)
         kwargs["on_phase"]("voice_identification")
         return [(0.0, 1.0, 0)]
@@ -1488,7 +1489,9 @@ def test_runner_receives_path_and_meeting_options(meetings_dir, spool_dir):
     assert seen["path_exists"] is True
     assert seen["expected_count"] == 3
     assert tuple(seen["voice_profile_names"]) == ("Alice",)
-    assert seen["cancel"] is engine._meeting_cancel
+    assert isinstance(seen["cancel"], threading.Event)
+    assert seen["cancel"] is seen["job_cancel"]
+    assert not hasattr(engine, "_meeting_cancel")
     engine.shutdown()
 
 
@@ -1612,4 +1615,648 @@ def test_dual_track_splits_remote_speech_where_you_reply(meetings_dir, spool_dir
         ("You", 1.35),
         ("Speaker 1", 1.7),
     ]
+    engine.shutdown()
+
+
+class GatedSpyRunner:
+    """Records each call's options and cancel event; blocks until released."""
+
+    def __init__(self):
+        self.calls = []
+        self.gate = threading.Event()
+        self.entered = threading.Event()
+
+    def __call__(self, wav_path, *, expected_count, max_speakers, voice_profile_names,
+                 progress, cancel, on_phase=lambda phase: None):
+        self.calls.append({"path": wav_path, "expected_count": expected_count,
+                           "voices": tuple(voice_profile_names), "cancel": cancel})
+        self.entered.set()
+        self.gate.wait(timeout=5.0)
+        if cancel.is_set():
+            raise MeetingCancelled
+        progress(1.0)
+        return [(0.0, 1.0, 0)]
+
+
+def test_job_uses_its_own_options_and_event(meetings_dir, spool_dir):
+    _seed_events([("ev-a", 3, "Alpha", 1), ("ev-b", 1, "Beta", 1)])
+    engine = _engine(spool_dir)
+    runner = GatedSpyRunner()
+    runner.gate.set()
+    engine.diarization_runner = runner
+    saved = _record(engine, MeetingOptions(
+        calendar_event_key="ev-a", expected_speaker_count=3,
+        expected_voice_profile_names=("Alice",)))
+    assert _wait_for(lambda: engine.meeting_event is not None)
+    # Hold the worker so the job is queued, then change the engine's values.
+    hold = threading.Event()
+    engine.worker.submit(hold.wait, 5)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 1)
+    engine._meeting_options = MeetingOptions(
+        expected_speaker_count=7, expected_voice_profile_names=("Zed",))
+    engine.meeting_event = MeetingLibrary().calendar_event("ev-b")
+    hold.set()
+    assert _wait_for(lambda: saved)
+    assert runner.calls[0]["expected_count"] == 3
+    assert runner.calls[0]["voices"] == ("Alice",)
+    assert MeetingLibrary().get_meeting(saved[0]).title == "Alpha"
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    engine.shutdown()
+
+
+def test_job_snapshot_is_independent_of_engine_fields(meetings_dir, spool_dir):
+    _seed_events([("ev-a", 3, "Alpha", 1), ("ev-b", 1, "Beta", 1)])
+    engine = _engine(spool_dir)
+    engine._meeting_options = MeetingOptions(expected_speaker_count=4)
+    engine.meeting_event = MeetingLibrary().calendar_event("ev-a")
+    job = engine._new_job(MeetingRecording(mic_path=None))
+    engine._meeting_options = MeetingOptions(expected_speaker_count=2)
+    engine.meeting_event = MeetingLibrary().calendar_event("ev-b")
+    assert job.options.expected_speaker_count == 4
+    assert job.event.title == "Alpha"
+    assert job.cancel is not engine._new_job(MeetingRecording(mic_path=None)).cancel
+    engine.shutdown()
+
+
+class CancelRecordingTranscriber:
+    """Records the cancel event each transcription path receives."""
+
+    def __init__(self, with_wav):
+        self.cancels = []
+        if with_wav:
+            self.transcribe_long_wav = self._wav
+
+    def _result(self):
+        result = type("Result", (), {})()
+        result.sentences = [Sentence(0.0, 1.0, "hello")]
+        return result
+
+    def _wav(self, path, *, progress, cancel=None):
+        self.cancels.append(cancel)
+        progress(1.0)
+        return self._result()
+
+    def transcribe_long(self, audio, *, progress, cancel=None):
+        self.cancels.append(cancel)
+        progress(1.0)
+        return self._result()
+
+
+@pytest.mark.parametrize("with_wav", [True, False])
+def test_transcription_receives_the_jobs_cancel_event(meetings_dir, spool_dir, with_wav):
+    engine = _engine(spool_dir)
+    transcriber = CancelRecordingTranscriber(with_wav)
+    engine.transcriber = transcriber
+    seen = {}
+
+    def runner(wav_path, *, progress, cancel, **kwargs):
+        seen["job_cancel"] = engine._jobs[0].cancel
+        return [(0.0, 1.0, 0)]
+
+    engine.diarization_runner = runner
+    saved = _record(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: saved)
+    assert transcriber.cancels and all(c is seen["job_cancel"] for c in transcriber.cancels)
+    engine.shutdown()
+
+
+def test_processing_error_survives_next_recording_and_clears_on_next_job(
+    meetings_dir, spool_dir
+):
+    engine = _engine(spool_dir)
+
+    class Failing(FakeTranscriber):
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            raise RuntimeError("boom")
+
+    engine.transcriber = Failing()
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert engine.meeting_processing_error == "processing_failed"
+
+    engine.transcriber = FakeTranscriber()
+    saved = _record(engine)
+    assert engine.meeting_processing_error == "processing_failed"  # not cleared by begin
+    engine.end_meeting()
+    assert _wait_for(lambda: saved and engine.state is State.READY)
+    assert engine.meeting_processing_error is None
+    engine.shutdown()
+
+
+def test_shutdown_cancels_a_running_job(meetings_dir, spool_dir, capsys):
+    engine = _engine(spool_dir)
+    runner = GatedSpyRunner()
+    engine.diarization_runner = runner
+    _record(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    job = engine._jobs[0]
+    assert not job.cancel.is_set()
+    engine.shutdown()
+    assert job.cancel.is_set()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    capsys.readouterr()
+
+
+class UniqueSpoolRecorder(FakeMeetingRecorder):
+    """Each start writes a new spool, like the real recorder (Task 1)."""
+
+    def __init__(self, spool_dir):
+        super().__init__(spool_dir)
+        self.count = 0
+
+    def start(self, *, system_audio_pid=None):
+        self.count += 1
+        self._path = self._spool_dir / f"meeting-test-{self.count}.wav"
+        with wave.open(str(self._path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(config.SAMPLE_RATE)
+            w.writeframes(np.ones(config.SAMPLE_RATE, dtype=np.int16).tobytes())
+
+
+_OVERLAP_CLEANUP = []
+
+
+@pytest.fixture(autouse=True)
+def _release_overlap_engines():
+    """A failing assertion must not leave gated jobs hanging the run."""
+    yield
+    while _OVERLAP_CLEANUP:
+        engine, runner = _OVERLAP_CLEANUP.pop()
+        runner.gate.set()
+        engine.shutdown()
+
+
+def _overlap_engine(spool_dir):
+    engine = _engine(spool_dir)
+    engine.meeting_recorder = UniqueSpoolRecorder(spool_dir)
+    runner = GatedSpyRunner()
+    _OVERLAP_CLEANUP.append((engine, runner))
+    engine.diarization_runner = runner
+    saved = []
+    engine.on_meeting_saved = saved.append
+    return engine, runner, saved
+
+
+def _start(engine):
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.state is State.MEETING_RECORDING)
+
+
+def test_can_start_recording_while_previous_meeting_processes(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)                      # A is diarizing
+    assert engine.state is State.MEETING_PROCESSING
+    _start(engine)                                       # B starts during A
+    assert engine.pending_meeting_jobs == 1
+    runner.gate.set()
+    assert _wait_for(lambda: len(saved) == 1)            # A saved during B
+    assert engine.state is State.MEETING_RECORDING
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert len(set(saved)) == 2
+    assert list(spool_dir.iterdir()) == []
+    engine.shutdown()
+
+
+def test_job_finishing_during_recording_keeps_recording_state_and_hotkey_off(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    states.clear()
+    runner.gate.set()
+    assert _wait_for(lambda: len(saved) == 1)
+    time.sleep(0.05)
+    assert engine._listener.running is False
+    assert State.READY not in states
+    assert engine.state is State.MEETING_RECORDING
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert engine._listener.running is True
+    engine.shutdown()
+
+
+def test_hotkey_stays_off_until_queue_drains(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    engine.end_meeting()                                 # A running, B queued
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)  # end_meeting is async on control
+    runner.entered.clear()
+    seen = []
+    engine.on_state_changed = lambda s: seen.append((s, engine._listener.running))
+    runner.gate.set()
+    assert _wait_for(lambda: len(saved) == 2)
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert engine._listener.running is True
+    assert all(not r for s, r in seen if s is not State.READY)
+    assert seen[-1] == (State.READY, True)
+    engine.shutdown()
+
+
+def test_cancel_hits_running_job_only(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)   # B queued
+    engine.cancel_meeting_processing()                   # cancels A only
+    runner.gate.set()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert len(saved) == 1
+    assert runner.calls[0]["cancel"].is_set()
+    assert not runner.calls[1]["cancel"].is_set()
+    engine.shutdown()
+
+
+class OptionalPretranscribingRecorder(UniqueSpoolRecorder):
+    """Supports live pre-transcription, but works when the engine skips it."""
+
+    def __init__(self, spool_dir):
+        super().__init__(spool_dir)
+        self.session = None
+        self.configured = 0
+
+    def configure_pretranscription(self, session):
+        self.session = session
+        self.configured += 1
+
+    def stop(self):
+        if self.session is not None:
+            self.session.finish()
+            self.session = None
+        return super().stop()
+
+
+def test_live_pretranscription_skipped_while_jobs_pending(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    transcriber = PretranscribingFakeTranscriber()
+    engine.transcriber = transcriber
+    recorder = OptionalPretranscribingRecorder(spool_dir)
+    engine.meeting_recorder = recorder
+    _start(engine)
+    assert recorder.configured == 1                       # A: worker idle
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    assert recorder.configured == 1                       # B: skipped, A pending
+    runner.gate.set()
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    engine.shutdown()
+
+
+def test_start_failure_during_processing_returns_to_processing(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+
+    def boom(**kwargs):
+        raise RuntimeError("no mic")
+
+    engine.meeting_recorder.start = boom
+    engine.begin_meeting()
+    assert _wait_for(lambda: engine.meeting_start_error == "microphone_start_failed")
+    assert engine.state is State.MEETING_PROCESSING
+    assert engine._listener.running is False
+    runner.gate.set()
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert engine._listener.running is True
+    engine.shutdown()
+
+
+def test_timing_marks_concurrent_recording(meetings_dir, spool_dir, isolate_meeting_latency_log):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    runner.gate.set()
+    assert _wait_for(lambda: len(saved) == 1)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert _wait_for(lambda: len(meeting_benchmark.read_records(isolate_meeting_latency_log)) == 2)
+    records = meeting_benchmark.read_records(isolate_meeting_latency_log)
+    assert [r["concurrent_recording"] for r in records] == [True, False]
+    engine.shutdown()
+
+
+def test_shutdown_with_queued_jobs_cancels_all(meetings_dir, spool_dir, capsys):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)
+    with engine._meeting_lock:
+        jobs = list(engine._jobs)
+    assert len(jobs) == 2
+    engine.shutdown()
+    assert all(job.cancel.is_set() for job in jobs)
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    capsys.readouterr()
+
+
+def test_no_rearm_after_shutdown_when_queue_drains(meetings_dir, spool_dir, capsys):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    engine.shutdown()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert engine._listener.running is False
+    capsys.readouterr()
+
+
+class HookedListener(SpyListener):
+    def __init__(self):
+        super().__init__()
+        self.on_stop = None
+
+    def stop(self):
+        super().stop()
+        hook, self.on_stop = self.on_stop, None
+        if hook is not None:
+            hook()
+
+
+def _finish_head_job_now(engine, runner):
+    """Release the gated head job; block (on control) until its finally has
+    published. Only the queue-draining publish leaves _jobs empty."""
+    published = threading.Event()
+    original = engine._publish_meeting_state
+
+    def spy():
+        original()
+        with engine._meeting_lock:
+            if not engine._jobs:
+                published.set()
+
+    engine._publish_meeting_state = spy
+
+    def hook():
+        runner.gate.set()
+        assert published.wait(5.0)
+
+    return hook
+
+
+def test_job_finishing_while_recording_starts_never_rearms_hotkey(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    engine._listener = HookedListener()
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    assert _wait_for(lambda: engine.state is State.MEETING_PROCESSING)
+    states.clear()
+    engine._listener.on_stop = _finish_head_job_now(engine, runner)
+    _start(engine)                     # A's finally runs inside B's listener.stop()
+    assert len(saved) == 1
+    assert engine._listener.running is False
+    assert State.READY not in states
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert engine._listener.running is True
+    engine.shutdown()
+
+
+def test_job_finishing_while_recording_stops_never_rearms_hotkey(meetings_dir, spool_dir, monkeypatch):
+    from speakeasy import engine as engine_module
+    engine, runner, saved = _overlap_engine(spool_dir)
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    states.clear()
+    hook = _finish_head_job_now(engine, runner)
+    real_play = engine_module.play_sound
+
+    def play(sound):
+        if sound == config.SOUND_MEETING_END:
+            hook()                     # between B's stop and B's append
+        else:
+            real_play(sound)
+
+    monkeypatch.setattr(engine_module, "play_sound", play)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert State.READY not in states[:-1] and states[-1] is State.READY
+    engine.shutdown()
+
+
+def test_job_finishing_with_another_queued_keeps_recording_state(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)                               # A running
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)    # B queued
+    _start(engine)                                                # C recording
+    seen = []
+    engine.on_state_changed = lambda s: seen.append((s, engine._listener.running))
+    runner.gate.set()
+    assert _wait_for(lambda: len(saved) == 2)
+    time.sleep(0.05)
+    assert seen and all(s is State.MEETING_RECORDING and not r for s, r in seen)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 3 and engine.state is State.READY)
+    engine.shutdown()
+
+
+class _HookedLock:
+    """RLock proxy that runs a one-shot hook just before the next acquire."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.before_acquire = None
+
+    def __enter__(self):
+        hook, self.before_acquire = self.before_acquire, None
+        if hook is not None:
+            hook()
+        return self._inner.__enter__()
+
+    def __exit__(self, *exc):
+        return self._inner.__exit__(*exc)
+
+
+def test_job_finishing_inside_the_end_meeting_handoff_never_rearms_hotkey(
+        meetings_dir, spool_dir, monkeypatch):
+    """The recording->job hand-off must not expose an idle engine: a job
+    finishing right before control takes the lock for the hand-off must see
+    the recording still active (kills clearing _recording_active before the
+    hand-off's lock block)."""
+    from speakeasy import engine as engine_module
+    engine, runner, saved = _overlap_engine(spool_dir)
+    states = []
+    engine.on_state_changed = states.append
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    _start(engine)
+    states.clear()
+    hook = _finish_head_job_now(engine, runner)
+    lock = _HookedLock(engine._meeting_lock)
+    engine._meeting_lock = lock
+    real_play = engine_module.play_sound
+
+    def play(sound):
+        if sound == config.SOUND_MEETING_END:
+            lock.before_acquire = hook   # next acquire is the hand-off block
+        else:
+            real_play(sound)
+
+    monkeypatch.setattr(engine_module, "play_sound", play)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(saved) == 2 and engine.state is State.READY)
+    assert State.READY not in states[:-1] and states[-1] is State.READY
+    engine.shutdown()
+
+
+def test_end_meeting_parks_that_recordings_draft(meetings_dir, spool_dir):
+    from speakeasy.meeting_library import utc_iso
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.library.set_draft("A notes", [], utc_iso(engine._meeting_started_at))
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    assert engine.library.get_draft() is None
+    runner.gate.set()
+    assert _wait_for(lambda: saved)
+    assert MeetingLibrary().get_user_notes(saved[0]).markdown == "A notes"
+    engine.shutdown()
+
+
+def _park_a_notes(engine):
+    from speakeasy.meeting_library import utc_iso
+    engine.library.set_draft("A notes", [], utc_iso(engine._meeting_started_at))
+
+
+def test_cancelled_job_returns_parked_notes_to_the_draft(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    _park_a_notes(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    assert engine.library.get_draft() is None
+    engine.cancel_meeting_processing()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert saved == []
+    assert engine.library.get_draft().markdown == "A notes"
+    engine.shutdown()
+
+
+def test_failed_job_returns_parked_notes_to_the_draft(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    runner.gate.set()
+
+    def boom(_new):
+        raise RuntimeError("disk")
+    engine.library.save_meeting = boom
+    _start(engine)
+    _park_a_notes(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: engine.meeting_processing_error == "processing_failed")
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert engine.library.get_draft().markdown == "A notes"
+    engine.shutdown()
+
+
+def test_shutdown_returns_queued_jobs_parked_notes(meetings_dir, spool_dir):
+    from speakeasy.meeting_library import utc_iso
+    engine, runner, saved = _overlap_engine(spool_dir)
+    _start(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)                   # A running
+    _start(engine)
+    engine.library.set_draft("B notes", [], utc_iso(engine._meeting_started_at))
+    engine.end_meeting()                              # B queued behind A, notes parked
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 2)
+    assert engine.library.get_draft() is None
+    engine.shutdown()
+    assert engine.library.get_draft().markdown == "B notes"
+
+
+def test_unpark_failure_does_not_stop_the_job_draining(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+
+    def boom(_started_at):
+        raise RuntimeError("maintenance")
+    engine.library.unpark_draft = boom
+    _start(engine)
+    _park_a_notes(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    engine.cancel_meeting_processing()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert list(spool_dir.iterdir()) == []
+    engine.shutdown()
+
+
+def test_park_failure_does_not_block_processing(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    runner.gate.set()
+
+    def boom(_started_at):
+        raise RuntimeError("maintenance")
+    engine.library.park_draft = boom
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: saved)
+    engine.shutdown()
+
+
+def test_earlier_jobs_error_survives_later_job_until_published_idle(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    runner.gate.set()
+    release_a = threading.Event()
+    calls = []
+
+    class FailFirst(FakeTranscriber):
+        def transcribe_long(self, audio, *, progress, cancel=None):
+            calls.append(1)
+            if len(calls) == 1:
+                release_a.wait(timeout=5.0)
+                raise RuntimeError("boom")
+            return super().transcribe_long(audio, progress=progress, cancel=cancel)
+
+    engine.transcriber = FailFirst()
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: len(calls) == 1)             # A is transcribing
+    _start(engine)                                        # B records
+    release_a.set()                                       # A fails while B records
+    assert _wait_for(lambda: engine.meeting_processing_error == "processing_failed")
+    assert engine.state is State.MEETING_RECORDING
+    engine.end_meeting()                                  # B's job starts
+    assert _wait_for(lambda: len(saved) == 1 and engine.state is State.READY)
+    assert engine.meeting_processing_error == "processing_failed"
     engine.shutdown()

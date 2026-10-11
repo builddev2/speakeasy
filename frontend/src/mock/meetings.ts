@@ -51,6 +51,7 @@ export interface NotesValue { markdown: string; stamps: [number, number][] }
 export interface RecordingInfo {
   recording: boolean; processing: boolean; startedAt: string | null; title: string | null;
   mode?: string; micFailure?: string | null; startError?: string | null; processingError?: string | null;
+  pendingProcessing?: number;
 }
 export interface NotesDraft extends NotesValue { startedAt: string }
 

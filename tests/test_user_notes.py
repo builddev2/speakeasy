@@ -4,7 +4,8 @@ import pytest
 
 from speakeasy import meeting_store
 from speakeasy.meeting_library import (
-    USER_NOTES_MAX_CHARS, MeetingLibrary, MeetingNotFound, NewMeeting, notes_plain_text,
+    USER_NOTES_MAX_CHARS, DraftMismatch, MeetingLibrary, MeetingNotFound, NewMeeting,
+    notes_plain_text, utc_iso,
 )
 from speakeasy.meetings import MeetingSegment
 
@@ -161,3 +162,101 @@ def test_check_stamps_refuses_non_integral_lines(raw):
     from speakeasy.meeting_library import _check_stamps
     with pytest.raises(ValueError, match="Invalid note stamps"):
         _check_stamps(raw)
+
+
+A = datetime(2026, 10, 10, 9, 0, tzinfo=timezone.utc)
+B = A + timedelta(minutes=61)
+
+
+def _pn(start, minutes=60):
+    return NewMeeting(segments=[MeetingSegment("You", 1, 2, "hi")],
+                      duration_seconds=minutes * 60, started_at=start)
+
+
+def test_parked_notes_follow_their_meeting():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [], utc_iso(A))
+    assert lib.park_draft(A) is True
+    assert lib.get_draft() is None                    # slot is free for B
+    lib.set_draft("B notes", [], utc_iso(B))
+    a_id = lib.save_meeting(_pn(A))                   # A saves while B records
+    assert lib.get_user_notes(a_id).markdown == "A notes"
+    assert lib.get_draft().markdown == "B notes"      # B's draft untouched
+    b_id = lib.save_meeting(_pn(B, 30))
+    assert lib.get_user_notes(b_id).markdown == "B notes"
+
+
+def test_late_autosave_goes_to_parked_row():
+    lib = MeetingLibrary()
+    lib.set_draft("A", [], utc_iso(A))
+    lib.park_draft(A)
+    lib.set_draft("A plus late words", [], utc_iso(A))    # editor's last save
+    assert lib.get_draft() is None
+    a_id = lib.save_meeting(_pn(A))
+    assert lib.get_user_notes(a_id).markdown == "A plus late words"
+
+
+def test_park_ignores_other_recordings_draft():
+    lib = MeetingLibrary()
+    lib.set_draft("B notes", [], utc_iso(B))
+    assert lib.park_draft(A) is False
+    assert lib.get_draft().markdown == "B notes"
+
+
+def test_finish_draft_rejects_another_recordings_notes():
+    lib = MeetingLibrary()
+    a_id = lib.save_meeting(_pn(A))
+    with pytest.raises(DraftMismatch) as err:
+        lib.finish_draft(a_id, "B notes", [], utc_iso(B))
+    assert str(err.value) == "draft_mismatch"
+
+
+def test_window_fallback_still_adopts_unparked_draft():
+    lib = MeetingLibrary()
+    lib.set_draft("typed", [], utc_iso(A + timedelta(minutes=5)))
+    a_id = lib.save_meeting(_pn(A))
+    assert lib.get_user_notes(a_id).markdown == "typed"
+
+
+def test_unpark_returns_notes_to_an_empty_slot():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [(0, 1.0)], utc_iso(A))
+    lib.park_draft(A)
+    assert lib.unpark_draft(A) is True
+    d = lib.get_draft()
+    assert (d.markdown, d.started_at, d.stamps) == ("A notes", utc_iso(A), [(0, 1.0)])
+    lib.set_draft("x", [], utc_iso(A))
+    assert lib.get_draft().markdown == "x"          # no parked row left
+    lib.discard_draft()
+    assert lib.unpark_draft(A) is False
+
+
+def test_unpark_leaves_everything_when_slot_is_occupied():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [], utc_iso(A))
+    lib.park_draft(A)
+    lib.set_draft("B notes", [], utc_iso(B))
+    assert lib.unpark_draft(A) is False
+    assert lib.get_draft().markdown == "B notes"
+    a_id = lib.save_meeting(_pn(A))                   # A is still parked
+    assert lib.get_user_notes(a_id).markdown == "A notes"
+
+
+def test_adopted_parked_row_is_deleted():
+    lib = MeetingLibrary()
+    lib.set_draft("A notes", [], utc_iso(A))
+    lib.park_draft(A)
+    lib.save_meeting(_pn(A))
+    lib.set_draft("x", [], utc_iso(A))                # no parked row left to catch it
+    assert lib.get_draft().markdown == "x"
+
+
+def test_finish_draft_deletes_the_parked_row(library_path):
+    lib = MeetingLibrary()
+    a_id = lib.save_meeting(_pn(A))
+    lib.set_draft("A notes", [], utc_iso(A))
+    lib.park_draft(A)                                 # parked after the save: no adoption
+    lib.finish_draft(a_id, "final", [], utc_iso(A))
+    assert lib.get_user_notes(a_id).markdown == "final"
+    lib.set_draft("x", [], utc_iso(A))
+    assert lib.get_draft().markdown == "x"            # nothing parked for A any more

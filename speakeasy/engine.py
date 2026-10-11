@@ -19,6 +19,7 @@ job's `finally`, whatever happens; cancellation is a polled Event, so it needs
 no extra thread.
 """
 
+import collections
 import dataclasses
 import sqlite3
 import subprocess
@@ -79,6 +80,20 @@ class State(Enum):
     MEETING_PROCESSING = "meeting_processing"
 
 
+@dataclasses.dataclass(eq=False)
+class MeetingJob:
+    """Everything one stopped meeting's processing reads. Set once at stop;
+    the worker never reads per-meeting values from the engine itself, so a
+    new recording can start while this job waits or runs."""
+    recording: MeetingRecording
+    options: MeetingOptions
+    event: object | None              # CalendarEvent held at stop
+    timing: MeetingTiming | None = None
+    pretranscription: Future | None = None
+    cancel: threading.Event = dataclasses.field(default_factory=threading.Event)
+    concurrent_recording: bool = False
+
+
 class DictationEngine:
     """Hold-to-talk dictation: record → transcribe → paste at the cursor.
 
@@ -114,10 +129,15 @@ class DictationEngine:
         self._listener = HotkeyListener(self._on_hold_start, self._on_hold_end)
         self._model_future: Future | None = None
         self._user_paused = False
-        self._meeting_active = False
+        # Recording side (control thread) and the processing queue (appended on
+        # control at stop, removed on worker when the job ends). State, listener
+        # resume and both of these change only under _meeting_lock.
+        self._recording_active = False
+        self._jobs: collections.deque[MeetingJob] = collections.deque()
+        self._meeting_lock = threading.RLock()
         self.meeting_start_error = None
         self.meeting_processing_error = None
-        self._meeting_cancel = threading.Event()
+        self._processing_error_unseen = False
         self._meeting_options = MeetingOptions()
         # The calendar event this recording belongs to (cached copy). UI
         # threads read it; it is only ever replaced whole, never mutated.
@@ -192,6 +212,47 @@ class DictationEngine:
         self.control.submit(self._stop_recorder_guarded)
         self._set_state(State.PAUSED)
 
+    @property
+    def _meeting_active(self) -> bool:
+        return self._recording_active or bool(self._jobs)
+
+    @property
+    def pending_meeting_jobs(self) -> int:
+        # Lock-free on purpose: len() of a deque is atomic under the GIL, and UI
+        # readers must not wait behind _publish_meeting_state (holds the lock ~2 s).
+        return len(self._jobs)
+
+    def _new_job(self, recording, timing=None, pretranscription=None) -> MeetingJob:
+        job = MeetingJob(recording=recording, options=self._meeting_options,
+                         event=self.meeting_event, timing=timing,
+                         pretranscription=pretranscription)
+        with self._meeting_lock:
+            self._jobs.append(job)
+        return job
+
+    def _meeting_state(self) -> State:
+        if self._recording_active:
+            return State.MEETING_RECORDING
+        if self._jobs:
+            return State.MEETING_PROCESSING
+        return self._idle_state()
+
+    def _publish_meeting_state(self) -> None:
+        """The one place meeting transitions set state and re-arm dictation.
+        Decided and applied under _meeting_lock so a job finishing on worker
+        can never publish READY (or resume the hotkey) over a recording that
+        control just started."""
+        with self._meeting_lock:
+            if not self._meeting_active:
+                self.meeting_event = None
+                if not self._user_paused and not self._shutting_down:
+                    self._listener.resume()
+            new_state = self._meeting_state()
+            self._set_state(new_state)
+            if new_state not in (State.MEETING_RECORDING, State.MEETING_PROCESSING):
+                # Idle published: the UI has had its chance to show the error.
+                self._processing_error_unseen = False
+
     def resume(self) -> None:
         if self._library_maintenance:
             return
@@ -231,18 +292,25 @@ class DictationEngine:
         getattr(self.recorder, "shutdown", self.recorder.force_close)()
         # Quit mid-meeting: stop the mic and delete the spool (best-effort —
         # the atexit hook and next launch's sweep are the backstops).
-        self._meeting_cancel.set()
+        with self._meeting_lock:
+            jobs = list(self._jobs)
+        for job in jobs:
+            job.cancel.set()
+        for job in jobs:
+            self._unpark_notes(job)
         terminate = getattr(self.diarization_runner, "terminate_active", None)
         if terminate is not None:
             terminate()
         if self._meeting_asr_session is not None:
             self._meeting_asr_session.cancel()
-        if self._meeting_active:
+        if self._recording_active:
             self.meeting_recorder.force_close()
             self.meeting_recorder.discard()
         target_future = getattr(self, "_target_future", None)
         if target_future is not None:
             target_future.cancel()
+        # wait=False still runs queued jobs; harmless: every job's cancel is
+        # set above and each job's finally deletes its spools.
         self.worker.shutdown(wait=False)
         self.control.shutdown(wait=False)
 
@@ -872,10 +940,9 @@ class DictationEngine:
             print("  → calendar match skipped (library unavailable)")
             return None
 
-    def _saved_meeting_event(self):
+    def _saved_meeting_event(self, held):
         """The event re-read at save time (renamed since?), else the copy
         held since the start (deleted from Calendar since?)."""
-        held = self.meeting_event
         if held is None:
             return None
         try:
@@ -884,10 +951,14 @@ class DictationEngine:
             return held
 
     def cancel_meeting_processing(self) -> None:
-        """Abort processing and discard the meeting. Just sets the event —
-        the worker polls it between transcription chunks and phases, so no
-        executor hop is needed (worker is busy processing anyway)."""
-        self._meeting_cancel.set()
+        """Abort the job being processed now (the queue's head) and discard
+        that meeting. Queued jobs are untouched. Just sets its event — the
+        worker polls it between chunks and phases."""
+        with self._meeting_lock:
+            head = self._jobs[0] if self._jobs else None
+        if head is None:
+            return
+        head.cancel.set()
         if self.state is State.MEETING_PROCESSING:
             self.on_meeting_progress("Cancelling… waiting for the current stage")
 
@@ -895,27 +966,30 @@ class DictationEngine:
         from .dictation_benchmark import _append_record
         self.meeting_start_error = reason
         self._cancel_meeting_pretranscription()
-        self._meeting_active = False
-        self.meeting_event = None
-        if not self._user_paused and not self._shutting_down:
-            self._listener.resume()
+        with self._meeting_lock:
+            self._recording_active = False
+        self._publish_meeting_state()
         try:
             _append_record({"build_commit": settings.build_commit(),
                             "timestamp_seconds": round(time.time(), 3), "reason": reason},
                            Path.home() / "Library/Logs/Speakeasy-meeting-start.jsonl")
         except OSError:
             pass
-        self._set_state(self._idle_state())
 
     def _begin_meeting(self, options: MeetingOptions) -> None:
-        if self._library_maintenance or self.state is not State.READY or self._meeting_active:
-            return
-        with self._dictation_stream_lock:
-            if self._dictation_stream is not None:
+        with self._meeting_lock:
+            if (self._library_maintenance or self._recording_active
+                    or self.state not in (State.READY, State.MEETING_PROCESSING)):
                 return
-        self._meeting_active = True
+            with self._dictation_stream_lock:
+                if self._dictation_stream is not None:
+                    return
+            self._recording_active = True
+            worker_busy = bool(self._jobs)
+            for job in self._jobs:
+                job.concurrent_recording = True
+            self.meeting_event = None
         self.meeting_start_error = None
-        self.meeting_processing_error = None
         self._meeting_options = options
         # Dictation off for the duration: tear the tap down entirely (the
         # meeting recorder owns the session) and discard any hold in flight —
@@ -930,7 +1004,7 @@ class DictationEngine:
             transcribe_live = getattr(
                 self.transcriber, "transcribe_meeting_stream", None
             )
-            if callable(configure) and callable(transcribe_live):
+            if not worker_busy and callable(configure) and callable(transcribe_live):
                 session = MeetingASRSession()
                 configure(session)
                 self._meeting_asr_session = session
@@ -955,7 +1029,7 @@ class DictationEngine:
         if getattr(self.meeting_recorder, "capture_mode", "mic_only") != "mic_and_system":
             play_sound(config.SOUND_MEETING_START)
         self._meeting_started_at = datetime.now().astimezone()
-        self._set_state(State.MEETING_RECORDING)
+        self._publish_meeting_state()
         print("● meeting recording...")
         # Only after capture is running: a busy library can hold a read for
         # up to 5 s, and that must never delay the recording itself.
@@ -966,7 +1040,7 @@ class DictationEngine:
             self.on_state_changed(self.state)   # the pill shows the title
 
     def _end_meeting(self) -> None:
-        if not self._meeting_active or self.state is not State.MEETING_RECORDING:
+        if not self._recording_active or self.state is not State.MEETING_RECORDING:
             return
         timing = MeetingTiming()
         timing.start("stop")
@@ -983,23 +1057,28 @@ class DictationEngine:
             if pretranscription_session is not None:
                 pretranscription_session.cancel()
             # Nothing made it to disk; back to dictation.
-            self._meeting_active = False
-            self.meeting_event = None
-            if not self._user_paused:
-                self._listener.resume()
-            self._set_state(self._idle_state())
+            with self._meeting_lock:
+                self._recording_active = False
+            self._publish_meeting_state()
             timing.capture_mode = "mic_only"
             timing.mark("pipeline_finished")
             timing.emit("no_audio")
             return
-        self._meeting_cancel.clear()
-        self._set_state(State.MEETING_PROCESSING)
+        with self._meeting_lock:
+            job = self._new_job(recording, timing, pretranscription)
+            self._recording_active = False
+        self._publish_meeting_state()
+        if recording.started_at is not None:
+            # Outside the lock: database I/O. Before submit: the job must not
+            # be able to save before its notes are parked.
+            try:
+                self.library.park_draft(recording.started_at)
+            except Exception:
+                print("  → notes_park_failed")
         timing.capture_mode = recording.capture_mode
         timing.start("backlog")
         self.on_meeting_progress("Finishing captured audio…")
-        self.worker.submit(
-            self._process_meeting, recording, timing, pretranscription
-        )
+        self.worker.submit(self._process_meeting, job)
 
     def _cancel_meeting_pretranscription(self) -> None:
         if self._meeting_asr_session is not None:
@@ -1059,7 +1138,7 @@ class DictationEngine:
             return 0, 0.0, False
         return frames, frames / sample_rate if sample_rate else 0.0, streamable
 
-    def _transcribe_meeting_track(self, path, *, progress, precomputed=None):
+    def _transcribe_meeting_track(self, path, *, progress, cancel, precomputed=None):
         if precomputed is not None:
             progress(1.0)
             return precomputed
@@ -1069,7 +1148,7 @@ class DictationEngine:
             return transcribe_wav(
                 path,
                 progress=progress,
-                cancel=self._meeting_cancel,
+                cancel=cancel,
             )
         audio = self._read_meeting_track(path)
         if not len(audio):
@@ -1077,7 +1156,7 @@ class DictationEngine:
         return self.transcriber.transcribe_long(
             audio,
             progress=progress,
-            cancel=self._meeting_cancel,
+            cancel=cancel,
         )
 
     def _diarize_track(
@@ -1087,6 +1166,7 @@ class DictationEngine:
         timing: MeetingTiming | None = None,
         *,
         max_speakers: int | None = None,
+        job: MeetingJob,
     ):
         """Speaker turns for one spooled track, computed by the runner (a
         child process in the app). Raises DiarizationFailed or
@@ -1105,40 +1185,52 @@ class DictationEngine:
         try:
             return self.diarization_runner(
                 path,
-                expected_count=self._meeting_options.expected_speaker_count,
+                expected_count=job.options.expected_speaker_count,
                 max_speakers=max_speakers,
                 voice_profile_names=tuple(
-                    self._meeting_options.expected_voice_profile_names or ()),
+                    job.options.expected_voice_profile_names or ()),
                 progress=progress,
-                cancel=self._meeting_cancel,
+                cancel=job.cancel,
                 on_phase=on_phase,
             )
         finally:
             if timing is not None:
                 timing.finish(open_phase[0])
 
-    def _diarize_or_fallback(self, path: Path, progress, timing, *, max_speakers):
+    def _diarize_or_fallback(self, path: Path, progress, timing, *, max_speakers, job):
         """Turns plus capture-health fields. A failed diarization keeps the
         words: every sentence then aligns to one speaker label."""
         try:
-            turns = self._diarize_track(path, progress, timing, max_speakers=max_speakers)
+            turns = self._diarize_track(path, progress, timing, max_speakers=max_speakers, job=job)
         except DiarizationFailed as failure:
             print(f"  → diarization failed ({failure.reason}); saving with one speaker label")
             return [], {"diarization_status": "failed",
                         "diarization_failure": failure.reason}
         return turns, {"diarization_status": "ok"}
 
-    def _process_meeting(
-        self,
-        recording: MeetingRecording,
-        timing: MeetingTiming | None = None,
-        pretranscription: Future | None = None,
-    ) -> None:
+    def _unpark_notes(self, job: MeetingJob) -> None:
+        """A job that ends without saving returns its notes to the draft slot
+        (if free) so the next notepad offers them. Never logs content."""
+        started_at = job.recording.started_at
+        if started_at is None:
+            return
+        try:
+            self.library.unpark_draft(started_at)
+        except Exception:
+            print("  → notes_unpark_failed")
+
+    def _process_meeting(self, job: MeetingJob) -> None:
         """The whole post-meeting pipeline, one worker job: transcribe →
         diarize → align → save transcript. The spool WAV dies in the finally
         no matter how this exits — audio is never persisted."""
+        recording, timing, pretranscription = job.recording, job.timing, job.pretranscription
+        cancel = job.cancel
+        # An earlier job's error stays until it was published in an idle state.
+        if not self._processing_error_unseen:
+            self.meeting_processing_error = None
+
         def report_progress(text):
-            if self._meeting_cancel.is_set():
+            if cancel.is_set():
                 text = "Cancelling… waiting for the current stage"
             self.on_meeting_progress(text)
 
@@ -1167,7 +1259,7 @@ class DictationEngine:
                 timing.mic_frames = mic_frames
                 timing.system_frames = system_frames
             dual_track = recording.capture_mode == "mic_and_system" and system_frames
-            event = self._saved_meeting_event()
+            event = self._saved_meeting_event(job.event)
             speaker_cap = calendar_match.remote_speaker_cap(
                 event, "mic_and_system" if dual_track else "mic_only")
             if not mic_frames and not system_frames:
@@ -1183,6 +1275,7 @@ class DictationEngine:
                     try:
                         mic_result = self._transcribe_meeting_track(
                             recording.mic_path,
+                            cancel=cancel,
                             precomputed=precomputed_mic,
                             progress=lambda f: report_progress(
                                 f"Transcribing your track… {int(f * 100)}% of track"
@@ -1192,7 +1285,7 @@ class DictationEngine:
                         if timing is not None:
                             timing.finish("mic_asr")
                     mic_sentences = mic_result.sentences
-                if self._meeting_cancel.is_set():
+                if cancel.is_set():
                     raise MeetingCancelled
                 report_progress("Transcribing system audio… 0%")
                 if timing is not None:
@@ -1200,6 +1293,7 @@ class DictationEngine:
                 try:
                     system_result = self._transcribe_meeting_track(
                         recording.system_path,
+                        cancel=cancel,
                         progress=lambda f: report_progress(
                             f"Transcribing system audio… {int(f * 100)}% of track"
                         ),
@@ -1207,7 +1301,7 @@ class DictationEngine:
                 finally:
                     if timing is not None:
                         timing.finish("system_asr")
-                if self._meeting_cancel.is_set():
+                if cancel.is_set():
                     raise MeetingCancelled
                 turns, diarization_health = self._diarize_or_fallback(
                     recording.system_path,
@@ -1216,8 +1310,9 @@ class DictationEngine:
                     ),
                     timing,
                     max_speakers=speaker_cap,
+                    job=job,
                 )
-                if self._meeting_cancel.is_set():
+                if cancel.is_set():
                     raise MeetingCancelled
                 if timing is not None:
                     timing.start("alignment")
@@ -1288,6 +1383,7 @@ class DictationEngine:
                 try:
                     result = self._transcribe_meeting_track(
                         audio_path,
+                        cancel=cancel,
                         precomputed=(
                             precomputed_mic
                             if audio_path == recording.mic_path
@@ -1300,7 +1396,7 @@ class DictationEngine:
                 finally:
                     if timing is not None:
                         timing.finish("mic_asr")
-                if self._meeting_cancel.is_set():
+                if cancel.is_set():
                     raise MeetingCancelled
                 turns, diarization_health = self._diarize_or_fallback(
                     audio_path,
@@ -1309,8 +1405,9 @@ class DictationEngine:
                     ),
                     timing,
                     max_speakers=speaker_cap,
+                    job=job,
                 )
-                if self._meeting_cancel.is_set():
+                if cancel.is_set():
                     raise MeetingCancelled
                 if timing is not None:
                     timing.start("alignment")
@@ -1355,7 +1452,7 @@ class DictationEngine:
                 calendar_event_id=event.event_key if event is not None else None,
                 people=list(event.people) if event is not None else [],
             )
-            if self._meeting_cancel.is_set():
+            if cancel.is_set():
                 raise MeetingCancelled
             report_progress("Saving transcript…")
             if timing is not None:
@@ -1391,21 +1488,24 @@ class DictationEngine:
                 )
             print(type(error).__name__, file=sys.stderr)
             self.meeting_processing_error = "processing_failed"
+            self._processing_error_unseen = True
         finally:
+            if status != "success":
+                self._unpark_notes(job)
             for path in recording.paths:
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:
                     self.meeting_processing_error = "cleanup_failed"
+                    self._processing_error_unseen = True
                     status = "error"
                 finally:
                     meeting_recorder.release_spool(path)
-            self._meeting_active = False
-            self.meeting_event = None
-            if not self._user_paused:
-                self._listener.resume()
-            self._set_state(self._idle_state())
+            with self._meeting_lock:
+                self._jobs.remove(job)
+            self._publish_meeting_state()
             if timing is not None:
+                timing.concurrent_recording = job.concurrent_recording
                 timing.mark("pipeline_finished")
                 timing.emit(status)
 

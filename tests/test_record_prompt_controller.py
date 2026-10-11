@@ -165,7 +165,7 @@ def test_probe_wanted_follows_setting_and_state(monkeypatch):
     c, _, _, _ = make(monkeypatch, engine)
     assert c.probe_wanted is True
     c.engineStateChanged_("meeting_processing")
-    assert c.probe_wanted is False
+    assert c.probe_wanted is True
     c.engineStateChanged_("meeting_recording")
     assert c.probe_wanted is True
     settings.set_meeting_settings(detect_calls=False)
@@ -381,3 +381,16 @@ def test_banner_record_builds_options_through_default_options(monkeypatch):
     c.bannerPrimary_(None)
     assert engine.begun == [MeetingOptions(expected_voice_profile_names=("Ana",),
                                            calendar_event_key="k1")]
+
+
+def test_banner_record_works_while_previous_meeting_processes(monkeypatch):
+    engine = FakeEngine(state="meeting_processing")
+    c, panel, _, times = make(monkeypatch, engine)
+    c.callObserved_(True)
+    times[0] = NOW + timedelta(seconds=10)
+    c.callObserved_(True)
+    assert panel.calls[-1][:2] == ("show", "Record this call?")
+    c.bannerPrimary_(None)
+    assert engine.begun == [MeetingOptions(calendar_event_key=None)]
+    assert panel.calls[-1] == ("confirm", "Recording")
+    c.shutdown()

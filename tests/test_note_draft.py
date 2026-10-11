@@ -99,8 +99,10 @@ def test_non_finite_stamp_seconds_are_refused(library_path, bad):
         lib.set_draft("x", [(0, bad)], utc_iso(START))
 
 
-def test_finish_draft_shifts_stamps_by_the_draft_start(library_path):
+def test_finish_draft_keeps_stamps_for_the_same_recording(library_path):
+    # A draft from another recording is now rejected (DraftMismatch), so the
+    # stamps are never shifted: they are already relative to this start.
     lib = MeetingLibrary()
     mid = lib.save_meeting(_new())
-    lib.finish_draft(mid, "late", [(0, 10.0)], utc_iso(START + timedelta(seconds=20)))
-    assert lib.get_user_notes(mid).stamps == [(0, 30.0)]
+    lib.finish_draft(mid, "late", [(0, 10.0)], utc_iso(START))
+    assert lib.get_user_notes(mid).stamps == [(0, 10.0)]

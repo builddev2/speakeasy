@@ -18,6 +18,7 @@ class Engine:
         self.last_dictation_text = ""
         self.last_dictation_heard = ""
         self.can_train = False
+        self.pending_meeting_jobs = 0
         self.meeting_event = None
         self.last_insertion_outcome = None
         self.meeting_processing_error = None
@@ -136,3 +137,28 @@ def test_engine_callbacks_tolerate_missing_prompt():
     controller, pill = _Target(), _Target()
     menubar._engine_callbacks(controller, pill, None).on_state_changed(State.READY)
     assert controller.calls and pill.calls
+
+
+def test_start_meeting_enabled_while_processing(ctl):
+    c, engine = ctl
+    engine.state = State.MEETING_PROCESSING
+    engine.pending_meeting_jobs = 1
+    c.engineStateChanged_("meeting_processing")
+    assert c._meeting_item.title() == "Start Meeting"
+    assert c._meeting_item.isEnabled()
+
+
+def test_progress_does_not_replace_recording_status(ctl):
+    c, engine = ctl
+    c._status_line.setTitle_("Recording meeting")
+    engine.state = State.MEETING_RECORDING
+    c.meetingProgress_("Transcribing… 42%")
+    assert c._status_line.title() == "Recording meeting"
+
+
+def test_progress_shows_while_processing(ctl):
+    c, engine = ctl
+    c._status_line.setTitle_("Processing")
+    engine.state = State.MEETING_PROCESSING
+    c.meetingProgress_("Transcribing… 42%")
+    assert c._status_line.title() == "Transcribing… 42%"

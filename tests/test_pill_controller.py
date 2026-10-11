@@ -110,6 +110,7 @@ def test_saved_then_open_opens_that_meeting(setup):
 def test_saved_expires(setup):
     go(setup, "meeting_processing")
     setup.pill.meetingSaved_("m-1")
+    go(setup, "ready")
     setup.pill.savedExpired_(None)
     assert not setup.panel.visible
 
@@ -227,3 +228,23 @@ def test_pill_shows_again_after_hide(setup):
     go(setup, "ready")
     go(setup, "meeting_recording")
     assert setup.panel.visible and len(setup.panel.shown) == 2
+
+
+def test_saved_during_recording_does_not_take_over_pill(setup):
+    go(setup, "meeting_recording")
+    setup.pill.meetingSaved_("m-a")
+    assert setup.panel.views[-1].phase == "recording"
+
+
+def test_saved_expiry_returns_to_processing_while_jobs_remain(setup):
+    go(setup, "meeting_processing")
+    setup.pill.meetingSaved_("m-a")
+    setup.pill.savedExpired_(None)
+    assert setup.panel.views[-1].phase == "processing"
+
+
+def test_confirm_discard_detail_counts_queued_jobs(setup):
+    setup.engine.pending_meeting_jobs = 3
+    go(setup, "meeting_processing")
+    setup.pill.pillCancel_(None)
+    assert setup.panel.views[-1].detail == "2 more will still be saved"

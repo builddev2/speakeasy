@@ -93,6 +93,14 @@ def insertion_target(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def silent_sounds(monkeypatch):
+    """Never spawn afplay: one meeting test file starts ~140 of them, and
+    looped runs swelled coreaudiod until the Mac hung (10 Oct 2026)."""
+    from speakeasy import config
+    monkeypatch.setattr(config, "SOUNDS_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
 def microphone_authorization(monkeypatch):
     from speakeasy import recorder
     monkeypatch.setattr(recorder, "_permission_blocked", lambda: False)

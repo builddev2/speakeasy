@@ -885,3 +885,31 @@ def test_draft_finish_mismatch_returns_error_code(tmp_path):
              "startedAt": "2026-10-10T10:01:00Z"},
             lambda value=None, error=None: responses.append(error))
     assert responses == ["draft_mismatch"]
+
+
+def _fake_engine(pending=2):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        state=SimpleNamespace(value="meeting_recording"), meeting_event=None,
+        _meeting_started_at=None, recorder=SimpleNamespace(last_failure=None),
+        meeting_start_error=None, meeting_processing_error=None,
+        pending_meeting_jobs=pending)
+
+
+def test_recording_info_reports_pending_jobs():
+    from speakeasy.ui.meetings_window import recording_info_for
+    info = recording_info_for(_fake_engine(2))
+    assert info["pendingProcessing"] == 2 and isinstance(info["pendingProcessing"], int)
+    assert info["recording"] is True
+    assert recording_info_for(None) is None
+
+
+def test_saved_payload_carries_start_time_or_none(tmp_path):
+    bridge = make_bridge(tmp_path)
+    start = datetime(2026, 10, 10, 9, 0, tzinfo=timezone.utc)
+    mid = bridge.library.save_meeting(NewMeeting(
+        segments=[MeetingSegment("You", 1, 2, "x")], duration_seconds=60, started_at=start))
+    got = bridge.saved_payload(mid)
+    assert got == {"id": mid, "startedAt": bridge.library.get_meeting(
+        mid, with_segments=False).started_at} and got["startedAt"]
+    assert bridge.saved_payload("nope") == {"id": "nope", "startedAt": None}

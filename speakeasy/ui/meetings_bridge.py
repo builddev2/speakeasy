@@ -470,6 +470,15 @@ class MeetingsBridge:
                                           str(params.get("startedAt", "")))
         return {"updatedAt": notes.updated_at if notes else None}
 
+    def saved_payload(self, meeting_id) -> dict:
+        started_at = None
+        try:
+            started_at = self.library.get_meeting(
+                str(meeting_id), with_segments=False).started_at
+        except Exception:
+            pass   # the page falls back to the server-side draft_mismatch check
+        return {"id": str(meeting_id), "startedAt": started_at}
+
     def recording_payload(self, params) -> dict:
         return {**_NOT_RECORDING, **(self._recording_info() or {})}
 

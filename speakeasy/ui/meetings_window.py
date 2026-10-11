@@ -29,6 +29,26 @@ def default_content_size(visible_width, visible_height):
     )
 
 
+def recording_info_for(engine):
+    # Read-only view of the engine for the notepad; engine.py is not
+    # changed. _meeting_started_at is private, so read it defensively;
+    # the page falls back to the time it first saw recording on.
+    if engine is None:
+        return None
+    state = getattr(engine.state, "value", "")
+    event = engine.meeting_event
+    started = getattr(engine, "_meeting_started_at", None)
+    return {"recording": state == "meeting_recording",
+            "processing": state == "meeting_processing",
+            "startedAt": utc_iso(started) if started is not None else None,
+            "title": event.title if event is not None else None,
+            "mode": state,
+            "micFailure": getattr(engine.recorder, "last_failure", None),
+            "startError": engine.meeting_start_error,
+            "processingError": engine.meeting_processing_error,
+            "pendingProcessing": int(getattr(engine, "pending_meeting_jobs", 0))}
+
+
 class MeetingsWindowController(NSObject):
     def init(self):
         self = objc.super(MeetingsWindowController, self).init()
@@ -51,23 +71,7 @@ class MeetingsWindowController(NSObject):
             return event.event_key if event is not None else None
 
         def recording_info():
-            # Read-only view of the engine for the notepad; engine.py is not
-            # changed. _meeting_started_at is private, so read it defensively;
-            # the page falls back to the time it first saw recording on.
-            if engine is None:
-                return None
-            state = getattr(engine.state, "value", "")
-            event = engine.meeting_event
-            started = getattr(engine, "_meeting_started_at", None)
-            return {"recording": state == "meeting_recording",
-                    "processing": state == "meeting_processing",
-                    "startedAt": utc_iso(started) if started is not None else None,
-                    "title": event.title if event is not None else None,
-                    "mode": state,
-                    "micFailure": getattr(engine.recorder, "last_failure", None),
-                    "startError": engine.meeting_start_error,
-                    "processingError": engine.meeting_processing_error,
-                    "pendingProcessing": int(getattr(engine, "pending_meeting_jobs", 0))}
+            return recording_info_for(engine)
 
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
@@ -144,14 +148,8 @@ class MeetingsWindowController(NSObject):
         NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(str(path)))
 
     def meetingSaved_(self, meeting_id):
-        started_at = None
-        try:
-            started_at = self._bridge.library.get_meeting(
-                str(meeting_id), with_segments=False).started_at
-        except Exception:
-            pass   # the page falls back to the server-side draft_mismatch check
         self._web.emit("meetings.changed")
-        self._web.emit("meetings.saved", {"id": str(meeting_id), "startedAt": started_at})
+        self._web.emit("meetings.saved", self._bridge.saved_payload(meeting_id))
 
     def calendarChanged_(self, _):
         self._web.emit("calendar.changed")

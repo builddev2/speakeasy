@@ -1640,7 +1640,7 @@ def test_progress_during_recording_is_not_status_text(setup):
 - [x] Task 5 — bridge payloads (55fe382..bf98e9a)
 - [x] Task 6 — frontend (bf98e9a..d44ce59); mock state previewed dark + light
 - [x] Task 7 — menu/pill/banner/quit (d44ce59..42e755b)
-- [ ] Task 8 — Step 1 AGENTS.md (7870f4d) done; Step 2 full suite 1567 passed / frontend 75 done; Step 3 whole-branch review + fix wave (3406cf8) done, re-review clean; **Step 4 build/install and Step 5 live overlap eval with the user: NOT DONE**; Step 6 finish branch: not done.
+- [ ] Task 8 — Step 1 AGENTS.md (7870f4d) done; Step 2 full suite 1567 passed / frontend 75 done; Step 3 whole-branch review + fix wave (3406cf8) done, re-review clean; Step 4 built and installed (bundle commit 4698539); Step 5 live overlap eval PASSED on 10 Oct 21:17–21:33. Scripted real pipeline in a temp HOME (real mic, system-audio helper on afplay, MLX transcriber, diarization child): A 600 s, then B started 0.55 s after A stopped and ran 300 s. A saved 59.7 s after its stop while B was recording. State stayed MEETING_RECORDING and the hotkey stayed off during B, and re-armed after both saved. Notes: A = its late-autosaved text, B = its own. B capture health: 0 dropped frames (mic and system), 0 overflows, 0 gap fills, no writer lag; both mic_and_system captured, diarization ok. Timing rows: concurrent_recording A=True, B=False (diarization 46.5 s / 22.5 s). Not covered by the script, only by unit tests: the installed app's menu, pill and Meetings page UI (live-eval checklist items 1–7). Step 6 finish branch: pending the user's merge decision.
 
 ### Controller rulings made during execution (full list in the final session message)
 

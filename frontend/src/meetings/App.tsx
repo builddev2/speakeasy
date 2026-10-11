@@ -232,6 +232,8 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // Today is the home view, but only if the user hasn't picked anything before the calendar loads.
   const userNavigatedRef = useRef(false);
   const homeAppliedRef = useRef(false);
+  // Bumped after a draft_mismatch so the editor remounts and its autosave resumes.
+  const [notesEpoch, setNotesEpoch] = useState(0);
   const recordingFirstSeenRef = useRef<string | null>(null);
   const editorRef = useRef<(() => NotesValue) | null>(null);
   const flushNotesRef = useRef<(() => Promise<void>) | null>(null);
@@ -261,6 +263,13 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   });
 
   // Poll the engine for a recording in progress (embedded only).
+  // Shared by the poll and the pill/menu navigation so start tracking can't drift.
+  function applyRecordingInfo(info: RecordingInfo) {
+    const t = trackRecording(info, recordingFirstSeenRef.current, new Date().toISOString());
+    recordingFirstSeenRef.current = t.firstSeen;
+    setRecording(info);
+    if (t.startedAt) setRecordingStartedAt(t.startedAt);
+  }
   useEffect(() => {
     if (!embedded) return;
     let cancelled = false;
@@ -269,10 +278,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         .call<RecordingInfo>('recording.get')
         .then((info) => {
           if (cancelled) return;
-          const t = trackRecording(info, recordingFirstSeenRef.current, new Date().toISOString());
-          recordingFirstSeenRef.current = t.firstSeen;
-          setRecording(info);
-          if (t.startedAt) setRecordingStartedAt(t.startedAt);
+          applyRecordingInfo(info);
         })
         .catch((err) => console.error('recording.get failed', err));
     };
@@ -329,7 +335,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         else console.error('notes.draft.finish failed', err);
       })
       .finally(() => {
-        if (mismatch) { if (embedded) void refreshList(filterParams(filterRef.current), true); return; }
+        if (mismatch) { setNotesEpoch((n) => n + 1); if (embedded) void refreshList(filterParams(filterRef.current), true); return; }
         open();
       });
   }
@@ -352,7 +358,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
     ])
       .then(([nav, rec]) => {
         const action = navigationAction(nav, rec);
-        if (action.kind === 'recording') { setRecording(rec); onSelectRecording(); }
+        if (action.kind === 'recording') { applyRecordingInfo(rec); onSelectRecording(); }
         else if (action.kind === 'today') onSelectToday();
         else if (action.kind === 'settings') setSettingsOpen(true);
         else if (action.kind === 'meeting') {
@@ -1299,7 +1305,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           </Sidebar>
 
           {restoring ? <div /> : recordingView && recordingStartedAt ? (
-            <RecordingNotes key={recordingStartedAt ?? ''} info={recording} startedAt={recordingStartedAt} editorRef={editorRef} flushNotesRef={flushNotesRef} />
+            <RecordingNotes key={`${recordingStartedAt}:${notesEpoch}`} info={recording} startedAt={recordingStartedAt} editorRef={editorRef} flushNotesRef={flushNotesRef} />
           ) : actionsView ? (
             <ActionItemsView
               items={actionItems}

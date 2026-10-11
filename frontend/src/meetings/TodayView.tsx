@@ -85,6 +85,7 @@ export function TodayView({
   const recordingActive = recording.recording || recording.processing;
   const split = useMemo(() => splitAgenda(agenda, nowMs, recording.recording), [agenda, nowMs, recording.recording]);
   const banner = engineBanner(recording);
+  const note = processingNote(recording);
   const bannerNode = banner && (
     <div className={styles.banner} role="status">
       <span className={styles.bannerText}>{banner.text}</span>
@@ -193,7 +194,7 @@ export function TodayView({
                 <>Processing · {recording.title ?? 'Untitled meeting'}</>
               )}
             </div>
-            {processingNote(recording) && <div className={styles.heroNote}>{processingNote(recording)}</div>}
+            {note && <div className={styles.heroNote}>{note}</div>}
           </div>
           <ActionButton onClick={onOpenNotes}>Open notes</ActionButton>
         </div>

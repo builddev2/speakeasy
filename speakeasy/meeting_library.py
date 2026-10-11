@@ -511,7 +511,6 @@ class MeetingLibrary:
         if parked is not None:
             stamps = [tuple(s) for s in json.loads(parked["stamps_json"])]
             self._write_user_notes(conn, meeting_id, parked["markdown"], stamps)
-            conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (key,))
             return
         row = conn.execute("SELECT * FROM note_draft WHERE id = 1").fetchone()
         if row is None:
@@ -606,9 +605,9 @@ class MeetingLibrary:
                 raise MeetingNotFound(meeting_id)
             if utc_iso(datetime.fromisoformat(str(started_at))) != m["started_at"]:
                 raise DraftMismatch()
-            shifted = _check_stamps(stamps)
+            checked = _check_stamps(stamps)
             self._touch(conn, meeting_id)
-            notes = self._write_user_notes(conn, meeting_id, markdown, shifted)
+            notes = self._write_user_notes(conn, meeting_id, markdown, checked)
             conn.execute("DELETE FROM parked_notes WHERE started_at = ?", (m["started_at"],))
             conn.execute("DELETE FROM note_draft WHERE id = 1")
             return notes

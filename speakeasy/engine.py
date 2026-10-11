@@ -1065,7 +1065,7 @@ class DictationEngine:
             # be able to save before its notes are parked.
             try:
                 self.library.park_draft(recording.started_at)
-            except (sqlite3.Error, OSError):
+            except Exception:
                 print("  → notes_park_failed")
         timing.capture_mode = recording.capture_mode
         timing.start("backlog")
@@ -1208,7 +1208,7 @@ class DictationEngine:
             return
         try:
             self.library.unpark_draft(started_at)
-        except (sqlite3.Error, OSError):
+        except Exception:
             print("  → notes_unpark_failed")
 
     def _process_meeting(self, job: MeetingJob) -> None:

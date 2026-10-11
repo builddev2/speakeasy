@@ -2201,3 +2201,34 @@ def test_shutdown_returns_queued_jobs_parked_notes(meetings_dir, spool_dir):
     assert engine.library.get_draft() is None
     engine.shutdown()
     assert engine.library.get_draft().markdown == "B notes"
+
+
+def test_unpark_failure_does_not_stop_the_job_draining(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+
+    def boom(_started_at):
+        raise RuntimeError("maintenance")
+    engine.library.unpark_draft = boom
+    _start(engine)
+    _park_a_notes(engine)
+    engine.end_meeting()
+    assert runner.entered.wait(5.0)
+    engine.cancel_meeting_processing()
+    runner.gate.set()
+    assert _wait_for(lambda: engine.pending_meeting_jobs == 0)
+    assert _wait_for(lambda: engine.state is State.READY)
+    assert list(spool_dir.iterdir()) == []
+    engine.shutdown()
+
+
+def test_park_failure_does_not_block_processing(meetings_dir, spool_dir):
+    engine, runner, saved = _overlap_engine(spool_dir)
+    runner.gate.set()
+
+    def boom(_started_at):
+        raise RuntimeError("maintenance")
+    engine.library.park_draft = boom
+    _start(engine)
+    engine.end_meeting()
+    assert _wait_for(lambda: saved)
+    engine.shutdown()

@@ -1,8 +1,22 @@
 """Shared fixtures. Tests touch only temp dirs — no mic, no model."""
 
-import pytest
+import atexit
+import os
+from pathlib import Path
+import shutil
+import tempfile
 
-from speakeasy import library_lease, profiles, settings
+# Session-wide HOME, set before any speakeasy import. isolated_home restores
+# HOME after each test, so a worker thread that outlives its test resolves
+# paths here, never in the real ~/Library (10 Oct 2026: gated engine jobs
+# saved 12 fake meetings into the real library that way).
+_SESSION_HOME = Path(tempfile.mkdtemp(prefix="speakeasy-tests-home-"))
+os.environ["HOME"] = str(_SESSION_HOME)
+atexit.register(shutil.rmtree, _SESSION_HOME, ignore_errors=True)
+
+import pytest  # noqa: E402
+
+from speakeasy import library_lease, profiles, settings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

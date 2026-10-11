@@ -217,8 +217,9 @@ class DictationEngine:
 
     @property
     def pending_meeting_jobs(self) -> int:
-        with self._meeting_lock:
-            return len(self._jobs)
+        # Lock-free on purpose: len() of a deque is atomic under the GIL, and UI
+        # readers must not wait behind _publish_meeting_state (holds the lock ~2 s).
+        return len(self._jobs)
 
     def _new_job(self, recording, timing=None, pretranscription=None) -> MeetingJob:
         job = MeetingJob(recording=recording, options=self._meeting_options,

@@ -66,7 +66,8 @@ class MeetingsWindowController(NSObject):
                     "mode": state,
                     "micFailure": getattr(engine.recorder, "last_failure", None),
                     "startError": engine.meeting_start_error,
-                    "processingError": engine.meeting_processing_error}
+                    "processingError": engine.meeting_processing_error,
+                    "pendingProcessing": int(getattr(engine, "pending_meeting_jobs", 0))}
 
         # copyText and copy both live on MeetingsBridge itself (pure-Python,
         # unit-tested); only the clipboard write is injected here.
@@ -143,8 +144,14 @@ class MeetingsWindowController(NSObject):
         NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(str(path)))
 
     def meetingSaved_(self, meeting_id):
+        started_at = None
+        try:
+            started_at = self._bridge.library.get_meeting(
+                str(meeting_id), with_segments=False).started_at
+        except Exception:
+            pass   # the page falls back to the server-side draft_mismatch check
         self._web.emit("meetings.changed")
-        self._web.emit("meetings.saved", {"id": str(meeting_id)})
+        self._web.emit("meetings.saved", {"id": str(meeting_id), "startedAt": started_at})
 
     def calendarChanged_(self, _):
         self._web.emit("calendar.changed")

@@ -68,7 +68,8 @@ def _wallclock_lines(segments, meeting_local_start: datetime) -> list[dict]:
 
 
 _NOT_RECORDING = {"recording": False, "processing": False, "startedAt": None, "title": None,
-                  "mode": "", "micFailure": None, "startError": None, "processingError": None}
+                  "mode": "", "micFailure": None, "startError": None, "processingError": None,
+                  "pendingProcessing": 0}
 
 
 class BridgeError(Exception):

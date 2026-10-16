@@ -222,3 +222,10 @@ def test_remote_files_and_sizes(current):
         assert r.remote_sizes["config.json"] == 30_000
     for r in (model_update.check(FakeRunner(rc=28, raw=b"")), model_update.check(FakeRunner(raw=b"x"))):
         assert r.remote_files is None and r.remote_sizes is None
+
+
+@pytest.mark.parametrize("sha", ["../../x", "abc", "B" * 40, "g" * 40])
+def test_hostile_revision_is_an_error(current, sha):
+    r = model_update.check(FakeRunner(body=hub(sha=sha)))
+    assert r.state == "error"
+    assert "unexpected revision in reply" in r.message

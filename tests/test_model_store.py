@@ -184,3 +184,14 @@ def test_cleanup_skips_staging_in_use():
         model_store.release_staging(busy)
     model_store.cleanup_leftovers()
     assert not busy.exists()
+
+
+def test_mark_failed_ignores_hostile_revision(tmp_path):
+    d = _rev("rev-aaa")
+    model_store.write_active({"revision": "../../evil", "dir": "rev-aaa",
+                              "status": "pending", "previous": None})
+    model_store.mark_failed()
+    root = model_store.speech_models_dir()
+    assert not d.exists()
+    assert [p.name for p in root.iterdir() if p.name.startswith("failed-")] == ["failed-rev-aaa"]
+    assert not (tmp_path / "evil").exists() and not (tmp_path / "models" / "evil").exists()

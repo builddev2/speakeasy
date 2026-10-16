@@ -108,7 +108,8 @@ def mark_failed() -> None:
     except OSError:
         pass
     if name and (root / name).is_dir():
-        target = root / f"failed-{active.get('revision') or name}"
+        target = root / (
+            _safe_name(f"failed-{active.get('revision') or name}") or f"failed-{name}")
         shutil.rmtree(target, ignore_errors=True)
         try:
             os.rename(root / name, target)

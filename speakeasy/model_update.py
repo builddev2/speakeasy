@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,10 @@ def _current():
     return rev, cfg, safe
 
 
+def _valid_sha(sha) -> bool:
+    return isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) is not None
+
+
 def _size(v) -> int:
     return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else 0
 
@@ -114,6 +119,8 @@ def _check(runner) -> CheckResult:
     sha = data.get("sha")
     if not isinstance(sha, str) or not sha:
         return _error("reply has no revision", current=cur_rev)
+    if not _valid_sha(sha):
+        return _error("unexpected revision in reply", current=cur_rev)
     sibs = {s.get("rfilename"): s for s in data.get("siblings") or [] if isinstance(s, dict)}
     cfg_s, safe_s = sibs.get("config.json"), sibs.get("model.safetensors")
     if cfg_s is None or safe_s is None:
@@ -264,6 +271,8 @@ class Downloader:
 
     def _run(self):
         r = self._result
+        if not _valid_sha(r.remote_revision):
+            raise _Failed("failed", f"The update couldn't be installed. {_UNCHANGED}")
         root = model_store.speech_models_dir()
         root.mkdir(parents=True, exist_ok=True)
         need = (r.download_bytes or 0) + 1_000_000_000
@@ -305,6 +314,8 @@ class Downloader:
         os.replace(staging, final)
         active = model_store.read_active()
         previous = active.get("dir") if active else None
+        if previous == final.name:
+            previous = None
         model_store.write_active({"revision": sha, "dir": final.name,
                                   "status": "pending", "previous": previous})
         model_store.release_staging(staging)

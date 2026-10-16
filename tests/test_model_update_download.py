@@ -347,3 +347,68 @@ def test_subprocess_runner_merges_stderr(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert model_update.SubprocessRunner().run(["x"], timeout=1) == (1, b"out")
     assert seen["stderr"] == subprocess.STDOUT and seen["stdout"] == subprocess.PIPE
+
+
+def _active_pointer():
+    model_store.write_active({"revision": "o", "dir": "rev-old", "status": "confirmed",
+                              "previous": None})
+    return model_store.read_active()
+
+
+@pytest.mark.parametrize("what", ["replace", "rmtree"])
+def test_swap_failure_leaves_pointer_untouched(monkeypatch, what):
+    import os
+    before = _active_pointer()
+    final = root() / f"rev-{SHA}"
+    if what == "rmtree":
+        final.mkdir(parents=True)
+        real = shutil.rmtree
+
+        def boom(p, *a, **k):
+            if str(p) == str(final):
+                raise OSError("nope")
+            return real(p, *a, **k)
+        monkeypatch.setattr(shutil, "rmtree", boom)
+    else:
+        real = os.replace
+
+        def boom(src, dst, *a, **k):
+            if ".staging-" in str(src):
+                raise OSError("nope")
+            return real(src, dst, *a, **k)
+        monkeypatch.setattr(os, "replace", boom)
+    _, states = run_download(FakeRunner())
+    assert states[-1][0] == "failed"
+    assert states[-1][2] == "The update couldn't be installed. Your current model is unchanged."
+    assert model_store.read_active() == before
+    assert not (root() / f".staging-{SHA}").exists()
+
+
+@pytest.mark.parametrize("bad", ["../../x", "abc", "B" * 40, "a" * 41, "", None])
+def test_downloader_rejects_bad_revision(tmp_path, bad):
+    sentinel = tmp_path / "models" / "keep"
+    sentinel.mkdir(parents=True)
+    res = model_update.CheckResult(
+        "available", bad, "a" * 40, 100, "m",
+        {"config.json": CFG_ID, "model.safetensors": SAFE_ID},
+        {"config.json": len(CFG_BYTES), "model.safetensors": len(SAFE_BYTES)})
+    r = FakeRunner()
+    _, states = run_download(r, res)
+    assert states[-1][0] == "failed"
+    assert states[-1][2] == "The update couldn't be installed. Your current model is unchanged."
+    assert not r.started and not r.runs
+    assert sentinel.is_dir()
+    assert not [p for p in root().iterdir()] if root().exists() else True
+
+
+def test_previous_never_points_at_the_new_dir():
+    final = root() / f"rev-{SHA}"
+    final.mkdir(parents=True)
+    (final / "x").write_text("old")
+    model_store.write_active({"revision": SHA, "dir": f"rev-{SHA}", "status": "confirmed",
+                              "previous": None})
+    run_download(FakeRunner())
+    assert model_store.read_active() == {"revision": SHA, "dir": f"rev-{SHA}",
+                                         "status": "pending", "previous": None}
+    model_store.confirm_loaded()
+    assert (final / "model.safetensors").exists()

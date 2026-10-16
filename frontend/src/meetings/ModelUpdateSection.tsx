@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { bridge } from '../bridge';
 import { Switch } from '../components/Switch';
 import { ConfirmSheet } from './ConfirmSheet';
-import { createModelUpdateActions, modelUpdateView } from './modelUpdate';
+import { createModelUpdateActions, modelUpdateView, reduceModelUpdate } from './modelUpdate';
 import type { ModelUpdateStatus } from './modelUpdate';
 import styles from './SettingsSheet.module.css';
 
@@ -13,10 +13,9 @@ interface ModelUpdateSectionProps {
 
 /** "Speech model" section of Settings: check, download, cancel and revert the offline model. */
 export function ModelUpdateSection({ mockStatus }: ModelUpdateSectionProps) {
-  const [status, setStatus] = useState<ModelUpdateStatus | null>(mockStatus ?? null);
+  const [{ status, actionError }, dispatch] = useReducer(reduceModelUpdate, { status: mockStatus ?? null, actionError: '' });
   const [dismissed, setDismissed] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [actionError, setActionError] = useState('');
   const lastRemote = useRef<string | null>(null);
 
   const actions = useMemo(
@@ -29,8 +28,8 @@ export function ModelUpdateSection({ mockStatus }: ModelUpdateSectionProps) {
   useEffect(() => {
     if (mockStatus) return;
     let live = true;
-    actions.status().then((s) => { if (live) setStatus(s); }).catch((err) => console.error('modelUpdate.status failed', err));
-    const off = bridge.on('modelUpdate.changed', (payload) => setStatus(payload as ModelUpdateStatus));
+    actions.status().then((s) => { if (live) dispatch({ type: 'changed', status: s }); }).catch((err) => console.error('modelUpdate.status failed', err));
+    const off = bridge.on('modelUpdate.changed', (payload) => dispatch({ type: 'changed', status: payload as ModelUpdateStatus }));
     return () => { live = false; off(); };
   }, [actions, mockStatus]);
 
@@ -45,9 +44,11 @@ export function ModelUpdateSection({ mockStatus }: ModelUpdateSectionProps) {
   const view = modelUpdateView(status, dismissed);
 
   function run(action: () => Promise<ModelUpdateStatus>) {
-    setActionError('');
+    dispatch({ type: 'clearError' });
     if (mockStatus) return;
-    action().then(setStatus).catch((err) => setActionError(String(err instanceof Error ? err.message : err)));
+    action()
+      .then((next) => dispatch({ type: 'changed', status: next }))
+      .catch((err) => dispatch({ type: 'actionFailed', message: String(err instanceof Error ? err.message : err) }));
   }
 
   return (
@@ -97,9 +98,9 @@ export function ModelUpdateSection({ mockStatus }: ModelUpdateSectionProps) {
       )}
 
       {view.message && (
-        <div role="status" className={view.messageIsError ? styles.modelError : styles.hint}>{view.message}</div>
+        <div role="status" className={styles[view.messageStyle]}>{view.message}</div>
       )}
-      {actionError && <div role="status" className={styles.modelError}>{actionError}</div>}
+      {actionError && <div role="status" className={styles.hint}>{actionError}</div>}
 
       {view.useBundledVisible && (
         <button className={styles.exportButton} onClick={() => setConfirming(true)}>Use bundled model</button>

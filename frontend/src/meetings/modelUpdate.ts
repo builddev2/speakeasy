@@ -26,7 +26,8 @@ export interface ModelUpdateView {
   progress: { fraction: number; text: string } | null;
   cancelVisible: boolean;
   message: string;
-  messageIsError: boolean;
+  /** Settings' existing muted status style (styles.hint) for every message. */
+  messageStyle: 'hint';
   useBundledVisible: boolean;
   confirmBody: string;
 }
@@ -62,7 +63,7 @@ export function modelUpdateView(status: ModelUpdateStatus, dismissed: boolean): 
       : null,
     cancelVisible: state === 'downloading',
     message: showMessage ? status.message : '',
-    messageIsError: state === 'error' || state === 'failed' || state === 'offline',
+    messageStyle: 'hint',
     useBundledVisible: current.origin === 'update' && !busy,
     confirmBody: `Switch back to the bundled model from the next launch? The downloaded update${size} will be deleted.`,
   };
@@ -78,4 +79,19 @@ export function createModelUpdateActions(call: (method: string, params?: Record<
     useBundled: () => run('modelUpdate.useBundled'),
     setAutoCheck: (value: boolean) => run('modelUpdate.setAutoCheck', { value }),
   };
+}
+
+export interface ModelUpdateUiState { status: ModelUpdateStatus | null; actionError: string }
+export type ModelUpdateUiAction =
+  | { type: 'changed'; status: ModelUpdateStatus }
+  | { type: 'actionFailed'; message: string }
+  | { type: 'clearError' };
+
+/** Any fresh status (event or reply) supersedes an earlier action error. */
+export function reduceModelUpdate(state: ModelUpdateUiState, action: ModelUpdateUiAction): ModelUpdateUiState {
+  switch (action.type) {
+    case 'changed': return { status: action.status, actionError: '' };
+    case 'actionFailed': return { ...state, actionError: action.message };
+    case 'clearError': return { ...state, actionError: '' };
+  }
 }

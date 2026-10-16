@@ -113,15 +113,24 @@ def test_download_without_available_result_errors():
         c.download()
 
 
+def test_download_after_offline_check_errors():
+    c, _ = make()
+    c.accept_check_result(available())
+    c.accept_check_result(CheckResult("offline", None, REV_A, None, "You appear to be offline."))
+    with pytest.raises(ValueError, match="No update is available"):
+        c.download()
+    assert not FakeDownloader.instances
+
+
 def test_download_progress_text_uses_floats_and_cancel():
     c, events = make()
-    c.accept_check_result(available(2_500_000_000.0))
+    c.accept_check_result(available(2_470_000_000.0))
     s = c.download()
     d = FakeDownloader.instances[0]
     assert d.started and s["state"] == "downloading" and s["progress"] == 0.0
-    d.on_state("downloading", 0.5, "")
+    d.on_state("downloading", 0.6, "")
     st = c.status()
-    assert st["progress"] == 0.5 and st["progressText"] == "1.2 of 2.5 GB"
+    assert st["progress"] == 0.6 and st["progressText"] == "1.5 of 2.5 GB"  # 1024**3 would say 1.4
     with pytest.raises(ValueError, match="already in progress"):
         c.download()
     c.cancel()

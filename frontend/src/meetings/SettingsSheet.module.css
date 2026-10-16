@@ -127,7 +127,6 @@
 .modelCardActions .exportButton { margin-top: 0; margin-right: 0; }
 .progressTrack { height: 6px; margin-top: 8px; border-radius: 3px; background: var(--glass-fill); overflow: hidden; }
 .progressFill { height: 100%; border-radius: 3px; background: var(--accent); }
-.modelError { margin-top: 8px; font: 400 12px/1.4 var(--sans); color: var(--danger-text); }
 .modelNote { margin-top: 8px; font: 400 12px/1.4 var(--sans); color: var(--text-mid); }
 .spinner { display: inline-block; width: 11px; height: 11px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid var(--hairline); border-top-color: var(--accent); border-radius: 50%; animation: modelSpin 0.8s linear infinite; }
 @keyframes modelSpin { to { transform: rotate(360deg); } }

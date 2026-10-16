@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createModelUpdateActions, modelUpdateView } from '../src/meetings/modelUpdate.ts';
+import { createModelUpdateActions, modelUpdateView, reduceModelUpdate } from '../src/meetings/modelUpdate.ts';
 import type { ModelUpdateStatus } from '../src/meetings/modelUpdate.ts';
 
 const base: ModelUpdateStatus = {
@@ -55,8 +55,9 @@ test('ready, error, offline, failed and cancelled show the message', () => {
   for (const state of ['ready', 'error', 'offline', 'failed', 'cancelled', 'up_to_date', 'same_files', 'unknown_current'] as const) {
     assert.equal(modelUpdateView(s({ state, message: `msg ${state}` }), false).message, `msg ${state}`);
   }
-  assert.equal(modelUpdateView(s({ state: 'error', message: 'x' }), false).messageIsError, true);
-  assert.equal(modelUpdateView(s({ state: 'ready', message: 'x' }), false).messageIsError, false);
+  for (const state of ['error', 'offline', 'failed', 'ready'] as const) {
+    assert.equal(modelUpdateView(s({ state, message: 'x' }), false).messageStyle, 'hint');
+  }
 });
 
 test('Use bundled model only when the current model is an update', () => {
@@ -78,4 +79,12 @@ test('actions call the bridge methods; Cancel calls modelUpdate.cancel', async (
     ['modelUpdate.cancel', undefined], ['modelUpdate.useBundled', undefined],
     ['modelUpdate.setAutoCheck', { value: true }],
   ]);
+});
+
+test('a changed event clears an earlier action error', () => {
+  let st = reduceModelUpdate({ status: null, actionError: '' }, { type: 'actionFailed', message: 'A model download is already in progress.' });
+  assert.equal(st.actionError, 'A model download is already in progress.');
+  st = reduceModelUpdate(st, { type: 'changed', status: s({ state: 'ready', message: 'done' }) });
+  assert.equal(st.actionError, '');
+  assert.equal(st.status?.state, 'ready');
 });

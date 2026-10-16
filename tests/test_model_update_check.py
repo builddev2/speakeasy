@@ -155,6 +155,8 @@ def test_argv_url_flags_and_single_host(current):
     assert model_update.CHECK_URL == URL
     assert "--max-time" in argv and argv[argv.index("--max-time") + 1] == "15"
     assert "--connect-timeout" in argv
+    assert argv[argv.index("--proto") + 1] == "=https"
+    assert argv[argv.index("--proto-redir") + 1] == "=https"
     assert [a for a in argv if "://" in a] == [URL]
     assert timeout > 15
 

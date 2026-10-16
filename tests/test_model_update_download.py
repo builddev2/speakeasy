@@ -141,7 +141,8 @@ def test_happy_path():
     assert not (root() / f".staging-{SHA}").exists()
     # curl argv verbatim
     a = r.started[0]
-    assert a[:11] == ["/usr/bin/curl", "-sS", "-f", "-L", "--connect-timeout", "10",
+    assert a[:15] == ["/usr/bin/curl", "-sS", "-f", "-L", "--proto", "=https",
+                      "--proto-redir", "=https", "--connect-timeout", "10",
                       "--speed-limit", "1024", "--speed-time", "60", "-o"]
     assert a[-1] == ("https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v2/resolve/"
                      f"{SHA}/config.json")
@@ -264,6 +265,17 @@ def test_low_disk_creates_models_dir_first(monkeypatch):
                         Usage(1, 0, 10**12))
     run_download(FakeRunner())
     assert seen == [True]
+
+
+def test_stale_staging_removed_before_disk_check(monkeypatch):
+    stale = root() / f".staging-{SHA}"
+    stale.mkdir(parents=True)
+    (stale / "model.safetensors").write_bytes(b"x" * 1000)
+    seen = []
+    monkeypatch.setattr(shutil, "disk_usage",
+                        lambda p: seen.append(stale.exists()) or Usage(1, 0, 10**12))
+    run_download(FakeRunner())
+    assert seen == [False]
 
 
 def test_second_start_raises_and_lock_released():

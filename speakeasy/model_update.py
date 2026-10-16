@@ -104,7 +104,8 @@ def _check(runner) -> CheckResult:
         return CheckResult("unknown_current", None, None, None,
                            "Can't tell which model is installed, so no update can be offered.")
     cur_rev, cur_cfg, cur_safe = cur
-    argv = [CURL, "-sS", "-f", "-L", "--max-time", "15", "--connect-timeout", "5", CHECK_URL]
+    argv = [CURL, "-sS", "-f", "-L", "--proto", "=https", "--proto-redir", "=https",
+            "--max-time", "15", "--connect-timeout", "5", CHECK_URL]
     rc, out = runner.run(argv, timeout=_RUN_TIMEOUT)
     if rc in _OFFLINE_CODES:
         return CheckResult("offline", None, cur_rev, None, _OFFLINE_MSG)
@@ -300,6 +301,8 @@ class Downloader:
             raise _Failed("failed", f"The update couldn't be installed. {_UNCHANGED}")
         root = model_store.speech_models_dir()
         root.mkdir(parents=True, exist_ok=True)
+        # A stale staging dir from an earlier attempt must not count against free space.
+        shutil.rmtree(root / f".staging-{r.remote_revision}", ignore_errors=True)
         need = (r.download_bytes or 0) + 1_000_000_000
         if shutil.disk_usage(root).free < need:
             raise _Failed("failed", f"Not enough free disk space: the update needs about "
@@ -350,7 +353,8 @@ class Downloader:
     def _fetch(self, name, staging, sha, expected, done, total):
         target = staging / name
         url = f"https://huggingface.co/{config.MODEL_ID}/resolve/{sha}/{name}"
-        argv = [CURL, "-sS", "-f", "-L", "--connect-timeout", "10", "--speed-limit", "1024",
+        argv = [CURL, "-sS", "-f", "-L", "--proto", "=https", "--proto-redir", "=https",
+                "--connect-timeout", "10", "--speed-limit", "1024",
                 "--speed-time", "60", "-o", str(target), url]
         proc = self._proc = self._runner.start(argv)
         while proc.poll() is None:

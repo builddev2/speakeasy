@@ -94,6 +94,15 @@ class MeetingJob:
     concurrent_recording: bool = False
 
 
+def _cleanup_model_leftovers() -> None:
+    """Delete stale model-update folders; never let a failure escape."""
+    try:
+        from . import model_store
+        model_store.cleanup_leftovers()
+    except Exception as exc:
+        print(f"Model-update cleanup failed: {exc!r}")
+
+
 class DictationEngine:
     """Hold-to-talk dictation: record → transcribe → paste at the cursor.
 
@@ -322,6 +331,8 @@ class DictationEngine:
     def _create_transcriber(self) -> None:
         self.transcriber = Transcriber()
         self._set_state(self._idle_state())
+        threading.Thread(target=_cleanup_model_leftovers, daemon=True,
+                         name="model-cleanup").start()
 
     def _idle_state(self) -> State:
         if getattr(getattr(self, "recorder", None), "state", None) == "restarting":

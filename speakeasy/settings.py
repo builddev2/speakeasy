@@ -268,7 +268,14 @@ def set_identity(name=None, aliases=None) -> dict:
 
 
 def model_path() -> str:
-    """Where the speech model lives.
+    """The speech model to load: a verified downloaded update, else bundled."""
+    from . import model_store
+    update = model_store.update_dir_if_valid()
+    return str(update) if update is not None else bundled_model_path()
+
+
+def bundled_model_path() -> str:
+    """Where the bundled speech model lives.
 
     Frozen .app → the bundled snapshot in Contents/Resources/model (two
     files: config.json + model.safetensors; parakeet-mlx loads a plain

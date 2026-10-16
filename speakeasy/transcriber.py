@@ -11,7 +11,7 @@ from functools import wraps
 from collections.abc import Callable
 from pathlib import Path
 
-from . import config, preprocess, settings
+from . import config, model_store, preprocess, settings
 from .dictation_benchmark import DictationTiming
 from .dictation_stream import StreamResult, StreamStatus, StreamingSession, run_stream
 from .meeting_stream import MeetingASRResult, MeetingASRSession, MeetingASRStatus
@@ -131,7 +131,19 @@ class Transcriber:
         mx.set_cache_limit(config.MLX_CACHE_LIMIT_BYTES)
         print(f"Loading speech model from {source}")
         started = time.perf_counter_ns()
-        self._model = _load_model(source)
+        update = model_store.update_dir_if_valid()
+        if update is not None and str(update) == source:
+            try:
+                self._model = _load_model(source)
+            except Exception as exc:
+                print(f"Speech-model update failed to load ({exc!r}); using bundled model")
+                model_store.mark_failed()
+                source = settings.bundled_model_path()
+                self._model = _load_model(source)
+            else:
+                model_store.confirm_loaded()
+        else:
+            self._model = _load_model(source)
         loaded = time.perf_counter_ns()
         self._model_load_ms = (loaded - started) / 1e6
         self._warmup_complete = False

@@ -50,7 +50,8 @@ from ..meeting_options import default_options
 from ..profiles import Profile, list_profiles, load_profiles
 from . import permissions
 from .menu_model import (UPDATE_ITEM_TITLE, menu_flags, processing_suffix, quit_warning,
-                         start_enabled, update_available_after, update_item_visible)
+                         start_enabled, update_available_after, update_item_visible,
+                         update_item_visible_for_state)
 from .next_up import next_up
 from .next_up_view import NextUpView
 
@@ -261,6 +262,10 @@ class StatusItemController(NSObject):
         menu.addItem_(NSMenuItem.separatorItem())
         self._update_item = add(UPDATE_ITEM_TITLE, b"openSettings:")
         self._update_item.setHidden_(not update_item_visible(False))
+        from .model_update_controller import shared
+        # Any controller state change (from any thread) re-decides the item's visibility.
+        shared().add_listener(lambda state: self.performSelectorOnMainThread_withObject_waitUntilDone_(
+            b"modelUpdateStateChanged:", state, False))
         add("Settings…", b"openSettings:", ",")
         add("Quit Speakeasy", b"quitApp:", "q")
 
@@ -363,8 +368,10 @@ class StatusItemController(NSObject):
     def modelUpdateAvailable_(self, result):
         # Settings opened later shows the prompt: the shared controller keeps it.
         from .model_update_controller import shared
-        shared().accept_check_result(result)
-        self._update_item.setHidden_(not update_item_visible(True))
+        shared().accept_check_result(result)   # its listener shows the item
+
+    def modelUpdateStateChanged_(self, state):
+        self._update_item.setHidden_(not update_item_visible_for_state(str(state)))
 
     @objc.python_method
     def _sync_meeting_items(self, state):

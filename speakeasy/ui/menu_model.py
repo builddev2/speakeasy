@@ -39,3 +39,9 @@ def update_available_after(result) -> bool:
 
 def update_item_visible(update_available: bool) -> bool:
     return bool(update_available)
+
+
+def update_item_visible_for_state(state: str) -> bool:
+    """The menu item shows only while a newer model is on offer; any other
+    controller state (downloading, ready, up to date, ...) hides it."""
+    return update_item_visible(state == "available")

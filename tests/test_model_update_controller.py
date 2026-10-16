@@ -261,3 +261,48 @@ def test_bridge_use_bundled(tmp_path, monkeypatch):
     d = bridge_with(tmp_path, c)
     assert "_resolve" in _call(d, "modelUpdate.useBundled")
     assert called == [1]
+
+
+def test_listener_called_on_state_change_and_item_follows_offer():
+    from speakeasy.ui.menu_model import update_item_visible_for_state
+    c, _ = make()
+    seen = []
+    c.add_listener(seen.append)
+    c.check()
+    c.join()
+    assert seen[-1] == "available" and update_item_visible_for_state(seen[-1])
+    c.download()
+    assert seen[-1] == "downloading" and not update_item_visible_for_state(seen[-1])
+    FakeDownloader.instances[0].on_state("ready", 1.0, "done")
+    assert seen[-1] == "ready"
+
+
+def test_listener_called_when_offer_withdrawn_by_up_to_date_and_use_bundled():
+    c, _ = make()
+    seen = []
+    c.add_listener(seen.append)
+    c.check()
+    c.join()
+    assert seen[-1] == "available"
+    c._check = lambda: CheckResult("up_to_date", REV_A, REV_A, None, "Up to date.")
+    c.check()
+    c.join()
+    assert seen[-1] == "up_to_date"
+    c.accept_check_result(available())
+    assert seen[-1] == "available"
+    c.use_bundled()
+    assert seen[-1] == "idle"
+
+
+def test_listener_not_repeated_for_progress_and_errors_are_swallowed():
+    c, _ = make()
+    seen = []
+    c.add_listener(seen.append)
+    c.add_listener(lambda s: (_ for _ in ()).throw(RuntimeError("boom")))
+    c.check()
+    c.join()
+    c.download()
+    d = FakeDownloader.instances[0]
+    d.on_state("downloading", 0.1, "")
+    d.on_state("downloading", 0.2, "")
+    assert seen.count("downloading") == 1

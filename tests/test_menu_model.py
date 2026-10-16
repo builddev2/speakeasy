@@ -37,3 +37,16 @@ def test_quit_warning():
     assert quit_warning(True, 0) == "The current recording will be discarded."
     assert quit_warning(True, 1) == "The current recording and 1 processing meeting will be discarded."
     assert quit_warning(True, 3) == "The current recording and 3 processing meetings will be discarded."
+
+
+from speakeasy.ui.menu_model import update_item_visible_for_state
+
+
+@pytest.mark.parametrize("state,visible", [
+    ("available", True),
+    ("idle", False), ("checking", False), ("downloading", False), ("verifying", False),
+    ("ready", False), ("up_to_date", False), ("offline", False), ("failed", False),
+    ("cancelled", False), ("error", False),
+])
+def test_update_item_visible_only_while_offered(state, visible):
+    assert update_item_visible_for_state(state) is visible

@@ -38,6 +38,14 @@ class ModelUpdateController:
         self._progress = None
         self._last_progress_emit = None
         self._switched_to_bundled = False
+        self._listeners = []
+        self._last_notified_state = None
+
+    def add_listener(self, listener) -> None:
+        """listener(state) runs, on whichever thread changed it, when the state
+        changes (not for progress ticks). The menubar uses it to hide its
+        "update available" item once the offer is gone."""
+        self._listeners.append(listener)
 
     def set_emitter(self, emitter) -> None:
         self._emitter = emitter
@@ -91,7 +99,21 @@ class ModelUpdateController:
     def _emit(self) -> None:
         self._emit_payload(self.status())
 
+    def _notify_listeners(self, payload) -> None:
+        state = payload.get("state") if isinstance(payload, dict) else None
+        with self._lock:
+            if state is None or state == self._last_notified_state:
+                return
+            self._last_notified_state = state
+            listeners = list(self._listeners)
+        for listener in listeners:
+            try:
+                listener(state)
+            except Exception:
+                pass
+
     def _emit_payload(self, payload) -> None:
+        self._notify_listeners(payload)
         emitter = self._emitter
         if emitter is not None:
             try:

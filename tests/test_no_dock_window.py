@@ -40,3 +40,10 @@ def test_frozen_app_hidden_imports_include_pill_modules():
     spec = (ROOT / "packaging/Speakeasy.spec").read_text()
     for name in ("pill_controller", "pill_panel", "next_up_view", "login_item"):
         assert f'"speakeasy.ui.{name}"' in spec
+
+
+def test_frozen_app_hidden_imports_include_model_update_modules():
+    spec = (ROOT / "packaging/Speakeasy.spec").read_text()
+    for name in ("model_verify", "model_update", "model_source", "model_store",
+                 "ui.model_update_controller"):
+        assert f'"speakeasy.{name}"' in spec

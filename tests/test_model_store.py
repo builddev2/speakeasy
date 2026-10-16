@@ -195,3 +195,103 @@ def test_mark_failed_ignores_hostile_revision(tmp_path):
     assert not d.exists()
     assert [p.name for p in root.iterdir() if p.name.startswith("failed-")] == ["failed-rev-aaa"]
     assert not (tmp_path / "evil").exists() and not (tmp_path / "models" / "evil").exists()
+
+
+def test_loading_pointer_is_not_valid_for_use():
+    _rev()
+    _activate(status="loading")
+    assert model_store.update_dir_if_valid() is None
+    assert settings.model_path() == settings.bundled_model_path()
+
+
+def test_loading_pointer_at_launch_uses_bundled_and_marks_failed(monkeypatch):
+    # The previous launch died while loading this update.
+    _rev()
+    _activate(status="loading")
+    loads = []
+    _stub_transcriber(monkeypatch, loads)
+    transcriber.Transcriber()
+    assert loads == [settings.bundled_model_path()]
+    assert model_store.read_active() is None
+    assert (model_store.speech_models_dir() / "failed-aaa").is_dir()
+
+
+def test_successful_load_goes_pending_loading_confirmed(monkeypatch):
+    d = _rev()
+    _activate(status="pending")
+    seen = []
+
+    def fake_load(source):
+        seen.append(model_store.read_active()["status"])
+        return object()
+
+    _stub_transcriber(monkeypatch, [])
+    monkeypatch.setattr(transcriber, "_load_model", fake_load)
+    transcriber.Transcriber()
+    assert seen == ["loading"]
+    assert model_store.read_active()["status"] == "confirmed"
+    assert model_store.update_dir_if_valid() == d
+
+
+def test_confirmed_update_is_not_marked_loading(monkeypatch):
+    _rev()
+    _activate(status="confirmed")
+    seen = []
+
+    def fake_load(source):
+        seen.append(model_store.read_active()["status"])
+        return object()
+
+    _stub_transcriber(monkeypatch, [])
+    monkeypatch.setattr(transcriber, "_load_model", fake_load)
+    transcriber.Transcriber()
+    assert seen == ["confirmed"]
+
+
+def test_failure_writing_loading_does_not_block_launch(monkeypatch):
+    d = _rev()
+    _activate(status="pending")
+    loads = []
+    _stub_transcriber(monkeypatch, loads)
+    real = model_store.write_active
+
+    def write(data):
+        if data.get("status") == "loading":
+            raise OSError("read-only")
+        real(data)
+
+    monkeypatch.setattr(model_store, "write_active", write)
+    transcriber.Transcriber()
+    assert loads == [str(d)]
+    assert model_store.read_active()["status"] == "confirmed"
+
+
+def test_manage_update_false_does_no_bookkeeping(monkeypatch):
+    d = _rev()
+    _activate(status="pending")
+    loads = []
+    _stub_transcriber(monkeypatch, loads)
+    calls = []
+    for name in ("confirm_loaded", "mark_failed", "recover_interrupted_load", "mark_loading"):
+        monkeypatch.setattr(model_store, name, lambda *a, _n=name: calls.append(_n), raising=False)
+    transcriber.Transcriber(manage_update=False)
+    assert loads == [str(d)]
+    assert calls == []
+    assert model_store.read_active()["status"] == "pending"
+
+
+def test_manage_update_false_failure_just_raises(monkeypatch):
+    d = _rev()
+    _activate(status="pending")
+    _stub_transcriber(monkeypatch, [], fail_on=str(d))
+    with pytest.raises(RuntimeError):
+        transcriber.Transcriber(manage_update=False)
+    assert model_store.read_active()["status"] == "pending"
+    assert d.is_dir()
+
+
+def test_diagnostic_call_sites_do_not_manage_the_update():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "speakeasy"
+    assert "Transcriber(manage_update=False)" in (root / "evaluate.py").read_text()
+    assert "Transcriber(manage_update=False)" in (root / "inference_probe.py").read_text()

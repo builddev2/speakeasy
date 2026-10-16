@@ -141,7 +141,10 @@ class Transcriber:
                 source = settings.bundled_model_path()
                 self._model = _load_model(source)
             else:
-                model_store.confirm_loaded()
+                try:
+                    model_store.confirm_loaded()
+                except Exception as exc:
+                    print(f"Could not confirm speech-model update ({exc!r})")
         else:
             self._model = _load_model(source)
         loaded = time.perf_counter_ns()

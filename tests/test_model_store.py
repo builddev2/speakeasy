@@ -157,3 +157,15 @@ def test_transcriber_bundled_does_not_touch_store(monkeypatch):
     _stub_transcriber(monkeypatch, loads)
     transcriber.Transcriber()
     assert loads == [settings.bundled_model_path()]
+
+
+def test_transcriber_survives_confirm_failure(monkeypatch):
+    d = _rev()
+    _activate()
+    loads = []
+    _stub_transcriber(monkeypatch, loads)
+    def boom(*a):
+        raise OSError("disk full")
+    monkeypatch.setattr(os, "replace", boom)
+    transcriber.Transcriber()
+    assert loads == [str(d)]

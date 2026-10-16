@@ -93,6 +93,19 @@ echo "==> Bundling model ($(du -sh "$SNAP" | cut -f1))"
 mkdir -p "$APP/Contents/Resources/model"
 rsync -aL "$SNAP/config.json" "$SNAP/model.safetensors" "$APP/Contents/Resources/model/"
 
+# Record which Hugging Face revision/files were bundled (read by the update check).
+REV=$(basename "$SNAP")
+for f in config.json model.safetensors; do
+    if [ ! -L "$SNAP/$f" ]; then
+        echo "error: $SNAP/$f is not a symlink into the HF cache; cannot record the model identity" >&2
+        exit 1
+    fi
+done
+CFG_ID=$(basename "$(readlink "$SNAP/config.json")")
+ST_ID=$(basename "$(readlink "$SNAP/model.safetensors")")
+printf '{"model_id": "mlx-community/parakeet-tdt-0.6b-v2", "revision": "%s", "files": {"config.json": "%s", "model.safetensors": "%s"}}\n' \
+    "$REV" "$CFG_ID" "$ST_ID" > "$APP/Contents/Resources/model/.source"
+
 echo "==> Bundling diarization models ($(du -sh "$DIAR" | cut -f1))"
 mkdir -p "$APP/Contents/Resources/diarization"
 rsync -aL "$DIAR/segmentation.onnx" "$DIAR/embedding.onnx" "$APP/Contents/Resources/diarization/"
@@ -144,6 +157,10 @@ SHERPA=$(find "$APP" -name "*_sherpa_onnx*" | head -1)
 MCPB_FILES=$(unzip -Z1 "$APP/Contents/Resources/Speakeasy.mcpb" | grep -v '/$' | sort | tr '\n' ' ')
 [ "$MCPB_FILES" = "manifest.json server/speakeasy-mcp " ] \
     || { echo "error: unexpected files in Speakeasy.mcpb: $MCPB_FILES"; exit 1; }
+[ -s "$APP/Contents/Resources/model/.source" ] \
+    || { echo "error: model identity (.source) missing from bundle"; exit 1; }
+printf '%s' "$REV" | grep -Eq '^[0-9a-f]{40}$' \
+    || { echo "error: bundled model revision is not a 40-hex commit: $REV"; exit 1; }
 [ -s "$APP/Contents/Resources/build-commit.txt" ] \
     || { echo "error: build provenance missing from bundle"; exit 1; }
 LEFTOVERS=$(find "$APP" \( -iname "*librosa*" -o -iname "*numba*" -o -iname "*llvmlite*" \) | head -3)

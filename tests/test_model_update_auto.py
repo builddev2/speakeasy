@@ -133,3 +133,41 @@ def test_failed_write_leaves_old_settings_intact(monkeypatch):
         settings.set_model_update_settings(last_check=2.0)
     assert path.read_text(encoding="utf-8") == before
     assert json.loads(before)["model_update"]["last_check"] == 1.0
+
+
+def test_failed_replace_leaves_no_tmp_files(monkeypatch):
+    import os
+    settings.set_model_update_settings(auto_check=True)
+    d = settings._settings_path().parent
+
+    def boom(*a, **k):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(OSError):
+        settings.set_model_update_settings(last_check=2.0)
+    assert list(d.glob("*.tmp")) == []
+
+
+def test_writes_use_distinct_temp_paths(monkeypatch):
+    import os
+    srcs = []
+    real = os.replace
+
+    def spy(src, dst):
+        srcs.append(str(src))
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+    settings._write({"a": 1})
+    settings._write({"a": 2})
+    assert len(srcs) == 2 and srcs[0] != srcs[1]
+
+
+def test_write_preserves_existing_mode():
+    import os
+    settings._write({"a": 1})
+    path = settings._settings_path()
+    os.chmod(path, 0o600)
+    settings._write({"a": 2})
+    assert (os.stat(path).st_mode & 0o777) == 0o600

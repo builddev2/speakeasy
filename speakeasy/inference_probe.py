@@ -55,7 +55,7 @@ def main(argv=None):
         import numpy as np
         from mlx.utils import tree_flatten
         audio = module.read_wav_mono_f32(args.wav)
-        model = module.Transcriber()
+        model = module.Transcriber(manage_update=False)
         frozen = bool(getattr(sys, "frozen", False))
         dirty = None if frozen else bool(subprocess.check_output(
             ["git", "status", "--porcelain"], cwd=Path(__file__).resolve().parent.parent).strip())

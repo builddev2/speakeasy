@@ -31,7 +31,7 @@ def main() -> None:
     wav_dir = Path(sys.argv[1])
     profile = Profile.load(sys.argv[2]) if len(sys.argv) > 2 else None
 
-    t = Transcriber()  # warms the model
+    t = Transcriber(manage_update=False)  # warms the model
     for wav in sorted(wav_dir.glob("*.wav")):
         audio = read_wav_mono_f32(wav)
         for enabled in (True, False):

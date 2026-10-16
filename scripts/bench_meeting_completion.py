@@ -55,7 +55,7 @@ def main():
                 for _ in range(args.minutes * 3):
                     dest.writeframes(block.tobytes())
         engine = object.__new__(DictationEngine)
-        engine.transcriber = Transcriber()
+        engine.transcriber = Transcriber(manage_update=False)
         from speakeasy.diarization_process import ChildDiarizationRunner
         engine.diarization_runner = ChildDiarizationRunner()
         engine._meeting_options = MeetingOptions()

@@ -71,7 +71,7 @@ def build_engine(root: Path):
     from speakeasy.transcriber import Transcriber
 
     engine = object.__new__(DictationEngine)
-    engine.transcriber = Transcriber()
+    engine.transcriber = Transcriber(manage_update=False)
     engine.diarization_runner = ChildDiarizationRunner()
     engine.library = MeetingLibrary()
     engine._meeting_options = MeetingOptions()

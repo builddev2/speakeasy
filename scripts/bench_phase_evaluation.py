@@ -39,7 +39,7 @@ def main():
     if len(audio) < 4000 or not reference.strip():
         parser.error("nonempty PCM16 audio and reference required")
     with contextlib.redirect_stdout(io.StringIO()):
-        model = module.Transcriber()
+        model = module.Transcriber(manage_update=False)
     original = module.get_logmel
     model_class = type(model._model)
     original_generate, original_decode = model_class.generate, model_class.decode

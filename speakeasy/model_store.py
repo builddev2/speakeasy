@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import settings
 
-_VALID_STATUSES = ("pending", "confirmed")
+_VALID_STATUSES = ("pending", "confirmed")  # "loading" is deliberately absent
 _in_use: set[Path] = set()
 _in_use_lock = threading.Lock()
 
@@ -83,6 +83,24 @@ def update_dir_if_valid() -> Path | None:
     except (OSError, ValueError, KeyError, TypeError):
         return None
     return directory
+
+
+def mark_loading() -> None:
+    """Pending -> loading, written before the model is read. If the process
+    dies mid-load the next launch finds "loading" and abandons the update."""
+    active = read_active()
+    if active and active.get("status") == "pending":
+        active["status"] = "loading"
+        write_active(active)
+
+
+def recover_interrupted_load() -> bool:
+    """A "loading" pointer means the previous attempt never finished: fail it."""
+    active = read_active()
+    if active and active.get("status") == "loading":
+        mark_failed()
+        return True
+    return False
 
 
 def confirm_loaded() -> None:

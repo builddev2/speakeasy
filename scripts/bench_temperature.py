@@ -48,7 +48,7 @@ def main():
     group = "short" if duration < 5 else "medium" if duration < 15 else "long"
     started = time.perf_counter()
     with contextlib.redirect_stdout(io.StringIO()):
-        transcriber = Transcriber()
+        transcriber = Transcriber(manage_update=False)
     warmup_finished = time.perf_counter()
     load_ms = (warmup_finished - started) * 1000
     source_tree_dirty = subprocess.run(

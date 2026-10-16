@@ -148,7 +148,7 @@ def main() -> None:
     audio = read_wav_mono_f32(args.audio)
     duration = len(audio) / config.SAMPLE_RATE
     started = time.perf_counter()
-    transcriber = Transcriber()
+    transcriber = Transcriber(manage_update=False)
     asr_started = time.perf_counter()
     result = transcriber.transcribe_long(audio)
     asr_seconds = time.perf_counter() - asr_started

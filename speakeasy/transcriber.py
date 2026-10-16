@@ -124,15 +124,28 @@ class Transcriber:
     does both on a single dedicated worker thread.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, manage_update: bool = True) -> None:
+        """manage_update=False (diagnostics): load whatever settings.model_path()
+        names but leave the update pointer alone, so a probe can never confirm,
+        fail or otherwise change the user's real update."""
+        if manage_update:
+            try:
+                if model_store.recover_interrupted_load():
+                    print("Speech-model update did not finish loading last time; using bundled model")
+            except Exception as exc:
+                print(f"Could not check for an interrupted model load ({exc!r})")
         source = settings.model_path()
         # Process-wide; set before loading so the fp32→bf16 cast's freed
         # buffers are trimmed too. See config.MLX_CACHE_LIMIT_BYTES.
         mx.set_cache_limit(config.MLX_CACHE_LIMIT_BYTES)
         print(f"Loading speech model from {source}")
         started = time.perf_counter_ns()
-        update = model_store.update_dir_if_valid()
+        update = model_store.update_dir_if_valid() if manage_update else None
         if update is not None and str(update) == source:
+            try:
+                model_store.mark_loading()
+            except Exception as exc:
+                print(f"Could not mark the speech-model update as loading ({exc!r})")
             try:
                 self._model = _load_model(source)
             except Exception as exc:

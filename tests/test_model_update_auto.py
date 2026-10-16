@@ -171,3 +171,21 @@ def test_write_preserves_existing_mode():
     os.chmod(path, 0o600)
     settings._write({"a": 2})
     assert (os.stat(path).st_mode & 0o777) == 0o600
+
+
+def test_fresh_settings_file_is_0644():
+    import os
+    path = settings._settings_path()
+    if path.exists():
+        path.unlink()
+    settings._write({"a": 1})
+    assert (os.stat(path).st_mode & 0o777) == 0o644
+
+
+def test_existing_0644_mode_stays_0644():
+    import os
+    settings._write({"a": 1})
+    path = settings._settings_path()
+    os.chmod(path, 0o644)
+    settings._write({"a": 2})
+    assert (os.stat(path).st_mode & 0o777) == 0o644

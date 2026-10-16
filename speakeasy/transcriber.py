@@ -1,5 +1,6 @@
 """Local speech-to-text via Parakeet on Apple MLX."""
 
+import json
 import os
 import queue
 import sys
@@ -52,7 +53,9 @@ except ImportError:
 
 import mlx.core as mx
 import numpy as np
+from mlx.utils import tree_flatten, tree_unflatten
 from parakeet_mlx import from_pretrained
+from parakeet_mlx.utils import from_config
 from parakeet_mlx.alignment import (
     merge_longest_common_subsequence,
     merge_longest_contiguous,
@@ -93,6 +96,26 @@ def _model_operation(operation):
     return decorate
 
 
+def _load_model(source: str):
+    """Load a local model directory directly (no Hugging Face lookup).
+
+    Anything that is not an existing directory is treated as a hub id and goes
+    through parakeet-mlx's from_pretrained.
+    """
+    directory = Path(source)
+    if not directory.is_dir():
+        return from_pretrained(source)
+    with open(directory / "config.json", "r") as f:
+        model = from_config(json.load(f))
+    model.load_weights(str(directory / "model.safetensors"))
+    params = dict(tree_flatten(model.parameters()))
+    if any(v.dtype != mx.bfloat16 for v in params.values()):
+        model.update(
+            tree_unflatten([(k, v.astype(mx.bfloat16)) for k, v in params.items()])
+        )
+    return model
+
+
 class Transcriber:
     """Wraps the Parakeet MLX model.
 
@@ -108,7 +131,7 @@ class Transcriber:
         mx.set_cache_limit(config.MLX_CACHE_LIMIT_BYTES)
         print(f"Loading speech model from {source}")
         started = time.perf_counter_ns()
-        self._model = from_pretrained(source)
+        self._model = _load_model(source)
         loaded = time.perf_counter_ns()
         self._model_load_ms = (loaded - started) / 1e6
         self._warmup_complete = False

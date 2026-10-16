@@ -8,7 +8,7 @@ from speakeasy.transcriber import Transcriber
 def test_constructor_warms_batch_and_complete_stream_lifecycle(monkeypatch):
     calls = []
     model = object()
-    monkeypatch.setattr("speakeasy.transcriber.from_pretrained", lambda source: model)
+    monkeypatch.setattr("speakeasy.transcriber._load_model", lambda source: model)
     monkeypatch.setattr(
         Transcriber,
         "transcribe",
@@ -37,7 +37,7 @@ def test_constructor_caps_mlx_cache_before_loading_model(monkeypatch):
         lambda limit: events.append(("cap", limit)) or 0,
     )
     monkeypatch.setattr(
-        "speakeasy.transcriber.from_pretrained",
+        "speakeasy.transcriber._load_model",
         lambda source: events.append(("load",)) or object(),
     )
     monkeypatch.setattr(Transcriber, "transcribe", lambda self, audio: "")

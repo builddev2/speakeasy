@@ -30,14 +30,26 @@ def _hits(tree):
             yield node.lineno, f"string containing {CURL}"
 
 
-def test_only_model_update_touches_the_network():
+def _scan(pkg_root, allowed):
     problems = []
-    for path in sorted(PKG.rglob("*.py")):
-        if path == ALLOWED:
+    for path in sorted(Path(pkg_root).rglob("*.py")):
+        if path == allowed:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for lineno, what in _hits(tree):
-            problems.append(f"{path.relative_to(ROOT)}:{lineno}: {what}")
+            problems.append(f"{path}:{lineno}: {what}")
+    return problems
+
+
+def test_scan_exempts_only_the_allowed_file(tmp_path):
+    (tmp_path / "model_update.py").write_text("import socket\n")
+    (tmp_path / "other.py").write_text("import socket\n")
+    problems = _scan(tmp_path, tmp_path / "model_update.py")
+    assert len(problems) == 1 and "other.py:1" in problems[0]
+
+
+def test_only_model_update_touches_the_network():
+    problems = [p.replace(str(ROOT) + "/", "") for p in _scan(PKG, ALLOWED)]
     assert not problems, (
         "network access is allowed only in speakeasy/model_update.py:\n  "
         + "\n  ".join(problems)

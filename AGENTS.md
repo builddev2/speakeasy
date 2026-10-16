@@ -67,8 +67,8 @@ visibly to the original mic-only diarization mode. See README's
   Dependencies are pinned exactly in `requirements.txt` (supply-chain safety) —
   don't unpin or add casually. The two diarization ONNX models are downloaded
   once at dev/build time (`scripts/fetch_diarization_models.sh`, checksum
-  verified) and bundled into the app — never fetched at runtime, same pattern
-  as the speech model.
+  verified) and bundled into the app — bundled at build time, never fetched at
+  runtime.
 - **Apple Silicon only** (MLX/Metal).
 - **`--mcp` stdout is JSON-RPC only.** `mcp_server.main()` keeps a private dup
   of fd 1 for the protocol, then `dup2`s stderr onto fd 1 and sets

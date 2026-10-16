@@ -36,6 +36,12 @@ def _dev_identity() -> dict | None:
     if not revs:
         return None
     snap = revs[0]
+    try:
+        main = (snapshots.parent / "refs" / "main").read_text().strip()
+    except OSError:
+        main = ""
+    if main and main == Path(main).name and (snapshots / main).is_dir():
+        snap = snapshots / main
     files = {}
     for name in _FILES:
         path = snap / name

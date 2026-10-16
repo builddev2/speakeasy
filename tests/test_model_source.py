@@ -46,6 +46,30 @@ def _identity(rev=REV):
             "files": {"config.json": CFG, "model.safetensors": ST}}
 
 
+def test_dev_identity_prefers_refs_main(tmp_path, monkeypatch):
+    other = "0" * 40   # sorts before REV
+    _fake_cache(tmp_path, monkeypatch, revs=(other, REV))
+    refs = tmp_path / "hub" / ("models--" + config.MODEL_ID.replace("/", "--")) / "refs"
+    refs.mkdir()
+    (refs / "main").write_text(REV + "\n")
+    assert model_source.bundled_identity()["revision"] == REV
+
+
+def test_dev_identity_refs_main_without_snapshot_falls_back(tmp_path, monkeypatch):
+    other = "0" * 40
+    _fake_cache(tmp_path, monkeypatch, revs=(other, REV))
+    refs = tmp_path / "hub" / ("models--" + config.MODEL_ID.replace("/", "--")) / "refs"
+    refs.mkdir()
+    (refs / "main").write_text("f" * 40)
+    assert model_source.bundled_identity()["revision"] == other
+
+
+def test_dev_identity_without_refs_uses_sorted_first(tmp_path, monkeypatch):
+    other = "0" * 40
+    _fake_cache(tmp_path, monkeypatch, revs=(REV, other))
+    assert model_source.bundled_identity()["revision"] == other
+
+
 def test_dev_identity_from_cache(tmp_path, monkeypatch):
     _fake_cache(tmp_path, monkeypatch)
     assert model_source.bundled_identity() == _identity()

@@ -158,6 +158,31 @@ def check(runner: Runner | None = None) -> CheckResult:
         return _error("unexpected problem")
 
 
+CHECK_INTERVAL = 7 * 86400   # seconds between opt-in automatic checks
+
+
+def maybe_auto_check(now, runner: Runner | None = None) -> CheckResult | None:
+    """Run the opt-in weekly check if it is on and due; otherwise do nothing.
+    Records last_check after every completed check, whatever its outcome, so a
+    failing network is not retried at every launch. Never downloads."""
+    from . import settings
+    try:
+        cfg = settings.get_model_update_settings()
+        if not cfg["auto_check"]:
+            return None
+        last = cfg["last_check"]
+        if last is not None and now - last < CHECK_INTERVAL:
+            return None
+        result = check(runner)
+        settings.set_model_update_settings(last_check=now)
+    except Exception as exc:
+        log.warning("automatic model check failed: %s", type(exc).__name__)
+        return None
+    if result.state == "offline":
+        log.info("automatic model update check: offline")
+    return result
+
+
 # ---------------------------------------------------------------- download
 
 _POLL = 0.5          # seconds between progress polls while curl runs

@@ -198,6 +198,34 @@ def set_identify_voices(value) -> bool:
     return value
 
 
+def get_model_update_settings() -> dict:
+    """Opt-in weekly speech-model check: off by default; last_check is epoch seconds."""
+    raw = _read().get("model_update")
+    raw = raw if isinstance(raw, dict) else {}
+    auto = raw.get("auto_check")
+    last = raw.get("last_check")
+    return {
+        "auto_check": auto if isinstance(auto, bool) else False,
+        "last_check": float(last) if _is_number(last) and not isinstance(last, bool) else None,
+    }
+
+
+def set_model_update_settings(auto_check=None, last_check=None) -> dict:
+    current = get_model_update_settings()
+    if auto_check is not None:
+        if not isinstance(auto_check, bool):
+            raise ValueError("Automatic check must be on or off.")
+        current["auto_check"] = auto_check
+    if last_check is not None:
+        if isinstance(last_check, bool) or not _is_number(last_check):
+            raise ValueError("Last check must be a number.")
+        current["last_check"] = float(last_check)
+    data = _read()
+    data["model_update"] = current
+    _write(data)
+    return current
+
+
 def _is_number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 

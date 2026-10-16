@@ -49,7 +49,8 @@ from ..engine import DictationEngine, State
 from ..meeting_options import default_options
 from ..profiles import Profile, list_profiles, load_profiles
 from . import permissions
-from .menu_model import menu_flags, processing_suffix, quit_warning, start_enabled
+from .menu_model import (UPDATE_ITEM_TITLE, menu_flags, processing_suffix, quit_warning,
+                         start_enabled, update_available_after, update_item_visible)
 from .next_up import next_up
 from .next_up_view import NextUpView
 
@@ -258,6 +259,8 @@ class StatusItemController(NSObject):
         self._sync_train_item()
 
         menu.addItem_(NSMenuItem.separatorItem())
+        self._update_item = add(UPDATE_ITEM_TITLE, b"openSettings:")
+        self._update_item.setHidden_(not update_item_visible(False))
         add("Settings…", b"openSettings:", ",")
         add("Quit Speakeasy", b"quitApp:", "q")
 
@@ -296,6 +299,8 @@ class StatusItemController(NSObject):
 
     def engineStateChanged_(self, state_name):
         state = State(str(state_name))
+        if state is State.READY:
+            self._start_auto_check()
         profile = self.engine.profile
         text = _STATE_TEXT[state]
         if state is State.READY:
@@ -334,6 +339,29 @@ class StatusItemController(NSObject):
         )
         self._sync_meeting_items(state)
         self._apply_flags(menu_flags(state.value, self.engine.pending_meeting_jobs))
+
+    @objc.python_method
+    def _start_auto_check(self):
+        """Once per launch, after the first Ready: opt-in weekly model check on a
+        daemon thread. The result hops back to the main thread."""
+        if getattr(self, "_auto_check_started", False):
+            return
+        self._auto_check_started = True
+
+        def run():
+            import time
+
+            from .. import model_update  # lazy: only the app layer may reach it
+            result = model_update.maybe_auto_check(time.time())
+            if update_available_after(result):
+                self.performSelectorOnMainThread_withObject_waitUntilDone_(
+                    b"modelUpdateAvailable:", "1", False)
+
+        import threading
+        threading.Thread(target=run, name="model-auto-check", daemon=True).start()
+
+    def modelUpdateAvailable_(self, flag):
+        self._update_item.setHidden_(not update_item_visible(True))
 
     @objc.python_method
     def _sync_meeting_items(self, state):

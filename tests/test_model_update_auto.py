@@ -84,3 +84,52 @@ def test_available_state_flag():
     assert update_available_after(avail) is True
     assert update_available_after(off) is False
     assert update_available_after(None) is False
+
+
+def test_available_never_downloads(monkeypatch):
+    import json
+    import threading
+
+    class Hub:
+        def __init__(self):
+            self.starts = 0
+
+        def run(self, argv, *, timeout):
+            body = {"sha": "b" * 40, "siblings": [
+                {"rfilename": "config.json", "size": 30_000, "blobId": "9" * 40},
+                {"rfilename": "model.safetensors", "size": 2_470_000_000,
+                 "blobId": "f" * 40, "lfs": {"sha256": "8" * 64, "size": 2_470_000_000}}]}
+            return 0, json.dumps(body).encode()
+
+        def start(self, argv):
+            self.starts += 1
+            raise AssertionError("must not download")
+
+    class Boom:
+        def __init__(self, *a, **k):
+            raise AssertionError("Downloader constructed")
+
+    monkeypatch.setattr(model_update, "Downloader", Boom)
+    settings.set_model_update_settings(auto_check=True)
+    hub = Hub()
+    result = model_update.maybe_auto_check(9000.0, runner=hub)
+    assert result.state == "available"
+    assert hub.starts == 0
+    assert not [t for t in threading.enumerate() if t.name == "model-download"]
+
+
+def test_failed_write_leaves_old_settings_intact(monkeypatch):
+    import json
+    import os
+    settings.set_model_update_settings(auto_check=True, last_check=1.0)
+    path = settings._settings_path()
+    before = path.read_text(encoding="utf-8")
+
+    def boom(*a, **k):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(OSError):
+        settings.set_model_update_settings(last_check=2.0)
+    assert path.read_text(encoding="utf-8") == before
+    assert json.loads(before)["model_update"]["last_check"] == 1.0

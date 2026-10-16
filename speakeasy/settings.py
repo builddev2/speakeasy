@@ -12,9 +12,11 @@ demand — no caching layer to invalidate.
 
 import json
 import math
+import os
 import re
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 from . import config
@@ -100,10 +102,20 @@ def _read() -> dict:
 
 
 def _write(data: dict) -> None:
+    """Atomic: temp file in the same directory, fsync, os.replace, so a reader
+    on another thread never sees a half-written file."""
     data["schema"] = _SCHEMA
-    _settings_path().write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    path = _settings_path()
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+# The auto-check thread and the main thread can both update model_update.
+_model_update_lock = threading.Lock()
 
 
 def get_last_profile() -> str | None:
@@ -211,6 +223,11 @@ def get_model_update_settings() -> dict:
 
 
 def set_model_update_settings(auto_check=None, last_check=None) -> dict:
+    with _model_update_lock:
+        return _set_model_update_settings(auto_check, last_check)
+
+
+def _set_model_update_settings(auto_check, last_check) -> dict:
     current = get_model_update_settings()
     if auto_check is not None:
         if not isinstance(auto_check, bool):

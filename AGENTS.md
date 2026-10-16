@@ -58,7 +58,11 @@ visibly to the original mic-only diarization mode. See README's
 
 ## Hard constraints
 
-- **Fully offline, always.** No network calls at runtime, ever. Prefer removing
+- **Fully offline, always — with one exception: the user-started (or opt-in
+  weekly) speech-model update check in `speakeasy/model_update.py`, which
+  contacts huggingface.co for `config.MODEL_ID` only. Launch, dictation and
+  meetings never wait on it. `tests/test_offline_guard.py` enforces this.**
+  Prefer removing
   external dependencies over adding them; the model and every dep are bundled.
   Dependencies are pinned exactly in `requirements.txt` (supply-chain safety) —
   don't unpin or add casually. The two diarization ONNX models are downloaded

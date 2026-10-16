@@ -347,7 +347,25 @@ fallback outcome. Saved meetings retain only that fixed metadata schema plus
 the transcript and timing offsets — never application/device names, PIDs,
 window titles, audio samples, or other provenance that could reveal content.
 
-### Notes
+### Updating the speech model
+
+Settings has a speech-model section with a **Check for update** button. It asks
+huggingface.co whether the files of the speech model named by `MODEL_ID` have
+changed, and it contacts nothing else. This is the only network use in
+Speakeasy; launch, dictation and meetings never wait on it.
+
+- The check is opt-in. An automatic check is off by default; if you turn it on,
+  it runs at most once every 7 days, in the background, and it only checks.
+- The app never downloads without asking. If a newer model exists, Settings
+  shows its download size in GB to one decimal place (for example 2.5 GB) and
+  waits for you to press **Download update**.
+- An update takes effect the next time you launch Speakeasy.
+- **Use bundled model** removes the downloaded update, so the model that ships
+  inside the app is used from the next launch.
+- Transcripts may differ slightly from the current model, including for
+  meetings you reprocess after updating.
+
+## Notes
 
 Each meeting has a **Notes** tab for your own notes: headings (levels 1–2),
 bold, italic, bullet and numbered lists, and checklists. They save by
@@ -450,8 +468,9 @@ stopped from a banner follows a click on that banner's button.
 
 Speakeasy can let Claude read your meeting library through a small local
 [MCP](https://modelcontextprotocol.io) server. It runs on your Mac as a
-separate process started by Claude (Speakeasy itself still makes no network
-calls) and is read-only except for meeting notes and tags. What Claude reads is sent to
+separate process started by Claude (Speakeasy itself makes no network calls
+for this, and only the optional speech-model update check described under
+[Updating the speech model](#updating-the-speech-model) ever uses the network) and is read-only except for meeting notes and tags. What Claude reads is sent to
 Anthropic, at your request, as part of your conversation with Claude.
 
 **Claude Desktop.** In Speakeasy open **Meetings → Connect Claude** and choose

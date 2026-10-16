@@ -195,3 +195,30 @@ def test_not_imported_by_runtime_modules():
         p = pathlib.Path(model_update.__file__).parent / f"{name}.py"
         if p.exists():
             assert "model_update" not in p.read_text()
+
+
+def test_missing_safetensors_size_is_error(current):
+    body = hub(sha=REV_NEW, safe="9" * 64)
+    del body["siblings"][2]["lfs"]["size"]
+    del body["siblings"][2]["size"]
+    r = model_update.check(FakeRunner(body=body))
+    assert r.state == "error" and "size" in r.message
+
+
+def test_missing_config_size_is_error(current):
+    body = hub(sha=REV_NEW, safe="9" * 64)
+    del body["siblings"][1]["size"]
+    r = model_update.check(FakeRunner(body=body))
+    assert r.state == "error" and "size" in r.message
+
+
+def test_remote_files_and_sizes(current):
+    r = model_update.check(FakeRunner(body=hub(sha=REV_NEW, safe="9" * 64)))
+    assert r.remote_files == {"config.json": CFG, "model.safetensors": "9" * 64}
+    assert r.remote_sizes == {"config.json": 30_000, "model.safetensors": 2_470_000_000}
+    for body in (hub(), hub(sha=REV_NEW)):
+        r = model_update.check(FakeRunner(body=body))
+        assert r.remote_files == {"config.json": CFG, "model.safetensors": SAFE}
+        assert r.remote_sizes["config.json"] == 30_000
+    for r in (model_update.check(FakeRunner(rc=28, raw=b"")), model_update.check(FakeRunner(raw=b"x"))):
+        assert r.remote_files is None and r.remote_sizes is None

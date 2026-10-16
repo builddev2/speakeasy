@@ -48,6 +48,8 @@ class CheckResult:
     current_revision: str | None
     download_bytes: int | None
     message: str
+    remote_files: dict | None = None
+    remote_sizes: dict | None = None
 
 
 def format_gb(n) -> str:
@@ -115,17 +117,24 @@ def _check(runner) -> CheckResult:
     safe_id = lfs.get("sha256") if isinstance(lfs, dict) else None
     if not isinstance(cfg_id, str) or not isinstance(safe_id, str):
         return _error("model file ids missing from reply", sha, cur_rev)
+    safe_size = _size(lfs.get("size")) or _size(safe_s.get("size"))
+    cfg_size = _size(cfg_s.get("size"))
+    if not safe_size or not cfg_size:
+        return _error("model size missing from reply", sha, cur_rev)
+    files = {"config.json": cfg_id, "model.safetensors": safe_id}
+    sizes = {"config.json": cfg_size, "model.safetensors": safe_size}
     if cfg_id == cur_cfg and safe_id == cur_safe:
         if sha == cur_rev:
             return CheckResult("up_to_date", sha, cur_rev, None,
-                               f"Speech model is up to date (revision {_short(sha)}).")
+                               f"Speech model is up to date (revision {_short(sha)}).",
+                               files, sizes)
         return CheckResult("same_files", sha, cur_rev, None,
                            f"Up to date. The repository changed ({_short(cur_rev)} → "
-                           f"{_short(sha)}), but the model files are the same.")
-    safe_size = _size(lfs.get("size")) or _size(safe_s.get("size"))
-    total = safe_size + _size(cfg_s.get("size"))
+                           f"{_short(sha)}), but the model files are the same.", files, sizes)
+    total = safe_size + cfg_size
     return CheckResult("available", sha, cur_rev, total, "A newer speech model is available "
-                       f"(revision {_short(sha)}, {format_gb(total)} download).")
+                       f"(revision {_short(sha)}, {format_gb(total)} download).",
+                       files, sizes)
 
 
 def check(runner: Runner | None = None) -> CheckResult:

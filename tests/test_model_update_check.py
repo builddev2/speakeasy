@@ -181,7 +181,7 @@ def test_subprocess_runner_start(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen",
                         lambda argv, **kw: seen.update(argv=argv, kw=kw) or "proc")
     assert model_update.SubprocessRunner().start(["curl"]) == "proc"
-    assert seen["kw"] == {"stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE}
+    assert seen["kw"] == {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
 
 
 def test_format_gb():

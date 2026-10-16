@@ -10,6 +10,9 @@ def main() -> None:
         from .inference_probe import main as probe_main
         probe_main(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "--verify-model":
+        from .model_verify import main as verify_main
+        sys.exit(verify_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--mcp":
         # Before argparse and any heavy import: Claude's client owns stdout.
         from .mcp_server import main as mcp_main

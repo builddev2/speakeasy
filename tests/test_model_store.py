@@ -169,3 +169,18 @@ def test_transcriber_survives_confirm_failure(monkeypatch):
     monkeypatch.setattr(os, "replace", boom)
     transcriber.Transcriber()
     assert loads == [str(d)]
+
+
+def test_cleanup_skips_staging_in_use():
+    root = model_store.speech_models_dir()
+    busy, idle = root / ".staging-busy", root / ".staging-idle"
+    busy.mkdir(parents=True)
+    idle.mkdir()
+    model_store.mark_staging_in_use(busy)
+    try:
+        model_store.cleanup_leftovers()
+        assert busy.is_dir() and not idle.exists()
+    finally:
+        model_store.release_staging(busy)
+    model_store.cleanup_leftovers()
+    assert not busy.exists()

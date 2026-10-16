@@ -3,13 +3,18 @@
 huggingface.co. Never raises to callers; never logs response bodies.
 """
 
+import hashlib
 import json
 import logging
+import os
+import shutil
 import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 
-from . import config, model_source
+from . import config, model_source, model_store
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +35,8 @@ class Runner(Protocol):
 class SubprocessRunner:
     def run(self, argv, *, timeout):
         try:
-            p = subprocess.run(argv, capture_output=True, timeout=timeout)
+            p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               timeout=timeout)
         except subprocess.TimeoutExpired:
             return 28, b""
         except OSError:
@@ -38,7 +44,7 @@ class SubprocessRunner:
         return p.returncode, p.stdout
 
     def start(self, argv):
-        return subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        return subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 @dataclass(frozen=True)
@@ -143,3 +149,206 @@ def check(runner: Runner | None = None) -> CheckResult:
     except Exception as exc:
         log.warning("model update check failed: %s", type(exc).__name__)
         return _error("unexpected problem")
+
+
+# ---------------------------------------------------------------- download
+
+_POLL = 0.5          # seconds between progress polls while curl runs
+_KILL_AFTER = 2.0    # seconds to wait after terminate() before kill()
+_VERIFY_TIMEOUT = 300
+_CHUNK = 8 * 1024 * 1024
+_FILES = ("config.json", "model.safetensors")
+_active = threading.Lock()   # held for the lifetime of one download
+
+
+class _Cancelled(Exception):
+    pass
+
+
+class _Failed(Exception):
+    def __init__(self, state, message):
+        super().__init__(message)
+        self.state = state
+        self.message = message
+
+
+_UNCHANGED = "Your current model is unchanged."
+
+
+def _sha256(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(_CHUNK):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _git_blob_sha1(path) -> str:
+    data = open(path, "rb").read()
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _verify_argv(directory) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--verify-model", str(directory)]
+    return [sys.executable, "-m", "speakeasy", "--verify-model", str(directory)]
+
+
+def _reason(rc, out) -> str:
+    if rc == 28 and not out:
+        return "timed out"
+    lines = [ln.strip() for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]
+    return (lines[-1] if lines else f"exit {rc}")[:200]
+
+
+class Downloader:
+    """Downloads, verifies and stages a speech-model update on its own thread."""
+
+    def __init__(self, result, runner=None, on_state=None):
+        self._result = result
+        self._runner = runner or SubprocessRunner()
+        self._on_state = on_state
+        self._cancel = threading.Event()
+        self._proc = None
+        self._thread = None
+
+    def start(self):
+        if not _active.acquire(blocking=False):
+            raise ValueError("A model download is already in progress.")
+        try:
+            self._thread = threading.Thread(target=self._thread_main, daemon=True,
+                                            name="model-download")
+            self._thread.start()
+        except BaseException:
+            _active.release()
+            raise
+
+    def cancel(self):
+        self._cancel.set()
+
+    def _emit(self, state, progress=0.0, message=""):
+        if self._on_state is None:
+            return
+        try:
+            self._on_state(state, progress, message)
+        except Exception:
+            log.warning("model download state callback failed")
+
+    def _thread_main(self):
+        try:
+            self._run()
+        except _Cancelled:
+            self._cleanup()
+            self._emit("cancelled", 0.0, f"Download cancelled. {_UNCHANGED}")
+        except _Failed as exc:
+            self._cleanup()
+            self._emit(exc.state, 0.0, exc.message)
+        except Exception as exc:
+            log.warning("model download failed: %s", type(exc).__name__)
+            self._cleanup()
+            self._emit("failed", 0.0, f"The update couldn't be installed. {_UNCHANGED}")
+        finally:
+            _active.release()
+
+    # staging path is tracked on self so cleanup works from any failure point
+    def _cleanup(self):
+        path = getattr(self, "_staging", None)
+        if path is not None:
+            shutil.rmtree(path, ignore_errors=True)
+            model_store.release_staging(path)
+            self._staging = None
+
+    def _check_cancel(self):
+        if self._cancel.is_set():
+            raise _Cancelled()
+
+    def _run(self):
+        r = self._result
+        root = model_store.speech_models_dir()
+        root.mkdir(parents=True, exist_ok=True)
+        need = (r.download_bytes or 0) + 1_000_000_000
+        if shutil.disk_usage(root).free < need:
+            raise _Failed("failed", f"Not enough free disk space: the update needs about "
+                          f"{format_gb(need)} free ({format_gb(r.download_bytes or 0)} "
+                          "download plus room to verify).")
+        sha = r.remote_revision
+        self._staging = staging = root / f".staging-{sha}"
+        model_store.mark_staging_in_use(staging)
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        sizes = r.remote_sizes
+        total = sum(sizes[n] for n in _FILES) or 1
+        done = 0
+        self._emit("downloading", 0.0)
+        for name in _FILES:
+            self._check_cancel()
+            self._fetch(name, staging, sha, sizes[name], done, total)
+            done += sizes[name]
+        self._check_cancel()
+        files = r.remote_files
+        if (_git_blob_sha1(staging / "config.json") != files["config.json"]
+                or _sha256(staging / "model.safetensors") != files["model.safetensors"]):
+            raise _Failed("failed", f"The download was damaged (checksum mismatch). {_UNCHANGED}")
+        self._check_cancel()
+        self._emit("verifying", 1.0)
+        rc, out = self._runner.run(_verify_argv(staging), timeout=_VERIFY_TIMEOUT)
+        if rc != 0:
+            raise _Failed("failed", f"The new model didn't pass its check ({_reason(rc, out)}). "
+                          f"{_UNCHANGED}")
+        self._check_cancel()
+        (staging / "source.json").write_text(json.dumps({
+            "model_id": config.MODEL_ID, "revision": sha,
+            "files": files, "sizes": sizes}))
+        final = root / f"rev-{sha}"
+        if final.exists():
+            shutil.rmtree(final)
+        os.replace(staging, final)
+        active = model_store.read_active()
+        previous = active.get("dir") if active else None
+        model_store.write_active({"revision": sha, "dir": final.name,
+                                  "status": "pending", "previous": previous})
+        model_store.release_staging(staging)
+        self._staging = None
+        self._emit("ready", 1.0, "Update ready. It will be used the next time Speakeasy starts.")
+
+    def _fetch(self, name, staging, sha, expected, done, total):
+        target = staging / name
+        url = f"https://huggingface.co/{config.MODEL_ID}/resolve/{sha}/{name}"
+        argv = [CURL, "-sS", "-f", "-L", "--connect-timeout", "10", "--speed-limit", "1024",
+                "--speed-time", "60", "-o", str(target), url]
+        proc = self._proc = self._runner.start(argv)
+        while proc.poll() is None:
+            if self._cancel.is_set():
+                self._stop(proc)
+                raise _Cancelled()
+            try:
+                got = target.stat().st_size
+            except OSError:
+                got = 0
+            self._emit("downloading", min(1.0, (done + min(got, expected)) / total))
+            self._cancel.wait(_POLL)
+        rc = proc.poll()
+        if self._cancel.is_set():
+            raise _Cancelled()
+        if rc in _OFFLINE_CODES:
+            raise _Failed("offline", _OFFLINE_MSG)
+        if rc != 0:
+            raise _Failed("failed", f"The download didn't finish (curl exit {rc}). {_UNCHANGED}")
+        try:
+            size = target.stat().st_size
+        except OSError:
+            size = -1
+        if size != expected:
+            raise _Failed("failed", f"The download didn't finish (file incomplete). {_UNCHANGED}")
+        self._emit("downloading", (done + expected) / total)
+
+    @staticmethod
+    def _stop(proc):
+        proc.terminate()
+        deadline = _KILL_AFTER
+        waited = 0.0
+        while proc.poll() is None and waited < deadline:
+            threading.Event().wait(0.02)
+            waited += 0.02
+        if proc.poll() is None:
+            proc.kill()

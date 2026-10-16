@@ -9,11 +9,25 @@ Nothing here touches the network.
 import json
 import os
 import shutil
+import threading
 from pathlib import Path
 
 from . import settings
 
 _VALID_STATUSES = ("pending", "confirmed")
+_in_use: set[Path] = set()
+_in_use_lock = threading.Lock()
+
+
+def mark_staging_in_use(path) -> None:
+    """Register a staging dir so cleanup_leftovers() leaves it alone."""
+    with _in_use_lock:
+        _in_use.add(Path(path))
+
+
+def release_staging(path) -> None:
+    with _in_use_lock:
+        _in_use.discard(Path(path))
 
 
 def speech_models_dir() -> Path:
@@ -108,8 +122,12 @@ def cleanup_leftovers() -> None:
         return
     active = read_active() or {}
     keep = {_safe_name(active.get("dir")), _safe_name(active.get("previous"))}
+    with _in_use_lock:
+        busy = set(_in_use)
     for entry in root.iterdir():
         n = entry.name
+        if entry in busy:
+            continue
         if n.startswith((".staging-", "failed-")) or (n.startswith("rev-") and n not in keep):
             shutil.rmtree(entry, ignore_errors=True)
 

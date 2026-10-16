@@ -11,9 +11,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import wave
 from pathlib import Path
 
+import mlx.core as mx
+import numpy as np
 from mlx.utils import tree_flatten
+from parakeet_mlx.audio import get_logmel
 from parakeet_mlx.utils import from_config
 
 from .transcriber import _load_model
@@ -28,8 +32,22 @@ def _say(path) -> None:
                    check=True, capture_output=True, timeout=60)
 
 
+def _read_wav(path) -> np.ndarray:
+    """The `say` output (LEI16@16000, mono) as float32 in [-1, 1)."""
+    with wave.open(str(path)) as w:
+        if w.getframerate() != 16000 or w.getnchannels() != 1 or w.getsampwidth() != 2:
+            raise ValueError(
+                f"test audio must be 16-bit mono 16000 Hz, got {w.getsampwidth() * 8}-bit "
+                f"{w.getnchannels()} ch {w.getframerate()} Hz")
+        raw = w.readframes(w.getnframes())
+    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def _transcribe(model, path) -> str:
-    return model.transcribe(str(path)).text
+    # In memory, as Transcriber.transcribe does: model.transcribe(path) shells
+    # out to ffmpeg, which the packaged app does not ship.
+    mel = get_logmel(mx.array(_read_wav(path)), model.preprocessor_config)
+    return model.generate(mel)[0].text
 
 
 def _words(text) -> list[str]:

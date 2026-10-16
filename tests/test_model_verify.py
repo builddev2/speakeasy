@@ -45,8 +45,17 @@ def test_pass(setup, capsys):
 
 def test_seven_of_nine_passes(setup):
     d, st = setup
-    st["text"] = "The quick brown fox jumps over a lazy cat"
+    # scores exactly 7 of 9: 'the' appears twice in the sentence and is absent here
+    st["text"] = "quick brown fox jumps over lazy dog"
+    assert model_verify._NEEDED == 7
     assert model_verify.main([str(d)]) == 0
+
+
+def test_threshold_is_exactly_seven(setup, monkeypatch):
+    d, st = setup
+    st["text"] = "quick brown fox jumps over lazy dog"
+    monkeypatch.setattr(model_verify, "_NEEDED", 8)
+    assert model_verify.main([str(d)]) == 1
 
 
 def test_six_of_nine_fails(setup, capsys):
@@ -94,3 +103,68 @@ def test_main_dispatches_verify_model(monkeypatch):
     with pytest.raises(SystemExit) as e:
         entry.main()
     assert e.value.code == 0 and seen["argv"] == ["/x"]
+
+
+def _write_wav(path, rate=16000, channels=1, samples=(0, 16384, -16384, 32767)):
+    import wave
+    import struct
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(struct.pack("<%dh" % len(samples), *samples))
+
+
+class RecordingModel:
+    preprocessor_config = object()
+
+    def __init__(self):
+        self.args = []
+
+    def generate(self, mel):
+        self.args.append(mel)
+        return [types.SimpleNamespace(text="hello")]
+
+    def transcribe(self, *a, **k):
+        raise AssertionError("must not use the path-based transcribe")
+
+
+def test_transcribe_passes_mx_array_never_a_path(tmp_path, monkeypatch):
+    import shutil
+    import mlx.core as mx
+    wav = tmp_path / "a.wav"
+    _write_wav(wav)
+    seen = {}
+
+    def fake_logmel(audio, config):
+        seen["audio"], seen["config"] = audio, config
+        return audio
+
+    def no_which(*a, **k):
+        raise AssertionError("ffmpeg must not be consulted")
+
+    monkeypatch.setattr(shutil, "which", no_which)
+    monkeypatch.setattr(model_verify, "get_logmel", fake_logmel)
+    model = RecordingModel()
+    assert model_verify._transcribe(model, wav) == "hello"
+    assert len(model.args) == 1 and isinstance(model.args[0], mx.array)
+    assert not isinstance(model.args[0], (str, bytes))
+    assert seen["config"] is model.preprocessor_config
+    assert seen["audio"].dtype == mx.float32
+    assert [round(v, 4) for v in seen["audio"].tolist()] == [0.0, 0.5, -0.5, 1.0]
+
+
+def test_read_wav_converts_int16_to_float32(tmp_path):
+    wav = tmp_path / "a.wav"
+    _write_wav(wav)
+    audio = model_verify._read_wav(wav)
+    assert audio.dtype.name == "float32"
+    assert audio.tolist() == pytest.approx([0.0, 0.5, -0.5, 32767 / 32768])
+
+
+@pytest.mark.parametrize("rate,channels", [(44100, 1), (16000, 2)])
+def test_read_wav_rejects_wrong_format(tmp_path, rate, channels):
+    wav = tmp_path / "a.wav"
+    _write_wav(wav, rate=rate, channels=channels, samples=(0, 0, 0, 0))
+    with pytest.raises(ValueError, match="16000"):
+        model_verify._read_wav(wav)

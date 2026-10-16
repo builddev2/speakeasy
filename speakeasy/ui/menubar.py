@@ -355,12 +355,15 @@ class StatusItemController(NSObject):
             result = model_update.maybe_auto_check(time.time())
             if update_available_after(result):
                 self.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    b"modelUpdateAvailable:", "1", False)
+                    b"modelUpdateAvailable:", result, False)
 
         import threading
         threading.Thread(target=run, name="model-auto-check", daemon=True).start()
 
-    def modelUpdateAvailable_(self, flag):
+    def modelUpdateAvailable_(self, result):
+        # Settings opened later shows the prompt: the shared controller keeps it.
+        from .model_update_controller import shared
+        shared().accept_check_result(result)
         self._update_item.setHidden_(not update_item_visible(True))
 
     @objc.python_method

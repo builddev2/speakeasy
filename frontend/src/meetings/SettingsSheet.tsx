@@ -4,6 +4,8 @@ import type { Appearance, MeetingSettings } from '../mock/meetings';
 import { Sheet } from './Sheet';
 import { Switch } from '../components/Switch';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ModelUpdateSection } from './ModelUpdateSection';
+import type { ModelUpdateStatus } from './modelUpdate';
 import styles from './SettingsSheet.module.css';
 
 interface SettingsSheetProps {
@@ -23,10 +25,12 @@ interface SettingsSheetProps {
   backupReady: boolean;
   onRevealBackup: () => void;
   libraryBusy: boolean;
+  /** Mock mode only: a fixed Speech model status for `npm run dev`. */
+  mockModelUpdate?: ModelUpdateStatus;
 }
 
 /** Meetings section of Settings: record prompts, appearance, calendar checklist, export. */
-export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll, exportStatus, onRevealExport, exportReady, onBackup, onRestore, backupStatus, restoreStatus, backupReady, onRevealBackup, libraryBusy }: SettingsSheetProps) {
+export function SettingsSheet({ settings, calendarConnected, onChange, onClose, onExportAll, exportStatus, onRevealExport, exportReady, onBackup, onRestore, backupStatus, restoreStatus, backupReady, onRevealBackup, libraryBusy, mockModelUpdate }: SettingsSheetProps) {
   const { offerToRecord, detectCalls, appearance, identifyVoices, startAtLogin, accounts } = settings;
   const doneRef = useRef<HTMLButtonElement>(null);
   const [nameDraft, setNameDraft] = useState(settings.userName);
@@ -102,6 +106,8 @@ export function SettingsSheet({ settings, calendarConnected, onChange, onClose, 
         </span>
         <Switch checked={startAtLogin === true} disabled={startAtLogin === null} onChange={(value) => onChange({ startAtLogin: value })} ariaLabelledBy="start-at-login-label" />
       </div>
+
+      <ModelUpdateSection mockStatus={mockModelUpdate} />
 
       <div className={styles.sectionTitle}>Calendars</div>
       <div className={styles.calendarList}>

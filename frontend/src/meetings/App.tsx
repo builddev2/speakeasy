@@ -20,6 +20,7 @@ import type { ActionItem, Priority } from './actionItems';
 import type { TodayConnection } from './TodayView';
 import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
+import { MOCK_MODEL_UPDATE } from '../mock/modelUpdate';
 import { RecordingNotes } from './RecordingNotes';
 import { draftApi } from './draftApi';
 import { shouldHandOverNotes, trackRecording } from './recordingState';
@@ -80,6 +81,17 @@ type MockState =
   | 'today-micfailed'
   | 'connect-claude'
   | 'settings'
+  | 'settings-model-idle'
+  | 'settings-model-checking'
+  | 'settings-model-up-to-date'
+  | 'settings-model-available'
+  | 'settings-model-downloading'
+  | 'settings-model-verifying'
+  | 'settings-model-ready'
+  | 'settings-model-offline'
+  | 'settings-model-error'
+  | 'settings-model-update'
+  | 'settings-model-update-pending'
   | 'notes'
   | 'recording'
   | 'recording-leftover'
@@ -103,6 +115,17 @@ const KNOWN_STATES: MockState[] = [
   'today-micfailed',
   'connect-claude',
   'settings',
+  'settings-model-idle',
+  'settings-model-checking',
+  'settings-model-up-to-date',
+  'settings-model-available',
+  'settings-model-downloading',
+  'settings-model-verifying',
+  'settings-model-ready',
+  'settings-model-offline',
+  'settings-model-error',
+  'settings-model-update',
+  'settings-model-update-pending',
   'notes',
   'recording',
   'recording-leftover',
@@ -192,7 +215,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   const [tick, setTick] = useState(0);
   const [connectClaudeOpen, setConnectClaudeOpen] = useState(mockState === 'connect-claude');
   const [claudeInfo, setClaudeInfo] = useState<ClaudeSetupInfo | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings');
+  const [settingsOpen, setSettingsOpen] = useState(mockState === 'settings' || mockState.startsWith('settings-model-'));
   const [exportStatus, setExportStatus] = useState('');
   const [exportReady, setExportReady] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -1432,6 +1455,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           {settingsOpen && meetingSettings && (
             <SettingsSheet
               settings={meetingSettings}
+              mockModelUpdate={isMock && mockState.startsWith('settings-model-') ? MOCK_MODEL_UPDATE[mockState.slice('settings-model-'.length)] : isMock ? MOCK_MODEL_UPDATE.idle : undefined}
               calendarConnected={todayConnection === 'connected'}
               onChange={onChangeSettings}
               onClose={() => { if (!libraryBusy && !exportBusy) closeSettings(); }}

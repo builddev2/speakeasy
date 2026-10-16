@@ -1,5 +1,6 @@
 """Meetings library browser — WKWebView hosting frontend meetings.html."""
 
+import json
 import objc
 import sqlite3
 import threading
@@ -86,6 +87,13 @@ class MeetingsWindowController(NSObject):
             open_url=lambda url: NSWorkspace.sharedWorkspace().openURL_(
                 NSURL.URLWithString_(url)),
         )
+        from speakeasy.ui import model_update_controller
+
+        # The update controller may emit from the check/download threads, so
+        # hop to the main thread before touching the WKWebView.
+        model_update_controller.shared().set_emitter(
+            lambda payload: self.performSelectorOnMainThread_withObject_waitUntilDone_(
+                b"modelUpdateChanged:", json.dumps(payload), False))
         self._poll_timer = None
         self._bulk_export_busy = False
         self._last_export = None
@@ -150,6 +158,9 @@ class MeetingsWindowController(NSObject):
     def meetingSaved_(self, meeting_id):
         self._web.emit("meetings.changed")
         self._web.emit("meetings.saved", self._bridge.saved_payload(meeting_id))
+
+    def modelUpdateChanged_(self, payload):
+        self._web.emit("modelUpdate.changed", json.loads(str(payload)))
 
     def calendarChanged_(self, _):
         self._web.emit("calendar.changed")

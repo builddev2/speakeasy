@@ -80,7 +80,7 @@ class MeetingsBridge:
     def __init__(self, library=None, now=None, set_clipboard=None, open_path=None,
                  calendar=None, begin_meeting=None, recording_event_key=None, open_url=None,
                  recording_info=None, login_status=None, set_login=None,
-                 retry_microphone=None):
+                 retry_microphone=None, model_update=None):
         self.library = library or MeetingLibrary()
         self._owners_normalised = False
         # Opens a file/folder in its default app; AppKit-backed in the real
@@ -104,6 +104,7 @@ class MeetingsBridge:
         self._login_status = login_status
         self._set_login = set_login
         self._navigation = None  # page the next window open should land on
+        self._model_update = model_update
 
     def set_navigation(self, view) -> None:
         ok = view in ("recording", "settings") or (
@@ -144,6 +145,12 @@ class MeetingsBridge:
             "meetings.eventsForDay": self.events_for_day_payload,
             "settings.meetings.get": self.settings_get_payload,
             "settings.meetings.set": self.settings_set_payload,
+            "modelUpdate.status": self.model_update_status_payload,
+            "modelUpdate.check": self.model_update_check_payload,
+            "modelUpdate.download": self.model_update_download_payload,
+            "modelUpdate.cancel": self.model_update_cancel_payload,
+            "modelUpdate.useBundled": self.model_update_use_bundled_payload,
+            "modelUpdate.setAutoCheck": self.model_update_auto_check_payload,
             "notes.user.set": self.notes_set_payload,
             "notes.draft.get": self.draft_get_payload,
             "notes.draft.set": self.draft_set_payload,
@@ -302,6 +309,33 @@ class MeetingsBridge:
         if params.get("calendars") is not None and self._calendar is not None:
             self._calendar.request_sync()
         return self.settings_get_payload({})
+
+    # -- speech model update (state lives in ModelUpdateController) ----------
+
+    @property
+    def model_update(self):
+        if self._model_update is None:
+            from speakeasy.ui import model_update_controller
+            self._model_update = model_update_controller.shared()
+        return self._model_update
+
+    def model_update_status_payload(self, params) -> dict:
+        return self.model_update.status()
+
+    def model_update_check_payload(self, params) -> dict:
+        return self.model_update.check()
+
+    def model_update_download_payload(self, params) -> dict:
+        return self.model_update.download()
+
+    def model_update_cancel_payload(self, params) -> dict:
+        return self.model_update.cancel()
+
+    def model_update_use_bundled_payload(self, params) -> dict:
+        return self.model_update.use_bundled()
+
+    def model_update_auto_check_payload(self, params) -> dict:
+        return self.model_update.set_auto_check(params.get("value"))
 
     def poll_changed(self) -> bool:
         """True when another connection committed since the last poll (e.g.

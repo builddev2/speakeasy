@@ -67,6 +67,8 @@
 
 ### Task 2: Load a local model directory without the hub lookup
 
+> **Moved (16 Oct 2026):** done in `2026-10-16-model-loader-and-update-check.md` (Task A, f663b99), merged to master with that branch.
+
 **Files:**
 - Modify: `speakeasy/transcriber.py` (imports near line 55; `Transcriber.__init__` line 111)
 - Modify: `tests/test_transcriber_warmup.py:11,40` (change the patch target from `speakeasy.transcriber.from_pretrained` to `speakeasy.transcriber._load_model`)

@@ -356,11 +356,25 @@ Rulings made during execution (beyond the plan):
 - Settings: Cancel shows only while downloading (verify can't be cancelled). The Current-model row adds
   "(from next launch)" while the pointer is pending.
 
-### B8 launch and check
+### B8 launch and check (16–17 Oct 2026)
 
-Not done yet. It needs the user: an installed build, Ready, a TextEdit dictation, one real HF check (needs the user's OK),
-the Wi-Fi-off check, and optionally the real download.
-Also verify in B8 that "Speech model update available…" appears and hides. Its menubar listener wiring has no pytest coverage.
+- Suite: 1753 passed. Frontend: 83 tests passed; build OK.
+- `scripts/build_app.sh --install` built and installed the app from the worktree.
+  `Resources/model/.source` has revision `8ae155301e23d820d82aa60d24817c900e69e487`, config blob `8955c58…` and safetensors sha256 `b958c37…`.
+- **The installed-app check found a second defect that tests had missed.** The frozen `--verify-model` crashed with
+  `No module named 'librosa'`, because model_verify imported parakeet_mlx before transcriber installed the shim.
+  Fixed in 49d82e9 (test-first). After that, the frozen `--verify-model` on the bundled model ran with PATH without ffmpeg and a temp HOME, and **passed**.
+  The run took 3.1 s warm. The first run straight after install took 496 s, under load average ~100 while macOS scanned the new 2.6 GB bundle.
+  Dev phase timings: load 1.3 s, `say` 1.9 s, transcribe 2.1 s. The transcript was exactly "The quick brown fox jumps over the lazy dog."
+- The installed app launched. Settings → Speech model shows "Bundled · revision 8ae1553", with the weekly check off by default.
+- **The one real check (user's OK):** Check for update showed "Checking…", then "Speech model is up to date (revision 8ae1553)."
+- **Dictation into TextEdit:** worked (the user did this).
+- **Wi-Fi off (the user did this, because Claude is offline too):** the offline message appeared, and dictation still worked while
+  offline. The time to the message was not reported.
+- **Not done:**
+  - the optional real 2.5 GB download → ready → relaunch → Use bundled cycle
+  - checking that the "Speech model update available…" menu item appears and then hides; this needs a real `available` result
+  - toggling the Claude Desktop connector after install (the user's step)
 
 ### Follow-ups (deferred findings, not blocking)
 - Use `"$MODEL_ID"` in build_app.sh's `.source` printf, and pin it to `config.MODEL_ID` with a test.

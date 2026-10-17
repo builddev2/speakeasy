@@ -10,6 +10,23 @@
 
 **Spec:** No separate spec. This plan implements items 1–5 of the code review in the session of 16 October 2026; the evidence is copied into "Review findings" below so the plan is standalone.
 
+## Status (17 Oct 2026)
+
+Run one item at a time, each in its own session and branch.
+
+| # | Item | State |
+|---|------|-------|
+| 1 | bf16 model bundling | **Skipped** (user decision). Note: the model-update feature (item 2) now records the bundled revision, config blob and safetensors sha256 in `Resources/model/.source`, and stores per-file sizes for updates. If this item is ever revived, the bf16 file must keep those records consistent, or the launch size check and update comparison break. |
+| 2 | `_load_model`, no hub lookup | **Done**. f663b99, merged to master as part of `2026-10-16-model-loader-and-update-check.md` (Task A). Real-model parity: text and all 23 tokens equal. The installed app was launched and checked (that plan's B8 section). Its follow-ups live in that plan. |
+| 3 | Mock fixtures out of the production frontend | **Next.** Not started. |
+| 4 | Untangle `engine._process_meeting` | Not started. |
+| 5 | Tidy `transcriber._model_operation` | Not started. |
+
+Changes item 2 made that affect the remaining tasks (line numbers below are pre-item-2; find code by name):
+- Task 3: item 2 added `frontend/src/mock/modelUpdate.ts` (`MOCK_MODEL_UPDATE`, typed from `../meetings/modelUpdate`) and more mock wiring in `App.tsx` (`const isMock` is now at line 166). Gate that fixture too, and keep `npm run dev` able to show every model-update state.
+- Task 4: `_process_meeting` is now at `engine.py:1233`.
+- Task 5: `_model_operation` is at `transcriber.py:68`, followed by `_load_model`. `Transcriber.__init__(self, manage_update: bool = True)` now exists, so the class-level defaults must not interfere with update management. The `getattr(self, "_…")` calls are unchanged.
+
 ## Review findings (the evidence behind each task)
 
 1. `dist/Speakeasy.app/Contents/Resources/model/model.safetensors` is **2.47 GB, all 697 tensors F32**. `parakeet_mlx.utils.from_pretrained` loads it and then casts every parameter to `mx.bfloat16` (its default `dtype`). Storing bf16 on disk gives the same in-memory model at about 1.24 GB, and removes the transient fp32 copy at launch.
@@ -95,7 +112,8 @@
 - Create: `frontend/src/meetings/speakerColor.ts`: `SPEAKER_PALETTE` and `speakerColor` (lines 112–~130)
 - Modify: `frontend/src/mock/meetings.ts` (import the types from `../meetings/types` and keep only `MOCK_*` data); `frontend/src/mock/actionItems.ts` likewise if it declares types
 - Modify: every importer of `../mock/meetings` that imports only types or `speakerColor`: `ConnectClaudeSheet.tsx, LibraryBanner.tsx, MeetingDetail.tsx, MeetingList.tsx, RecordingNotes.tsx, SearchResults.tsx, SettingsSheet.tsx, Sidebar.tsx, TodayView.tsx, agendaSplit.ts, draftApi.ts, listSections.ts, navigation.ts, recordingState.ts, transcriptTurns.ts`, and `frontend/tests/{agendaSplit,listSections,recordingState,transcriptTurns}.test.ts`
-- Modify: `frontend/src/meetings/App.tsx:143` → `const isMock = import.meta.env.DEV && !bridge.embedded;`. Gate the mock branches in `actionItemsApi.ts` and `draftApi.ts` the same way (`if (bridge.embedded || !import.meta.env.DEV) return bridge.call(...)`).
+- Modify: `frontend/src/mock/modelUpdate.ts` consumers (gate `MOCK_MODEL_UPDATE` the same way)
+- Modify: `frontend/src/meetings/App.tsx` (`const isMock`, line 166 on master as of 17 Oct) → `const isMock = import.meta.env.DEV && !bridge.embedded;`. Gate the mock branches in `actionItemsApi.ts` and `draftApi.ts` the same way (`if (bridge.embedded || !import.meta.env.DEV) return bridge.call(...)`).
 - Create: `frontend/scripts/check-no-mocks.mjs` exporting `findMockFixtures(dir: string): string[]`; add it to the `build` script after `check-offline.mjs`
 - Create: `frontend/tests/checkNoMocks.test.ts`
 

@@ -12,6 +12,8 @@ def test_dock_window_is_gone():
 def test_nothing_references_the_dock_window():
     for path in [*ROOT.glob("speakeasy/**/*.py"), *ROOT.glob("scripts/*"), ROOT / "packaging/Speakeasy.spec",
                  ROOT / "frontend/vite.config.ts", ROOT / "frontend/index.html"]:
+        if not path.is_file():  # e.g. scripts/__pycache__
+            continue
         text = path.read_text(errors="ignore")
         assert "main_window" not in text and "dock.html" not in text, path
 

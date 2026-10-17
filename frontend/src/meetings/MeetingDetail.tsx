@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MutableRefObject } from 'react';
-import type { EventChip, MeetingDetail as MeetingDetailType, NotesValue, SummaryBlock, TranscriptLine } from '../mock/meetings';
-import { speakerColor } from '../mock/meetings';
+import type { EventChip, MeetingDetail as MeetingDetailType, NotesValue, SummaryBlock, TranscriptLine } from './types';
+import { speakerColor } from './speakerColor';
 import { ActionButton } from '../components/ActionButton';
 import { formatElapsed, groupTurns } from './transcriptTurns';
 import styles from './MeetingDetail.module.css';

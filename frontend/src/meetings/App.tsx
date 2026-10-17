@@ -58,7 +58,7 @@ import type {
   Appearance,
   MeetingSettings,
   RecordingInfo,
-} from '../mock/meetings';
+} from './types';
 import { MOCK_ACTION_ITEMS } from '../mock/actionItems';
 import { bridge } from '../bridge';
 import styles from './App.module.css';
@@ -163,7 +163,7 @@ const EMPTY_FILTERS: Filters = {
 
 export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   // Mock mode is active whenever the page isn't embedded in the native window.
-  const isMock = !bridge.embedded;
+  const isMock = import.meta.env.DEV && !bridge.embedded;
   const embedded = bridge.embedded;
   const mockState: MockState = isMock ? readMockState() : 'default';
 
@@ -234,10 +234,12 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   });
   // While the mock records, the Design Sync row is the one being recorded.
   const mockAgenda = useMemo(
-    () => (mockState.startsWith('today-recording')
+    () => (!isMock
+      ? []
+      : mockState.startsWith('today-recording')
       ? MOCK_AGENDA.map((e) => (e.key === 'a3' ? { ...e, status: 'recording' as const } : e))
       : MOCK_AGENDA),
-    [mockState],
+    [isMock, mockState],
   );
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [meetingSettings, setMeetingSettings] = useState<MeetingSettings | null>(
@@ -430,7 +432,9 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }, [sheetOpen]);
 
   const mockLibraryStatus: LibraryStatus =
-    mockState === 'empty'
+    !isMock
+      ? embeddedStatus
+      : mockState === 'empty'
       ? MOCK_STATUS.idle
       : mockState === 'upgrading'
         ? MOCK_STATUS.upgrading
@@ -663,7 +667,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
   }
 
   function loadEventsForMeeting(): Promise<EventChip[]> {
-    if (!embedded) return Promise.resolve(MOCK_EVENTS_FOR_DAY);
+    if (isMock) return Promise.resolve(MOCK_EVENTS_FOR_DAY);
     if (!selectedId) return Promise.resolve([]);
     return bridge.call<EventChip[]>('meetings.eventsForDay', { id: selectedId });
   }
@@ -692,7 +696,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         });
       return;
     }
-    const chosen = key === null ? null : (MOCK_EVENTS_FOR_DAY.find((e) => e.key === key) ?? null);
+    const chosen = key === null ? null : ((isMock ? MOCK_EVENTS_FOR_DAY : []).find((e) => e.key === key) ?? null);
     setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], event: chosen } } : prev));
     if (chosen) {
       setDetails((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], title: chosen.title } } : prev));
@@ -823,7 +827,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         .call<ClaudeSetupInfo>('claude.setupInfo')
         .then(setClaudeInfo)
         .catch((err) => console.error('claude.setupInfo failed', err));
-    } else {
+    } else if (isMock) {
       setClaudeInfo(MOCK_CLAUDE_SETUP);
     }
   }, [connectClaudeOpen, embedded]);
@@ -964,7 +968,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
         ? { ...prev, [id]: { ...prev[id], hasUserNotes: value.markdown.trim() !== '', userNotes: value } }
         : prev));
     };
-    if (!embedded) {
+    if (isMock) {
       if (MOCK_DETAILS[id]) MOCK_DETAILS[id].userNotes = value;
       remember();
       return Promise.resolve();
@@ -1298,7 +1302,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
             <LibraryBanner status={libraryStatus} dismissed={bannerDismissed} />
             {searching ? (
               <SearchResults
-                results={embedded ? searchResults : mockState === 'search' ? MOCK_RESULTS : []}
+                results={embedded ? searchResults : isMock && mockState === 'search' ? MOCK_RESULTS : []}
                 pending={embedded && settledQuery !== searchQuery}
                 onSelect={onSelectResult}
               />

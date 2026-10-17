@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { RecordingInfo } from '../src/mock/meetings.ts';
+import type { RecordingInfo } from '../src/meetings/types.ts';
 import { canStartRecording, processingNote, shouldHandOverNotes, trackRecording } from '../src/meetings/recordingState.ts';
 
 const info = (o: Partial<RecordingInfo>): RecordingInfo =>

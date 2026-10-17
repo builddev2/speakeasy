@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { PrimaryButton } from '../components/PrimaryButton';
-import type { ClaudeSetupInfo } from '../mock/meetings';
+import type { ClaudeSetupInfo } from './types';
 import styles from './ConnectClaudeSheet.module.css';
 
 interface ConnectClaudeSheetProps {

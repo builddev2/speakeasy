@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode, RefObject } from 'react';
-import type { Filters } from '../mock/meetings';
+import type { Filters } from './types';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
 import styles from './Sidebar.module.css';
 import { SIDEBAR_KEY_STEP, clampSidebarWidth, parseSidebarWidth } from './sidebarWidth';

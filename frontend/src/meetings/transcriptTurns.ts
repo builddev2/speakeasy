@@ -1,4 +1,4 @@
-import type { TranscriptLine } from '../mock/meetings.ts';
+import type { TranscriptLine } from './types.ts';
 
 export interface Turn {
   speakerNumber: number;

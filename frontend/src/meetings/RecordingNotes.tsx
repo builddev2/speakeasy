@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
-import type { RecordingInfo } from '../mock/meetings';
+import type { RecordingInfo } from './types';
 import { NotesEditor } from './NotesEditor';
 import { docToNotes, notesToDoc, stripStamps } from './notesMarkdown';
 import type { NotesValue } from './notesMarkdown';

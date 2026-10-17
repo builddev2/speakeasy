@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { LibraryStatus } from '../mock/meetings';
+import type { LibraryStatus } from './types';
 import styles from './LibraryBanner.module.css';
 
 interface LibraryBannerProps {

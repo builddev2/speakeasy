@@ -1,128 +1,12 @@
-// Mock data + the TypeScript contract Task 10's Python backend must emit
-// exactly. Used only in mock mode (`!bridge.embedded`) so the redesigned UI
+// Dev-only mock fixtures (types live in ../meetings/types.ts). Used only in mock mode (`!bridge.embedded`) so the redesigned UI
 // can be reviewed against realistic fake data before anything is wired up.
 
-import type { ActionItem } from '../meetings/actionItems.ts';
+import type {
+  TranscriptLine, MeetingMeta, EventChip, UpcomingDay,
+  MeetingSettings, NotesDraft, MeetingDetail, Filters,
+  SearchResult, LibraryStatus, AgendaEvent, ClaudeSetupInfo,
+} from '../meetings/types.ts';
 import { MOCK_ACTION_ITEMS } from './actionItems.ts';
-
-export interface TranscriptLine {
-  time: string;
-  speakerNumber: number;
-  speakerLabel: string;
-  text: string;
-  segmentIndex: number;
-  confidence: number | null;
-  overlap: boolean;
-  start: number; // seconds, for jump-to
-}
-
-export interface MeetingMeta {
-  id: string;
-  title: string;
-  dayLabel: string;
-  startDate: string;
-  time: string;
-  duration: string;
-  subtitle: string;
-  speakerCount: number;
-  hasSummary: boolean;
-  approximate: boolean;
-  tags: string[];
-  people: string[];
-}
-
-export type CalendarAccess = 'connected' | 'denied' | 'unconnected';
-export interface EventChip { key: string; title: string; time: string }
-export interface UpcomingDay { dayLabel: string; events: AgendaEvent[] }
-export interface CalendarToggle { id: string; name: string; enabled: boolean }
-export interface CalendarAccountSettings { name: string; calendars: CalendarToggle[] }
-export type Appearance = 'system' | 'light' | 'dark';
-export interface MeetingSettings { offerToRecord: boolean; detectCalls: boolean; appearance: Appearance; identifyVoices: boolean; startAtLogin: boolean | null; accounts: CalendarAccountSettings[]; userName: string; userAliases: string[] }
-
-export type SummaryBlock =
-  | { kind: 'tldr'; text: string }
-  | { kind: 'heading'; text: string }
-  | { kind: 'para'; text: string }
-  | { kind: 'bullets'; items: string[] };
-
-/** Same shape as notesMarkdown.ts (which must stay import-free). */
-export interface NotesValue { markdown: string; stamps: [number, number][] }
-
-export interface RecordingInfo {
-  recording: boolean; processing: boolean; startedAt: string | null; title: string | null;
-  mode?: string; micFailure?: string | null; startError?: string | null; processingError?: string | null;
-  pendingProcessing?: number;
-}
-export interface NotesDraft extends NotesValue { startedAt: string }
-
-export interface MeetingDetail extends MeetingMeta {
-  date: string;
-  lines: TranscriptLine[];
-  summary: string | null;
-  summaryBlocks: SummaryBlock[];
-  summaryQueued: boolean;
-  actionItems: ActionItem[];
-  event: EventChip | null;
-  hasUserNotes: boolean;
-  userNotes: NotesValue;
-}
-
-export interface Filters {
-  total: number;
-  tags: { name: string; count: number }[];
-  people: { name: string; count: number }[];
-  features: { calendar: boolean; claude: boolean; settings: boolean };
-}
-
-export interface SearchResult {
-  meetingId: string;
-  title: string;
-  dayLabel: string;
-  time: string;
-  kind: 'meeting' | 'transcript' | 'notes' | 'user_notes';
-  speaker: string | null;
-  alsoSpeakers: string[];
-  seconds: number | null;
-  segmentIndex: number | null;
-  parts: { text: string; hit: boolean }[];
-}
-
-export interface LibraryStatus {
-  state: 'idle' | 'upgrading' | 'done' | 'failed';
-  done: number;
-  total: number;
-  skipped: { file: string; reason: string }[];
-}
-
-export interface AgendaEvent {
-  // phase 3
-  key: string;
-  time: string;
-  /** Null when no end time is known yet (e.g. a further-out Upcoming row). */
-  endTime: string | null;
-  title: string;
-  attendeeCount: number;
-  status: 'recorded' | 'recording' | 'record' | 'none';
-  meetingId: string | null;
-  /** ISO instants; the page compares these with the clock, not the display strings. */
-  start: string;
-  end: string | null;
-}
-
-export const SPEAKER_PALETTE = [
-  'var(--sp-1)',
-  'var(--sp-2)',
-  'var(--sp-3)',
-  'var(--sp-4)',
-  'var(--sp-5)',
-  'var(--sp-6)',
-  'var(--sp-7)',
-];
-
-export function speakerColor(speakerNumber: number, colorCodeSpeakers: boolean): string {
-  if (!colorCodeSpeakers) return 'var(--text-mid)';
-  return SPEAKER_PALETTE[(speakerNumber - 1) % SPEAKER_PALETTE.length];
-}
 
 function ln(
   time: string,
@@ -295,7 +179,7 @@ function detail(meta: MeetingMeta, extra: DetailExtra): MeetingDetail {
   };
 }
 
-const standupDetail = detail(standupMeta, {
+const standupDetail = /* @__PURE__ */ detail(standupMeta, {
   hasUserNotes: true,
   userNotes: {
     markdown: '## Before Friday\n- [ ] Send the revised deck to **Priya**\n- [x] Book the review room\nOffline sync is now *P1*',
@@ -315,17 +199,17 @@ const standupDetail = detail(standupMeta, {
     { kind: 'bullets', items: ['Mobile offline sync still drops on airplane mode', 'Raised to P1; Sam already has a repro'] },
   ],
   lines: [
-    ln('9:00:03 AM', 3, 1, 'Alex', "Morning — let's keep this quick. Priya, how's the dashboard?", 0),
-    ln('9:00:14 AM', 14, 2, 'Priya', "On track. I'll have it in review by Friday.", 1),
-    ln('9:00:27 AM', 27, 3, 'Sam', 'One blocker on my end — offline sync still drops on airplane mode.', 2),
-    ln('9:00:41 AM', 41, 1, 'Alex', "Let's call that a P1 and pick it up right after this.", 3),
-    ln('9:00:55 AM', 55, 3, 'Sam', 'Works for me, I have a repro already.', 4),
-    ln('9:01:10 AM', 70, 2, 'Priya', "I'll ping design about the empty state copy too.", 5),
-    ln('9:01:22 AM', 82, 1, 'Alex', "Great, that's it — thanks everyone.", 6),
+    /* @__PURE__ */ ln('9:00:03 AM', 3, 1, 'Alex', "Morning — let's keep this quick. Priya, how's the dashboard?", 0),
+    /* @__PURE__ */ ln('9:00:14 AM', 14, 2, 'Priya', "On track. I'll have it in review by Friday.", 1),
+    /* @__PURE__ */ ln('9:00:27 AM', 27, 3, 'Sam', 'One blocker on my end — offline sync still drops on airplane mode.', 2),
+    /* @__PURE__ */ ln('9:00:41 AM', 41, 1, 'Alex', "Let's call that a P1 and pick it up right after this.", 3),
+    /* @__PURE__ */ ln('9:00:55 AM', 55, 3, 'Sam', 'Works for me, I have a repro already.', 4),
+    /* @__PURE__ */ ln('9:01:10 AM', 70, 2, 'Priya', "I'll ping design about the empty state copy too.", 5),
+    /* @__PURE__ */ ln('9:01:22 AM', 82, 1, 'Alex', "Great, that's it — thanks everyone.", 6),
   ],
 });
 
-const oneOnOneDetail = detail(oneOnOneMeta, {
+const oneOnOneDetail = /* @__PURE__ */ detail(oneOnOneMeta, {
   date: 'Sun 27 Sep',
   event: { key: 'a2', title: 'Weekly 1:1 — Alex', time: '1:00 PM' },
   summary:
@@ -340,29 +224,29 @@ const oneOnOneDetail = detail(oneOnOneMeta, {
     { kind: 'bullets', items: ['Revisit the roadmap after the offline-sync fix ships'] },
   ],
   lines: [
-    ln('1:00:05 PM', 5, 1, 'Alex', "How are you feeling about the quarter so far?", 0),
-    ln('1:00:19 PM', 19, 4, 'Jordan', 'Good overall. I want to talk about growth goals for Q4.', 1),
-    ln('1:00:33 PM', 33, 1, 'Alex', "Let's dig into that. What are you thinking?", 2),
-    ln('1:01:02 PM', 62, 4, 'Jordan', "More ownership on the mobile roadmap, and mentoring the new hire.", 3),
-    ln('1:01:20 PM', 80, 1, 'Alex', "I like that. Let's put together a plan and revisit next week.", 4),
+    /* @__PURE__ */ ln('1:00:05 PM', 5, 1, 'Alex', "How are you feeling about the quarter so far?", 0),
+    /* @__PURE__ */ ln('1:00:19 PM', 19, 4, 'Jordan', 'Good overall. I want to talk about growth goals for Q4.', 1),
+    /* @__PURE__ */ ln('1:00:33 PM', 33, 1, 'Alex', "Let's dig into that. What are you thinking?", 2),
+    /* @__PURE__ */ ln('1:01:02 PM', 62, 4, 'Jordan', "More ownership on the mobile roadmap, and mentoring the new hire.", 3),
+    /* @__PURE__ */ ln('1:01:20 PM', 80, 1, 'Alex', "I like that. Let's put together a plan and revisit next week.", 4),
   ],
 });
 
-const designReviewDetail = detail(designReviewMeta, {
+const designReviewDetail = /* @__PURE__ */ detail(designReviewMeta, {
   date: 'Sat 26 Sep',
   event: null,
   summary: null,
   summaryQueued: false,
   summaryBlocks: [],
   lines: [
-    ln('11:30:08 AM', 8, 2, 'Priya', "Let's walk through the new onboarding flow.", 0),
-    ln('11:30:24 AM', 24, 3, 'Sam', 'The second screen feels a little dense to me.', 1),
-    ln('11:30:40 AM', 40, 5, 'Morgan', "Agreed — could we split it into two steps?", 2),
-    ln('11:31:01 AM', 61, 2, 'Priya', "Let's try that and review again Thursday.", 3),
+    /* @__PURE__ */ ln('11:30:08 AM', 8, 2, 'Priya', "Let's walk through the new onboarding flow.", 0),
+    /* @__PURE__ */ ln('11:30:24 AM', 24, 3, 'Sam', 'The second screen feels a little dense to me.', 1),
+    /* @__PURE__ */ ln('11:30:40 AM', 40, 5, 'Morgan', "Agreed — could we split it into two steps?", 2),
+    /* @__PURE__ */ ln('11:31:01 AM', 61, 2, 'Priya', "Let's try that and review again Thursday.", 3),
   ],
 });
 
-const sprintPlanningDetail = detail(sprintPlanningMeta, {
+const sprintPlanningDetail = /* @__PURE__ */ detail(sprintPlanningMeta, {
   date: 'Sat 26 Sep',
   event: { key: 'e-sprint', title: 'Sprint Planning', time: '3:00 PM' },
   summary:
@@ -377,15 +261,15 @@ const sprintPlanningDetail = detail(sprintPlanningMeta, {
     { kind: 'bullets', items: ['Mobile hire starts mid-sprint, so no scope increase'] },
   ],
   lines: [
-    ln('3:00:10 PM', 10, 1, 'Alex', "Let's size the offline sync fix first.", 0),
-    ln('3:00:28 PM', 28, 3, 'Sam', "I'd call it a five — there's real device testing involved.", 1),
-    ln('3:00:44 PM', 44, 2, 'Priya', "Agreed. Let's put it at the top of the backlog.", 2),
-    ln('3:01:05 PM', 65, 4, 'Jordan', "I can help test once the new hire is ramped.", 3),
-    ln('3:01:22 PM', 82, 1, 'Alex', "Perfect — let's lock the rest of the sprint in.", 4),
+    /* @__PURE__ */ ln('3:00:10 PM', 10, 1, 'Alex', "Let's size the offline sync fix first.", 0),
+    /* @__PURE__ */ ln('3:00:28 PM', 28, 3, 'Sam', "I'd call it a five — there's real device testing involved.", 1),
+    /* @__PURE__ */ ln('3:00:44 PM', 44, 2, 'Priya', "Agreed. Let's put it at the top of the backlog.", 2),
+    /* @__PURE__ */ ln('3:01:05 PM', 65, 4, 'Jordan', "I can help test once the new hire is ramped.", 3),
+    /* @__PURE__ */ ln('3:01:22 PM', 82, 1, 'Alex', "Perfect — let's lock the rest of the sprint in.", 4),
   ],
 });
 
-const customerCallDetail = detail(customerCallMeta, {
+const customerCallDetail = /* @__PURE__ */ detail(customerCallMeta, {
   date: 'Thu 24 Sep',
   event: { key: 'e-fenwick', title: 'Customer Call — Fenwick Labs', time: '2:15 PM' },
   summary:
@@ -400,14 +284,14 @@ const customerCallDetail = detail(customerCallMeta, {
     { kind: 'bullets', items: ['Timing for calendar integration', 'Follow-up demo once Today view ships'] },
   ],
   lines: [
-    ln('2:15:00 PM', 0, 5, 'Morgan', "Thanks for hopping on — how has export been working for you?", 0),
-    ln('2:15:22 PM', 22, 6, 'Priya', "Really well. Our team asked about calendar integration though.", 1),
-    ln('2:15:50 PM', 50, 5, 'Morgan', "It's in progress — I can send you a rough timeline after this call.", 2),
-    ln('2:16:15 PM', 75, 6, 'Priya', "That would be great, thank you.", 3),
+    /* @__PURE__ */ ln('2:15:00 PM', 0, 5, 'Morgan', "Thanks for hopping on — how has export been working for you?", 0),
+    /* @__PURE__ */ ln('2:15:22 PM', 22, 6, 'Priya', "Really well. Our team asked about calendar integration though.", 1),
+    /* @__PURE__ */ ln('2:15:50 PM', 50, 5, 'Morgan', "It's in progress — I can send you a rough timeline after this call.", 2),
+    /* @__PURE__ */ ln('2:16:15 PM', 75, 6, 'Priya', "That would be great, thank you.", 3),
   ],
 });
 
-const retroDetail = detail(retroMeta, {
+const retroDetail = /* @__PURE__ */ detail(retroMeta, {
   date: 'Tue 22 Sep',
   event: null,
   summary:
@@ -422,14 +306,14 @@ const retroDetail = detail(retroMeta, {
     { kind: 'bullets', items: ['Offline sync bug took longer than planned', 'Add a device-testing buffer to estimates'] },
   ],
   lines: [
-    ln('4:00:06 PM', 6, 1, 'Alex', "What went well this sprint?", 0),
-    ln('4:00:20 PM', 20, 2, 'Priya', "Dashboard shipped a day early, that felt good.", 1),
-    ln('4:00:35 PM', 35, 3, 'Sam', "The offline sync bug ate more time than expected though.", 2),
-    ln('4:00:52 PM', 52, 4, 'Jordan', "Agreed — let's budget more time for device testing next time.", 3),
+    /* @__PURE__ */ ln('4:00:06 PM', 6, 1, 'Alex', "What went well this sprint?", 0),
+    /* @__PURE__ */ ln('4:00:20 PM', 20, 2, 'Priya', "Dashboard shipped a day early, that felt good.", 1),
+    /* @__PURE__ */ ln('4:00:35 PM', 35, 3, 'Sam', "The offline sync bug ate more time than expected though.", 2),
+    /* @__PURE__ */ ln('4:00:52 PM', 52, 4, 'Jordan', "Agreed — let's budget more time for device testing next time.", 3),
   ],
 });
 
-const q3KickoffDetail = detail(q3KickoffMeta, {
+const q3KickoffDetail = /* @__PURE__ */ detail(q3KickoffMeta, {
   date: 'Wed 12 Aug',
   event: { key: 'e-kickoff', title: 'Q3 Kickoff', time: '10:00 AM' },
   summary:
@@ -444,24 +328,24 @@ const q3KickoffDetail = detail(q3KickoffMeta, {
     { kind: 'bullets', items: ['Rough milestones for each priority', 'Mid-quarter check-in'] },
   ],
   lines: [
-    ln('10:00:12 AM', 12, 1, 'Alex', "Let's set priorities for the quarter.", 0),
-    ln('10:00:30 AM', 30, 3, 'Sam', "Mobile reliability has to be top of the list.", 1),
-    ln('10:00:48 AM', 48, 2, 'Priya', "Agreed, and I'd add the onboarding rework.", 2),
-    ln('10:01:10 AM', 70, 5, 'Morgan', "Customers keep asking for export too — can we fit that in?", 3),
-    ln('10:01:30 AM', 90, 1, 'Alex', "Let's aim for all three with a check-in at mid-quarter.", 4),
+    /* @__PURE__ */ ln('10:00:12 AM', 12, 1, 'Alex', "Let's set priorities for the quarter.", 0),
+    /* @__PURE__ */ ln('10:00:30 AM', 30, 3, 'Sam', "Mobile reliability has to be top of the list.", 1),
+    /* @__PURE__ */ ln('10:00:48 AM', 48, 2, 'Priya', "Agreed, and I'd add the onboarding rework.", 2),
+    /* @__PURE__ */ ln('10:01:10 AM', 70, 5, 'Morgan', "Customers keep asking for export too — can we fit that in?", 3),
+    /* @__PURE__ */ ln('10:01:30 AM', 90, 1, 'Alex', "Let's aim for all three with a check-in at mid-quarter.", 4),
   ],
 });
 
-const onboardingSamDetail = detail(onboardingSamMeta, {
+const onboardingSamDetail = /* @__PURE__ */ detail(onboardingSamMeta, {
   date: 'Tue 4 Aug',
   event: null,
   summary: null,
   summaryQueued: false,
   summaryBlocks: [],
   lines: [
-    ln('9:30:05 AM', 5, 3, 'Sam', "Excited to get started — where should I look first?", 0),
-    ln('9:30:20 AM', 20, 4, 'Jordan', "Start with the onboarding doc, then the codebase tour.", 1),
-    ln('9:30:40 AM', 40, 3, 'Sam', "Sounds good, thanks for walking me through it.", 2),
+    /* @__PURE__ */ ln('9:30:05 AM', 5, 3, 'Sam', "Excited to get started — where should I look first?", 0),
+    /* @__PURE__ */ ln('9:30:20 AM', 20, 4, 'Jordan', "Start with the onboarding doc, then the codebase tour.", 1),
+    /* @__PURE__ */ ln('9:30:40 AM', 40, 3, 'Sam', "Sounds good, thanks for walking me through it.", 2),
   ],
 });
 
@@ -493,8 +377,8 @@ function countBy(metas: MeetingMeta[], pick: (meta: MeetingMeta) => string[]): {
 
 export const MOCK_FILTERS: Filters = {
   total: MOCK_METAS.length,
-  tags: countBy(MOCK_METAS, (m) => m.tags),
-  people: countBy(MOCK_METAS, (m) => m.people),
+  tags: /* @__PURE__ */ countBy(MOCK_METAS, (m) => m.tags),
+  people: /* @__PURE__ */ countBy(MOCK_METAS, (m) => m.people),
   features: { calendar: true, claude: true, settings: true },
 };
 
@@ -627,7 +511,7 @@ function mockAgendaEvent(raw: RawEvent): AgendaEvent {
   return { ...raw, start: mockIso(MOCK_DAY, raw.time), end: raw.endTime ? mockIso(MOCK_DAY, raw.endTime) : null };
 }
 
-export const MOCK_AGENDA: AgendaEvent[] = ([
+export const MOCK_AGENDA: AgendaEvent[] = /* @__PURE__ */ ([
   // End times for the two recorded rows match their meeting's own duration
   // (standupMeta/oneOnOneMeta above), so they're checkable against it.
   { key: 'a1', time: '9:00 AM', endTime: '9:12 AM', title: 'Stand-up', attendeeCount: 3, status: 'recorded', meetingId: standupDetail.id },
@@ -672,20 +556,12 @@ const MOCK_UPCOMING_RAW: { dayLabel: string; events: RawEvent[] }[] = [
 
 const MONTHS: Record<string, number> = { Sep: 8, Oct: 9 };
 
-export const MOCK_UPCOMING: UpcomingDay[] = MOCK_UPCOMING_RAW.map((day) => {
+export const MOCK_UPCOMING: UpcomingDay[] = /* @__PURE__ */ MOCK_UPCOMING_RAW.map((day) => {
   const m = /(\d+) (\w+)$/.exec(day.dayLabel)!;
   const date = new Date(2026, MONTHS[m[2]], Number(m[1]));
   return { ...day, events: day.events.map((e) => ({ ...e, start: mockIso(date, e.time), end: null })) };
 });
 
-export interface ClaudeSetupInfo {
-  command: string;
-  desktopJson: string;
-  executable: string;
-  lastUsed: string | null;
-  extensionAvailable: boolean;
-  extensionNote: string | null;
-}
 
 export const MOCK_CLAUDE_SETUP: ClaudeSetupInfo = {
   command: 'claude mcp add speakeasy -- /Applications/Speakeasy.app/Contents/MacOS/Speakeasy --mcp',

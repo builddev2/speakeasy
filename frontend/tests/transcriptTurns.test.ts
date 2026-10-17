@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { TranscriptLine } from '../src/mock/meetings.ts';
+import type { TranscriptLine } from '../src/meetings/types.ts';
 import { formatElapsed, groupTurns } from '../src/meetings/transcriptTurns.ts';
 
 function line(i: number, speakerNumber: number, label: string, start: number): TranscriptLine {

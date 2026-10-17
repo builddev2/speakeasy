@@ -8,7 +8,7 @@ import {
   sectionPathFor,
   visibleRows,
 } from '../src/meetings/listSections.ts';
-import type { MeetingMeta } from '../src/mock/meetings.ts';
+import type { MeetingMeta } from '../src/meetings/types.ts';
 
 function meta(id: string, startDate: string): MeetingMeta {
   return {

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { NO_AUTOCORRECT } from '../components/noAutocorrect';
-import type { Appearance, MeetingSettings } from '../mock/meetings';
+import type { Appearance, MeetingSettings } from './types';
 import { Sheet } from './Sheet';
 import { Switch } from '../components/Switch';
 import { PrimaryButton } from '../components/PrimaryButton';

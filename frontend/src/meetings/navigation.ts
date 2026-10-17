@@ -1,4 +1,4 @@
-import type { RecordingInfo } from '../mock/meetings';
+import type { RecordingInfo } from './types';
 
 export type Navigation = 'recording' | 'settings' | { meeting: string } | null;
 export type NavigationAction =

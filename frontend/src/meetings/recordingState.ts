@@ -1,4 +1,4 @@
-import type { RecordingInfo } from '../mock/meetings.ts';
+import type { RecordingInfo } from './types.ts';
 
 export interface RecordingTrack { active: boolean; startedAt: string | null; firstSeen: string | null }
 

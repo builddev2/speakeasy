@@ -1,4 +1,4 @@
-import type { MeetingMeta } from '../mock/meetings';
+import type { MeetingMeta } from './types';
 
 /** A run of rows under one subheading (null: no subheading). */
 export interface RowGroup {

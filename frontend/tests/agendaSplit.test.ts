@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgendaEvent } from '../src/mock/meetings.ts';
+import type { AgendaEvent } from '../src/meetings/types.ts';
 import { engineBanner, heroWhen, splitAgenda } from '../src/meetings/agendaSplit.ts';
 
 const base = Date.parse('2026-10-03T12:00:00+01:00');

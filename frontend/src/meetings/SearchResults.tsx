@@ -1,4 +1,4 @@
-import type { SearchResult } from '../mock/meetings';
+import type { SearchResult } from './types';
 import styles from './SearchResults.module.css';
 
 interface SearchResultsProps {

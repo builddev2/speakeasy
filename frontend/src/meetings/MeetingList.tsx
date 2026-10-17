@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { MeetingMeta } from '../mock/meetings';
+import type { MeetingMeta } from './types';
 import { buildSections, isOpen, parseOpenState, sectionPathFor, visibleRows } from './listSections';
 import type { OpenState, Section } from './listSections';
 import styles from './MeetingList.module.css';

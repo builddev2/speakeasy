@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgendaEvent, CalendarAccess, RecordingInfo, UpcomingDay } from '../mock/meetings';
+import type { AgendaEvent, CalendarAccess, RecordingInfo, UpcomingDay } from './types';
 import { ActionButton } from '../components/ActionButton';
 import { canStartRecording, processingNote } from './recordingState';
 import { engineBanner, heroWhen, splitAgenda } from './agendaSplit';

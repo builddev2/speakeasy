@@ -1,4 +1,4 @@
-import type { AgendaEvent, RecordingInfo } from '../mock/meetings';
+import type { AgendaEvent, RecordingInfo } from './types';
 
 export interface AgendaSplit {
   hero: AgendaEvent | null;

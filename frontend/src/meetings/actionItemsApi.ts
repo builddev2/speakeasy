@@ -48,14 +48,14 @@ const removed = new Map<number, ActionItem>();
 export const actionItemsApi = {
   seedMock(items: ActionItem[]) { mockItems = items.map((i) => ({ ...i })); },
   list(): Promise<{ items: ActionItem[]; identitySet: boolean; today: string }> {
-    if (bridge.embedded) return bridge.call('actions.list');
+    if (bridge.embedded || !import.meta.env.DEV) return bridge.call('actions.list');
     return Promise.resolve({ items: mockItems, identitySet: true, today: MOCK_TODAY });
   },
   create(fields: {
     task: string; owner?: string; meetingId?: string | null; due?: string | null;
     priority?: Priority; notes?: string; tags?: string[];
   }): Promise<ActionItem> {
-    if (bridge.embedded) return bridge.call('actions.create', { ...fields });
+    if (bridge.embedded || !import.meta.env.DEV) return bridge.call('actions.create', { ...fields });
     const owner = fields.owner ?? '';
     const meeting = fields.meetingId ? mockItems.find((i) => i.meetingId === fields.meetingId) : undefined;
     const item: ActionItem = {
@@ -70,18 +70,18 @@ export const actionItemsApi = {
     return Promise.resolve(item);
   },
   update(id: number, fields: Update): Promise<ActionItem> {
-    if (bridge.embedded) return bridge.call('actions.update', { id, ...fields });
+    if (bridge.embedded || !import.meta.env.DEV) return bridge.call('actions.update', { id, ...fields });
     try { return Promise.resolve(replace(applyUpdate(find(id), fields))); } catch (e) { return Promise.reject(e); }
   },
   remove(id: number): Promise<void> {
-    if (bridge.embedded) return bridge.call('actions.delete', { id }).then(() => undefined);
+    if (bridge.embedded || !import.meta.env.DEV) return bridge.call('actions.delete', { id }).then(() => undefined);
     const item = mockItems.find((i) => i.id === id);
     if (item) removed.set(id, item);
     mockItems = mockItems.filter((i) => i.id !== id);
     return Promise.resolve();
   },
   restore(id: number): Promise<ActionItem> {
-    if (bridge.embedded) return bridge.call('actions.restore', { id });
+    if (bridge.embedded || !import.meta.env.DEV) return bridge.call('actions.restore', { id });
     const item = removed.get(id);
     if (!item) return Promise.reject(new Error(`No deleted action item ${id}`));
     removed.delete(id);
@@ -89,7 +89,7 @@ export const actionItemsApi = {
     return Promise.resolve(item);
   },
   bulk(ids: number[], change: Bulk): Promise<ActionItem[]> {
-    if (bridge.embedded) return bridge.call<{ items: ActionItem[] }>('actions.bulk', { ids, ...change }).then((r) => r.items);
+    if (bridge.embedded || !import.meta.env.DEV) return bridge.call<{ items: ActionItem[] }>('actions.bulk', { ids, ...change }).then((r) => r.items);
     const changed: ActionItem[] = [];
     for (const id of ids) {
       const item = mockItems.find((i) => i.id === id);

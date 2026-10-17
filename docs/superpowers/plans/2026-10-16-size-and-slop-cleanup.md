@@ -138,8 +138,8 @@ Changes item 2 made that affect the remaining tasks (line numbers below are pre-
 - `meetings-*.js`: 535,393 → 512,544 bytes (the plan's 527,142 was an older build).
 - `npm test` 87/87, `npm run build` passes. Mutation review: ungated `isMock`, removed PURE annotations (both files) and a dropped marker are all caught. Survivor (minor, same as `check-offline.mjs`): the script's `process.exit(1)` main path is untested.
 - Dev mock mode checked in the browser pane (worktree dev server on port 5199): the fixture list, action items, and `?state=settings-model-downloading` / `-update-pending` render with no console errors. (The URL parameter is `?state=`, not `?mock=`.)
-- Installed: `scripts/build_app.sh --install` from the branch succeeded (2.6 GB). The installed `Resources/frontend/assets/meetings-yU5PATgv.js` (512,544 bytes) contains none of the four markers. **Visual check of the installed Meetings window not done by the agent** (screen access to Speakeasy declined, 17 Oct); left to the user.
-- Not merged yet: branch `cleanup-size-and-slop`, worktree `.claude/worktrees/cleanup-mocks` (has `models` and `.venv` symlinks).
+- Installed: `scripts/build_app.sh --install` from the branch succeeded (2.6 GB). The installed `Resources/frontend/assets/meetings-yU5PATgv.js` (512,544 bytes) contains none of the four markers. The agent could not look at the installed Meetings window (screen access declined); the user checked it on 17 Oct: only real meetings, no mock data.
+- Merged to master 17 Oct 2026.
 
 ### Task 4: Untangle `engine._process_meeting`
 

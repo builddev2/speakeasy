@@ -20,3 +20,13 @@ test('second marker is caught too', () => {
   writeFileSync(join(dir, 'c.js'), 'y("Alex, Priya, Sam")');
   assert.equal(findMockFixtures(dir).length, 1);
 });
+
+for (const marker of ['m-sprint-planning', 'def5678']) {
+  test(`marker ${marker} is flagged`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nomocks-'));
+    writeFileSync(join(dir, 'd.js'), `z("${marker}")`);
+    const found = findMockFixtures(dir);
+    assert.equal(found.length, 1);
+    assert.ok(found[0].endsWith(marker));
+  });
+}

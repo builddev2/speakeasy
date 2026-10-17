@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MARKERS = ['Weekly 1:1 — Alex', 'Alex, Priya, Sam'];
+const MARKERS = ['Weekly 1:1 — Alex', 'Alex, Priya, Sam', 'm-sprint-planning', 'def5678'];
 
 function files(dir) {
   return readdirSync(dir).flatMap((name) => {

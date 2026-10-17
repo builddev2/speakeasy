@@ -20,7 +20,7 @@ import type { ActionItem, Priority } from './actionItems';
 import type { TodayConnection } from './TodayView';
 import { ConnectClaudeSheet } from './ConnectClaudeSheet';
 import { SettingsSheet } from './SettingsSheet';
-import { MOCK_MODEL_UPDATE } from '../mock/modelUpdate';
+import { mockModelUpdate } from '../mock/modelUpdate';
 import { RecordingNotes } from './RecordingNotes';
 import { draftApi } from './draftApi';
 import { shouldHandOverNotes, trackRecording } from './recordingState';
@@ -1459,7 +1459,7 @@ export function MeetingsApp({ colorCodeSpeakers = true }: MeetingsAppProps) {
           {settingsOpen && meetingSettings && (
             <SettingsSheet
               settings={meetingSettings}
-              mockModelUpdate={isMock && mockState.startsWith('settings-model-') ? MOCK_MODEL_UPDATE[mockState.slice('settings-model-'.length)] : isMock ? MOCK_MODEL_UPDATE.idle : undefined}
+              mockModelUpdate={isMock && mockState.startsWith('settings-model-') ? mockModelUpdate()[mockState.slice('settings-model-'.length)] : isMock ? mockModelUpdate().idle : undefined}
               calendarConnected={todayConnection === 'connected'}
               onChange={onChangeSettings}
               onClose={() => { if (!libraryBusy && !exportBusy) closeSettings(); }}

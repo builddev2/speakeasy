@@ -22,27 +22,27 @@ function make(id: number, p: Partial<ActionItem> & Pick<ActionItem, 'task' | 'ow
 
 export const MOCK_ACTION_ITEMS: ActionItem[] = [
   // overdue
-  make(1, { ...STAND, task: 'Fix offline sync drop on airplane mode', owner: 'Sam', priority: 'high',
+  /* @__PURE__ */ make(1, { ...STAND, task: 'Fix offline sync drop on airplane mode', owner: 'Sam', priority: 'high',
     due: '2026-09-25', dueSource: 'claude', claudeDue: '2026-09-25', duePhrase: 'before the release', tags: ['Mobile'] }),
   // this week, with a spoken phrase
-  make(2, { ...STAND, task: 'Ship revenue dashboard', owner: 'Priya',
+  /* @__PURE__ */ make(2, { ...STAND, task: 'Ship revenue dashboard', owner: 'Priya',
     due: '2026-10-02', dueSource: 'claude', claudeDue: '2026-10-02', duePhrase: 'by Friday' }),
   // due today
-  make(3, { ...SPRINT, task: 'Add a device-testing buffer to sprint estimates', owner: 'Jason', priority: 'high',
+  /* @__PURE__ */ make(3, { ...SPRINT, task: 'Add a device-testing buffer to sprint estimates', owner: 'Jason', priority: 'high',
     due: '2026-09-29', dueSource: 'user', claudeDue: null, tags: ['Estimates'] }),
   // later, with a user override of Claude's date
-  make(4, { ...CALL, task: 'Send Fenwick the calendar integration timeline', owner: 'Morgan',
+  /* @__PURE__ */ make(4, { ...CALL, task: 'Send Fenwick the calendar integration timeline', owner: 'Morgan',
     due: '2026-10-20', dueSource: 'user', claudeDue: '2026-10-06', duePhrase: 'next week', notes: 'Include the offline caveat.' }),
   // no date
-  make(5, { ...CALL, task: 'Schedule follow-up demo', owner: 'You', priority: 'low' }),
-  make(6, { ...SPRINT, task: 'Move offline sync fix to top of backlog', owner: 'Alex', priority: 'high', tags: ['Mobile'] }),
+  /* @__PURE__ */ make(5, { ...CALL, task: 'Schedule follow-up demo', owner: 'You', priority: 'low' }),
+  /* @__PURE__ */ make(6, { ...SPRINT, task: 'Move offline sync fix to top of backlog', owner: 'Alex', priority: 'high', tags: ['Mobile'] }),
   // manual, no meeting
-  make(7, { ...NO_MEETING, task: 'Renew the team domain', owner: 'Jason', source: 'manual',
+  /* @__PURE__ */ make(7, { ...NO_MEETING, task: 'Renew the team domain', owner: 'Jason', source: 'manual',
     due: '2026-10-01', dueSource: 'user', tags: ['Admin'] }),
-  make(8, { ...NO_MEETING, task: 'Book a venue for the team offsite', owner: '', source: 'manual' }),
+  /* @__PURE__ */ make(8, { ...NO_MEETING, task: 'Book a venue for the team offsite', owner: '', source: 'manual' }),
   // done
-  make(9, { ...STAND, task: 'Book the review room', owner: 'Jason', status: 'done',
+  /* @__PURE__ */ make(9, { ...STAND, task: 'Book the review room', owner: 'Jason', status: 'done',
     completedAt: '2026-09-29T10:15:00Z' }),
-  make(10, { ...SPRINT, task: 'Split onboarding tickets by screen', owner: 'Priya', status: 'done',
+  /* @__PURE__ */ make(10, { ...SPRINT, task: 'Split onboarding tickets by screen', owner: 'Priya', status: 'done',
     completedAt: '2026-09-28T17:00:00Z', due: '2026-09-28', dueSource: 'claude', claudeDue: '2026-09-28' }),
 ];

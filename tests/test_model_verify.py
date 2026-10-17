@@ -168,3 +168,24 @@ def test_read_wav_rejects_wrong_format(tmp_path, rate, channels):
     _write_wav(wav, rate=rate, channels=channels, samples=(0, 0, 0, 0))
     with pytest.raises(ValueError, match="16000"):
         model_verify._read_wav(wav)
+
+
+def test_imports_without_librosa(tmp_path):
+    """The packaged app has no librosa: model_verify must install the shim first."""
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "class Block:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name == 'librosa' or name.startswith('librosa.'):\n"
+        "            raise ModuleNotFoundError(\"No module named 'librosa'\")\n"
+        "sys.meta_path.insert(0, Block())\n"
+        "import speakeasy.model_verify\n"
+    )
+    env = {**os.environ, "HOME": str(tmp_path), "HF_HUB_OFFLINE": "1"}
+    r = subprocess.run([sys.executable, "-B", "-c", code], env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-2000:]

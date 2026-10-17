@@ -17,10 +17,10 @@ from pathlib import Path
 import mlx.core as mx
 import numpy as np
 from mlx.utils import tree_flatten
-from parakeet_mlx.audio import get_logmel
-from parakeet_mlx.utils import from_config
 
-from .transcriber import _load_model
+# transcriber first: it installs the librosa shim (the packaged app has no
+# librosa), which must happen before anything imports parakeet_mlx.
+from .transcriber import _load_model, get_logmel, from_config
 
 SENTENCE = "The quick brown fox jumps over the lazy dog."
 SAY = "/usr/bin/say"

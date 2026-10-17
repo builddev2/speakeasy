@@ -18,8 +18,8 @@ Run one item at a time, each in its own session and branch.
 |---|------|-------|
 | 1 | bf16 model bundling | **Skipped** (user decision). Note: the model-update feature (item 2) now records the bundled revision, config blob and safetensors sha256 in `Resources/model/.source`, and stores per-file sizes for updates. If this item is ever revived, the bf16 file must keep those records consistent, or the launch size check and update comparison break. |
 | 2 | `_load_model`, no hub lookup | **Done**. f663b99, merged to master as part of `2026-10-16-model-loader-and-update-check.md` (Task A). Real-model parity: text and all 23 tokens equal. The installed app was launched and checked (that plan's B8 section). Its follow-ups live in that plan. |
-| 3 | Mock fixtures out of the production frontend | **Next.** Not started. |
-| 4 | Untangle `engine._process_meeting` | Not started. |
+| 3 | Mock fixtures out of the production frontend | **Done** on branch `cleanup-size-and-slop` (6bae218, 40e4474); see "Task 3 results" below. |
+| 4 | Untangle `engine._process_meeting` | **Next.** Not started. |
 | 5 | Tidy `transcriber._model_operation` | Not started. |
 
 Changes item 2 made that affect the remaining tasks (line numbers below are pre-item-2; find code by name):
@@ -121,14 +121,25 @@ Changes item 2 made that affect the remaining tasks (line numbers below are pre-
 - Produces: `findMockFixtures(dir)` returns `"<file>: <marker>"` for every `.js` file under `dir` containing any of the markers `'Weekly 1:1 — Alex'` or `'Alex, Priya, Sam'`. Run as main on `dist/`, it exits 1 when the list isn't empty.
 - Invariant: after this task, `grep -rn "from '../mock/" frontend/src` matches only `App.tsx`, `actionItemsApi.ts` and `draftApi.ts`.
 
-- [ ] **Step 1: Write the failing test** `frontend/tests/checkNoMocks.test.ts`: write a temp dir with `a.js` containing `Weekly 1:1 — Alex` and `b.js` without it; assert `findMockFixtures(dir)` has length 1 and ends with `Weekly 1:1 — Alex`.
-- [ ] **Step 2: Run** `cd frontend && npm test`. Expected: FAIL (module missing).
-- [ ] **Step 3: Implement `check-no-mocks.mjs`** (same file-walk shape as `check-offline.mjs`) and append `&& node scripts/check-no-mocks.mjs` to `build`.
-- [ ] **Step 4: Run** `npm test` (expected: PASS), then `npm run build`. Expected: build **fails**, listing the meetings bundle. This proves the check sees today's leak.
-- [ ] **Step 5: Move the types and `speakerColor`, update the importers, and add the DEV gates.**
-- [ ] **Step 6: Run** `npm test && npm run build`. Expected: PASS. Record the new `meetings-*.js` size against 527,142 bytes.
-- [ ] **Step 7: Check that dev mock mode still works.** Add a `frontend-dev` entry to `.claude/launch.json` (`npm --prefix frontend run dev`, port 5173), then `preview_start` it and open `meetings.html?mock=default`. Expected: the fixture meeting list renders (read_page shows `Weekly 1:1 — Alex`). Stop the server.
-- [ ] **Step 8: Commit** `refactor(frontend): real types out of mock/, fixtures dev-only`.
+- [x] **Step 1: Write the failing test** `frontend/tests/checkNoMocks.test.ts`: write a temp dir with `a.js` containing `Weekly 1:1 — Alex` and `b.js` without it; assert `findMockFixtures(dir)` has length 1 and ends with `Weekly 1:1 — Alex`.
+- [x] **Step 2: Run** `cd frontend && npm test`. Expected: FAIL (module missing).
+- [x] **Step 3: Implement `check-no-mocks.mjs`** (same file-walk shape as `check-offline.mjs`) and append `&& node scripts/check-no-mocks.mjs` to `build`.
+- [x] **Step 4: Run** `npm test` (expected: PASS), then `npm run build`. Expected: build **fails**, listing the meetings bundle. This proves the check sees today's leak.
+- [x] **Step 5: Move the types and `speakerColor`, update the importers, and add the DEV gates.**
+- [x] **Step 6: Run** `npm test && npm run build`. Expected: PASS. Record the new `meetings-*.js` size against 527,142 bytes.
+- [x] **Step 7: Check that dev mock mode still works.** Add a `frontend-dev` entry to `.claude/launch.json` (`npm --prefix frontend run dev`, port 5173), then `preview_start` it and open `meetings.html?mock=default`. Expected: the fixture meeting list renders (read_page shows `Weekly 1:1 — Alex`). Stop the server.
+- [x] **Step 8: Commit** `refactor(frontend): real types out of mock/, fixtures dev-only`.
+
+#### Task 3 results (17 Oct 2026)
+
+- Types now in `frontend/src/meetings/types.ts`; `speakerColor` in `meetings/speakerColor.ts`. Only `App.tsx` and `actionItemsApi.ts` import from `mock/` (`draftApi.ts` needs no mock import).
+- `isMock` alone was not enough. Rollup kept fixtures because of (a) mock uses in `App.tsx` gated on `!embedded` rather than `isMock` (now `isMock`), (b) top-level calls in `mock/meetings.ts` and `mock/actionItems.ts` (now `/* @__PURE__ */`), and (c) object spreads in `mock/modelUpdate.ts` (now a `mockModelUpdate()` function). **If you add a fixture, keep its top-level calls PURE-annotated, or the build check fails.**
+- `check-no-mocks.mjs` markers: `Weekly 1:1 — Alex`, `Alex, Priya, Sam` (meetings), `m-sprint-planning` (action items), `def5678` (model update). The first version had only the meetings markers and missed the action-item and model-update leaks; review caught it.
+- `meetings-*.js`: 535,393 → 512,544 bytes (the plan's 527,142 was an older build).
+- `npm test` 87/87, `npm run build` passes. Mutation review: ungated `isMock`, removed PURE annotations (both files) and a dropped marker are all caught. Survivor (minor, same as `check-offline.mjs`): the script's `process.exit(1)` main path is untested.
+- Dev mock mode checked in the browser pane (worktree dev server on port 5199): the fixture list, action items, and `?state=settings-model-downloading` / `-update-pending` render with no console errors. (The URL parameter is `?state=`, not `?mock=`.)
+- Installed: `scripts/build_app.sh --install` from the branch succeeded (2.6 GB). The installed `Resources/frontend/assets/meetings-yU5PATgv.js` (512,544 bytes) contains none of the four markers. **Visual check of the installed Meetings window not done by the agent** (screen access to Speakeasy declined, 17 Oct); left to the user.
+- Not merged yet: branch `cleanup-size-and-slop`, worktree `.claude/worktrees/cleanup-mocks` (has `models` and `.venv` symlinks).
 
 ### Task 4: Untangle `engine._process_meeting`
 

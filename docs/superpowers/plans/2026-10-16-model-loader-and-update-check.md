@@ -332,4 +332,45 @@ The controller (Opus) does this with the user, after the full suite and the fron
 
 ## Results
 
-(fill in during execution)
+### Implementation (16 Oct 2026, branch `model-update-check`, subagent-driven)
+
+Tasks A, B1–B7 are done. Each one was reviewed by mutation testing (Opus), and so was a final whole-branch review. Order run: A, B2, B1, B3–B7 (B1 needs B2's store).
+Last tested state: full suite 1752 passed (74 s); frontend 83 tests passed; `npm run build` OK.
+
+The final review found one **critical** defect, now fixed (24e8a5d). The verify child transcribed through
+parakeet's `load_audio`, which needs ffmpeg, and ffmpeg is absent from the `.app`. Every real update would have
+failed verification. The child now reads the WAV itself and transcribes in memory.
+
+Rulings made during execution (beyond the plan):
+- An update's `source.json` also stores `"sizes"`. Without it, the launch size check had nothing to compare against.
+- `settings.bundled_model_path()` added; the Transcriber falls back to it.
+- The auto-check hook lives in the menubar layer, not the engine. This keeps the offline guard satisfiable.
+- `CheckResult` carries `remote_files` / `remote_sizes`, which the downloader uses.
+- Security: a revision from the network must be 40 lowercase hex characters before it is used in any path or URL.
+  curl is restricted to https (`--proto =https --proto-redir =https`).
+- `settings._write` is now atomic (mkstemp + fsync + os.replace, keeping the file mode). The check thread writes
+  `last_check` off the main thread.
+- Pointer status `loading` guards against a crash loop. A launch that finds `loading` marks the update failed and
+  uses the bundled model. Cost: a Quit during the first load of a new update discards it.
+- Diagnostic `Transcriber(manage_update=False)` (evaluate, inference_probe, scripts) never touches the pointer.
+- Settings: Cancel shows only while downloading (verify can't be cancelled). The Current-model row adds
+  "(from next launch)" while the pointer is pending.
+
+### B8 launch and check
+
+Not done yet. It needs the user: an installed build, Ready, a TextEdit dictation, one real HF check (needs the user's OK),
+the Wi-Fi-off check, and optionally the real download.
+Also verify in B8 that "Speech model update available…" appears and hides. Its menubar listener wiring has no pytest coverage.
+
+### Follow-ups (deferred findings, not blocking)
+- Use `"$MODEL_ID"` in build_app.sh's `.source` printf, and pin it to `config.MODEL_ID` with a test.
+- If `confirm_loaded` fails after a good load, the pointer stays `loading` and the next launch discards a good
+  update. A normal Quit during a pending load also discards it; it could reset to `pending` in applicationWillTerminate.
+- An update is confirmed before the warmup transcribe runs. `mark_failed` over a confirmed update falls back to
+  bundled, not to the previous update.
+- After cancelled/failed, the UI has no Download button; the user must press Check again. The 'ready' mock shows Bundled.
+- Controller emitter exceptions are swallowed without a log. A late "checking" snapshot could hide the menu item after a fast "available".
+- Test gaps:
+  - mixed-dtype cast; zero/negative size; reason text in error states; last_check on `error`
+  - diagnostic call sites (2 of 7 pinned); menubar listener wiring; TSX event dispatch
+- Offline guard does not see `importlib`/`__import__` strings or a bare `"curl"` argv.
